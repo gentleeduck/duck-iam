@@ -1,5 +1,9 @@
 import { createHmac } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
+import { answer } from '~/core/answer'
+import { InMemoryEvents } from '~/core/events'
+import { HijackFacet } from '~/core/hijack'
+import { isRecord } from '~/core/predicates'
 import type { Sessions } from '~/core/sessions/sessions.types'
 import { JwtTransport } from '../jwt.transport'
 
@@ -15,6 +19,12 @@ function mintHs256(headerObj: unknown, payloadObj: unknown, secret: string): str
   const signingInput = `${headerB64}.${payloadB64}`
   const sig = createHmac('sha256', secret).update(signingInput).digest('base64url')
   return `${signingInput}.${sig}`
+}
+
+function accessToken(intents: ReturnType<JwtTransport['issue']>): string {
+  const body = intents.find((i) => i.type === 'json')?.body
+  if (!isRecord(body) || typeof body.access_token !== 'string') throw new Error('no access token issued')
+  return body.access_token
 }
 
 function fakeSession(overrides: Partial<Sessions.Me> = {}): Sessions.Me {
@@ -44,7 +54,7 @@ function fakeSession(overrides: Partial<Sessions.Me> = {}): Sessions.Me {
   }
 }
 
-describe('AuthJwtTransport', () => {
+describe('JwtTransport', () => {
   const baseCfg = {
     signKey: { kid: 'k1', key: 'super-secret-key-for-tests-only' },
     verifyKeys: [{ kid: 'k1', key: 'super-secret-key-for-tests-only' }],
@@ -57,12 +67,10 @@ describe('AuthJwtTransport', () => {
       const t = new JwtTransport(baseCfg)
       const session = fakeSession()
       const intents = t.issue('plain-sid', session, { fresh: true, absolute: false })
-      const jsonIntent = intents.find((i) => i.type === 'json')
-      expect(jsonIntent).toBeDefined()
-      const body = (jsonIntent as { body: { access_token: string } }).body
-      expect(body.access_token).toMatch(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/)
+      const token = accessToken(intents)
+      expect(token).toMatch(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/)
 
-      const back = await t.verify(body.access_token)
+      const back = await t.verify(token)
       expect(back?.identityId).toBe('user-1')
       expect(back?.aal).toBe(2)
       expect(back?.factors.map((f) => f.method).sort()).toEqual(['password', 'totp'])
@@ -128,7 +136,7 @@ describe('AuthJwtTransport', () => {
     it('returns null for a tampered signature', async () => {
       const t = new JwtTransport(baseCfg)
       const intents = t.issue('sid', fakeSession(), { fresh: true, absolute: false })
-      const token = (intents.find((i) => i.type === 'json') as { body: { access_token: string } }).body.access_token
+      const token = accessToken(intents)
       const tampered = `${token.slice(0, -3)}xxx`
       await expect(t.verify(tampered)).rejects.toMatchObject({ code: 'AUTH_JWT_INVALID' })
     })
@@ -137,26 +145,27 @@ describe('AuthJwtTransport', () => {
       const t = new JwtTransport(baseCfg)
       // Re-encode header to set a kid the transport doesn't know.
       const intents = t.issue('sid', fakeSession(), { fresh: true, absolute: false })
-      const token = (intents.find((i) => i.type === 'json') as { body: { access_token: string } }).body.access_token
+      const token = accessToken(intents)
       const [, payload, sig] = token.split('.')
       const fakeHeader = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT', kid: 'unknown' })).toString('base64url')
       await expect(t.verify(`${fakeHeader}.${payload}.${sig}`)).rejects.toMatchObject({ code: 'AUTH_JWT_KEY_UNKNOWN' })
     })
 
     it('returns null for an expired JWT', async () => {
-      const t = new JwtTransport({ ...baseCfg, ttlMs: -1 })
-      const intents = t.issue('sid', fakeSession({ expiresAt: new Date(Date.now() + 60_000) }), {
+      const t = new JwtTransport(baseCfg)
+      // `exp` is bounded by the session's own deadline, so a session that has already ended mints a dead token.
+      const intents = t.issue('sid', fakeSession({ expiresAt: new Date(Date.now() - 10_000) }), {
         fresh: true,
         absolute: false,
       })
-      const token = (intents.find((i) => i.type === 'json') as { body: { access_token: string } }).body.access_token
+      const token = accessToken(intents)
       await expect(t.verify(token)).rejects.toMatchObject({ code: 'AUTH_SESSION_EXPIRED' })
     })
 
     it('returns null when alg is wrong', async () => {
       const t = new JwtTransport(baseCfg)
       const intents = t.issue('sid', fakeSession(), { fresh: true, absolute: false })
-      const token = (intents.find((i) => i.type === 'json') as { body: { access_token: string } }).body.access_token
+      const token = accessToken(intents)
       const [, payload, sig] = token.split('.')
       const wrongHeader = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT', kid: 'k1' })).toString('base64url')
       await expect(t.verify(`${wrongHeader}.${payload}.${sig}`)).rejects.toMatchObject({ code: 'AUTH_JWT_INVALID' })
@@ -165,11 +174,7 @@ describe('AuthJwtTransport', () => {
     it('returns null when issuer does not match', async () => {
       const t1 = new JwtTransport(baseCfg)
       const t2 = new JwtTransport({ ...baseCfg, issuer: 'https://different.example.com' })
-      const token = (
-        t1.issue('sid', fakeSession(), { fresh: true, absolute: false }).find((i) => i.type === 'json') as {
-          body: { access_token: string }
-        }
-      ).body.access_token
+      const token = accessToken(t1.issue('sid', fakeSession(), { fresh: true, absolute: false }))
       await expect(t2.verify(token)).rejects.toMatchObject({ code: 'AUTH_JWT_INVALID' })
     })
   })
@@ -253,6 +258,45 @@ describe('AuthJwtTransport', () => {
         t.verify(mintHs256(header, { ...validPayload, acting_as: 'not-an-object' }, secret)),
       ).rejects.toMatchObject({ code: 'AUTH_JWT_INVALID' })
     })
+
+    it.each([
+      ['ip', { ip: 7 }],
+      ['ua', { ua: ['curl'] }],
+    ])('rejects a token whose %s is not a string', async (_, claim) => {
+      const t = new JwtTransport(baseCfg)
+      await expect(t.verify(mintHs256(header, { ...validPayload, ...claim }, secret))).rejects.toMatchObject({
+        code: 'AUTH_JWT_INVALID',
+      })
+    })
+  })
+
+  describe('the hijack baseline', () => {
+    const ip = '203.0.113.10'
+    const userAgent = 'Mozilla/5.0 (Macintosh) Safari/605'
+
+    it('carries the address and user agent the session recorded, and none it did not', async () => {
+      const t = new JwtTransport(baseCfg)
+      const bound = await t.verify(
+        accessToken(t.issue('sid', fakeSession({ ip, userAgent }), { fresh: true, absolute: false })),
+      )
+      expect({ ip: bound.ip, userAgent: bound.userAgent }).toEqual({ ip, userAgent })
+      const bare = await t.verify(accessToken(t.issue('sid', fakeSession(), { fresh: true, absolute: false })))
+      expect({ ip: bare.ip, userAgent: bare.userAgent }).toEqual({ ip: null, userAgent: null })
+    })
+
+    it('lets the hijack policy refuse a drift, and pass the request the session was bound to', async () => {
+      const t = new JwtTransport(baseCfg)
+      const session = await t.verify(
+        accessToken(t.issue('sid', fakeSession({ ip, userAgent }), { fresh: true, absolute: false })),
+      )
+      const hijack = new HijackFacet(
+        new InMemoryEvents(),
+        { revokeByHash: () => answer(async () => session) },
+        { onIpChange: 'revoke' },
+      )
+      expect(await hijack.evaluate(session, { ip: '198.51.100.7', userAgent })).toMatchObject({ reaction: 'revoke' })
+      expect(await hijack.evaluate(session, { ip, userAgent })).toEqual({ ok: true })
+    })
   })
 
   describe('key rotation', () => {
@@ -263,7 +307,7 @@ describe('AuthJwtTransport', () => {
         issuer: 'https://app',
       })
       const intents = t1.issue('sid', fakeSession(), { fresh: true, absolute: false })
-      const token = (intents.find((i) => i.type === 'json') as { body: { access_token: string } }).body.access_token
+      const token = accessToken(intents)
 
       // After rotation: sign with new key but keep old in verifyKeys for overlap.
       const t2 = new JwtTransport({
@@ -284,7 +328,7 @@ describe('AuthJwtTransport', () => {
         issuer: 'https://app',
       })
       const intents = t.issue('sid', fakeSession(), { fresh: true, absolute: false })
-      const token = (intents.find((i) => i.type === 'json') as { body: { access_token: string } }).body.access_token
+      const token = accessToken(intents)
       await expect(t.verify(token)).rejects.toMatchObject({ code: 'AUTH_JWT_INVALID' })
     })
   })
@@ -305,49 +349,88 @@ describe('AuthJwtTransport', () => {
   })
 
   describe('constructor validation', () => {
+    const misconfigured = (detail: RegExp) =>
+      expect.objectContaining({
+        code: 'AUTH_MISCONFIGURED',
+        meta: expect.objectContaining({ detail: expect.stringMatching(detail) }),
+      })
+
     it('throws AUTH_MISCONFIGURED on duplicate kid in verifyKeys', () => {
-      try {
-        new JwtTransport({
-          signKey: { kid: 'k1', key: 'a-secret' },
-          verifyKeys: [
-            { kid: 'k1', key: 'a-secret' },
-            { kid: 'k1', key: 'a-DIFFERENT-secret' },
-          ],
-          issuer: 'https://app',
-        })
-        throw new Error('expected throw')
-      } catch (err) {
-        expect((err as { code: string }).code).toBe('AUTH_MISCONFIGURED')
-        expect((err as { meta: { detail: string } }).meta.detail).toMatch(/duplicate kid/)
-      }
+      expect(
+        () =>
+          new JwtTransport({
+            signKey: { kid: 'k1', key: 'a-secret' },
+            verifyKeys: [
+              { kid: 'k1', key: 'a-secret' },
+              { kid: 'k1', key: 'a-DIFFERENT-secret' },
+            ],
+            issuer: 'https://app',
+          }),
+      ).toThrow(misconfigured(/duplicate kid/))
     })
 
     it('throws AUTH_MISCONFIGURED when signKey HS256 mismatches a verifyKey under the same kid', () => {
-      try {
-        new JwtTransport({
-          signKey: { kid: 'k1', key: 'sign-secret' },
-          verifyKeys: [{ kid: 'k1', key: 'a-DIFFERENT-verify-secret' }],
-          issuer: 'https://app',
-        })
-        throw new Error('expected throw')
-      } catch (err) {
-        expect((err as { code: string }).code).toBe('AUTH_MISCONFIGURED')
-        expect((err as { meta: { detail: string } }).meta.detail).toMatch(/does not match/)
-      }
+      expect(
+        () =>
+          new JwtTransport({
+            signKey: { kid: 'k1', key: 'sign-secret' },
+            verifyKeys: [{ kid: 'k1', key: 'a-DIFFERENT-verify-secret' }],
+            issuer: 'https://app',
+          }),
+      ).toThrow(misconfigured(/does not match/))
     })
 
     it('throws AUTH_MISCONFIGURED when signKey alg mismatches a verifyKey under the same kid', () => {
-      try {
-        new JwtTransport({
-          signKey: { kid: 'k1', alg: 'HS256', key: 'same-secret' },
-          verifyKeys: [{ kid: 'k1', alg: 'ES256', key: 'same-secret' }],
-          issuer: 'https://app',
-        })
-        throw new Error('expected throw')
-      } catch (err) {
-        expect((err as { code: string }).code).toBe('AUTH_MISCONFIGURED')
-        expect((err as { meta: { detail: string } }).meta.detail).toMatch(/alg/)
+      expect(
+        () =>
+          new JwtTransport({
+            signKey: { kid: 'k1', alg: 'HS256', key: 'same-secret' },
+            verifyKeys: [{ kid: 'k1', alg: 'ES256', key: 'same-secret' }],
+            issuer: 'https://app',
+          }),
+      ).toThrow(misconfigured(/alg/))
+    })
+
+    it('refuses a time window that is not a finite positive number, which a variable left unset makes NaN', () => {
+      const cases: Array<Partial<JwtTransport.Cfg>> = [
+        { clockSkewSec: Number.NaN },
+        { clockSkewSec: -1 },
+        { ttlMs: Number.NaN },
+        { ttlMs: 0 },
+        { freshnessMs: Number.NaN },
+        { refresh: { ttlMs: Number.NaN } },
+      ]
+      for (const cfg of cases) {
+        expect(() => new JwtTransport({ ...baseCfg, ...cfg }), JSON.stringify(Object.keys(cfg))).toThrow(
+          misconfigured(/clockSkewSec|ttlMs|freshnessMs/),
+        )
       }
+    })
+
+    it('mints with the windows it was given', () => {
+      const t = new JwtTransport({ ...baseCfg, refresh: { ttlMs: 86_400_000 } })
+      const later = new Date(Date.now() + 3_600_000)
+      const intents = t.issue('plain-sid', fakeSession({ absoluteExpiresAt: later, expiresAt: later }), {
+        absolute: false,
+        fresh: true,
+      })
+      expect(intents).toContainEqual(
+        expect.objectContaining({ body: expect.objectContaining({ expires_in: 60 }), type: 'json' }),
+      )
+      expect(intents).toContainEqual(
+        expect.objectContaining({ options: expect.objectContaining({ maxAge: 86_400 }), type: 'setCookie' }),
+      )
+    })
+  })
+
+  describe('the absolute ceiling', () => {
+    it('a session whose ceiling nothing can read mints a token nothing accepts, as the facet reads it expired', async () => {
+      const t = new JwtTransport(baseCfg)
+      const issue = (s: Sessions.Me): string => accessToken(t.issue('sid', s, { absolute: false, fresh: true }))
+      await expect(t.verify(issue(fakeSession()))).resolves.toMatchObject({ identityId: 'user-1' })
+      await expect(t.verify(issue(fakeSession({ absoluteExpiresAt: new Date(Number.NaN) })))).rejects.toMatchObject({
+        code: 'AUTH_JWT_INVALID',
+      })
     })
   })
 
@@ -355,11 +438,7 @@ describe('AuthJwtTransport', () => {
     it('verify reconstructs fresh=true when rotatedAt is within freshnessMs', async () => {
       const t = new JwtTransport({ ...baseCfg, freshnessMs: 5 * 60_000 })
       const session = fakeSession({ rotatedAt: new Date(Date.now()) })
-      const token = (
-        t.issue('sid', session, { fresh: true, absolute: false }).find((i) => i.type === 'json') as {
-          body: { access_token: string }
-        }
-      ).body.access_token
+      const token = accessToken(t.issue('sid', session, { fresh: true, absolute: false }))
       const back = await t.verify(token)
       expect(back?.fresh).toBe(true)
     })
@@ -368,11 +447,7 @@ describe('AuthJwtTransport', () => {
       const t = new JwtTransport({ ...baseCfg, freshnessMs: 1_000 })
       // Mint a JWT with a rotatedAt 10s in the past.
       const session = fakeSession({ rotatedAt: new Date(Date.now() - 10_000) })
-      const token = (
-        t.issue('sid', session, { fresh: true, absolute: false }).find((i) => i.type === 'json') as {
-          body: { access_token: string }
-        }
-      ).body.access_token
+      const token = accessToken(t.issue('sid', session, { fresh: true, absolute: false }))
       const back = await t.verify(token)
       expect(back?.fresh).toBe(false)
     })
@@ -381,11 +456,7 @@ describe('AuthJwtTransport', () => {
       const t = new JwtTransport(baseCfg)
       const rotatedAtMs = Date.now() - 2_000
       const session = fakeSession({ rotatedAt: new Date(rotatedAtMs) })
-      const token = (
-        t.issue('sid', session, { fresh: true, absolute: false }).find((i) => i.type === 'json') as {
-          body: { access_token: string }
-        }
-      ).body.access_token
+      const token = accessToken(t.issue('sid', session, { fresh: true, absolute: false }))
       const back = await t.verify(token)
       // Within 1s of the original rotatedAt (we floor to seconds on the wire).
       expect(Math.abs((back?.rotatedAt?.getTime() ?? 0) - rotatedAtMs)).toBeLessThan(1_000)

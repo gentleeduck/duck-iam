@@ -17,7 +17,6 @@ import { describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { InMemoryEvents } from '~/core/events'
 import type { Events } from '~/core/events/events.types'
-import type { Idempotency } from '~/core/idempotency/idempotency.types'
 import type { Org } from '~/core/orgs/orgs.types'
 import type { Limiter } from '~/limiters'
 import { CookieTransport } from '../../transport/cookie.transport'
@@ -27,13 +26,6 @@ import type { Engine } from '../engine.types'
 const foreignLimiter: Limiter.Me = {
   consume: async () => ({ ok: true, remaining: 1, resetAt: new Date(Date.now() + 60_000) }),
   reset: async () => {},
-}
-
-const foreignIdempotency: Idempotency.Store = {
-  claim: async () => true,
-  delete: async () => {},
-  get: async () => ({ body: null, createdAt: new Date(), headers: {}, status: 200 }),
-  put: async () => {},
 }
 
 /** The brand removed, which is what a drizzle or redis facet looks like to `strict()`. */
@@ -54,7 +46,7 @@ function foreignStores(): Engine.Stores {
 
 /** A bus carrying no in-process brand, which is what a fleet-safe one looks like to `strict()`. It
  *  keeps `listenerCount`, or the `lockout` check would be skipped rather than satisfied. */
-function foreignEvents(): Events.IBus & { listenerCount(event: Events.EventName): number } {
+function foreignEvents(): Events.IBus {
   const bus = new InMemoryEvents()
   return {
     emit: (event, payload) => bus.emit(event, payload),
@@ -67,7 +59,6 @@ function makeAuth(stores: Engine.Stores) {
   const auth = new AuthEngine({
     baseUrl: 'https://app.example.com',
     events: foreignEvents(),
-    idempotency: foreignIdempotency,
     limiter: foreignLimiter,
     stores,
     transport: new CookieTransport({ name: 'duck-sid', secure: true }),

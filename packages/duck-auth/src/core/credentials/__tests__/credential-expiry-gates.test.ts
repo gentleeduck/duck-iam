@@ -1,6 +1,6 @@
 /**
- * `expiresAt` is a column on every credential row, a documented option on `createApiKey`, and part of the
- * `Credential.Store` contract a host implements, so any kind can carry one. `ApiKeyImpl.verify` refuses an
+ * `expiresAt` is a column on every credential row, a documented option on `ApiKeysFacet.create`, and part of the
+ * `Credential.Store` contract a host implements, so any kind can carry one. `ApiKeysFacet.verify` refuses an
  * elapsed row exactly as it refuses a revoked one, and `isStandingFactor` - the predicate both lockout
  * guards count with - refuses one for `password`, `passkey` and `api-key` alike.
  *
@@ -16,11 +16,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { randomToken, sha256, timingSafeEqual } from '~/core/crypto'
-import type { Events } from '~/core/events'
 import { InMemoryEvents } from '~/core/events'
 import type { Identities } from '~/core/identities'
 import { MemoryLimiter } from '~/limiters/memory'
-import { BackupCodesFacet } from '~/providers/mfa/internal/backup-codes'
 import { MfaImpl } from '~/providers/mfa/mfa'
 import { passkey } from '~/providers/passkey'
 import type { Passkey } from '~/providers/passkey/passkey.types'
@@ -33,7 +31,6 @@ import type { Credential } from '../credentials.types'
 interface ProfileShape extends Identities.ProfileMetadataBase {}
 
 const CRYPTO = { authRandomToken: randomToken, authSha256: sha256, authTimingSafeEqual: timingSafeEqual }
-const bus = { emit: async () => {}, off: () => {}, on: () => () => {} } as unknown as Events.IBus
 
 /** Reversible and cheap, so no test here pays a KDF's cost. */
 const stubHasher: Hasher.Me = {
@@ -47,7 +44,7 @@ let seq = 0
 async function identity(adapter: MemoryAdapter<ProfileShape>): Promise<string> {
   const n = seq++
   const row = await adapter.identities.create(
-    identityInput({ profile: { email: `a${n}@b.com`, username: `u${n}` }, providers: [] }) as never,
+    identityInput({ profile: { email: `a${n}@b.com`, username: `u${n}` }, providers: [] }),
   )
   return row.id
 }
@@ -96,7 +93,7 @@ describe('a password past its expiresAt', () => {
     const rows = await adapter.credentials.listByIdentity(id, 'password', {})
     expect(rows.map(isStandingFactor)).toEqual([false])
     await expect(
-      passwordsImpl({ hasher: stubHasher }).complete(passwordCtx(adapter) as never, { email, password: 'hunter2' }),
+      passwordsImpl({ hasher: stubHasher }).complete(passwordCtx(adapter), { email, password: 'hunter2' }),
     ).rejects.toMatchObject({ code: 'AUTH_INVALID_CREDENTIALS' })
   })
 
@@ -135,17 +132,19 @@ describe('a password past its expiresAt', () => {
 })
 
 describe('a passkey past its expiresAt', () => {
-  const mockWebauthn = (): Passkey.SimpleWebAuthnServerModule =>
-    ({
-      generateAuthenticationOptions: vi.fn(async (input: { allowCredentials?: unknown }) => ({
-        allowCredentials: input.allowCredentials,
-        challenge: 'auth-challenge',
-      })),
-      verifyAuthenticationResponse: vi.fn(async () => ({
-        authenticationInfo: { credentialID: 'cred-1', newCounter: 5, userVerified: true },
-        verified: true,
-      })),
-    }) as unknown as Passkey.SimpleWebAuthnServerModule
+  const mockWebauthn = (): Passkey.SimpleWebAuthnServerModule => ({
+    generateAuthenticationOptions: vi.fn(async (input: Passkey.AuthenticationOptionsInput) => ({
+      allowCredentials: input.allowCredentials,
+      challenge: 'auth-challenge',
+      rpId: input.rpID,
+    })),
+    generateRegistrationOptions: vi.fn(),
+    verifyAuthenticationResponse: vi.fn(async () => ({
+      authenticationInfo: { credentialID: 'cred-1', newCounter: 5, userVerified: true },
+      verified: true,
+    })),
+    verifyRegistrationResponse: vi.fn(),
+  })
 
   const provider = (adapter: MemoryAdapter<ProfileShape>, id: string) =>
     passkey({
@@ -180,13 +179,10 @@ describe('a passkey past its expiresAt', () => {
       },
       {},
     )
-    const intents = await provider(adapter, id).begin(
-      passwordCtx(adapter) as never,
-      {
-        email: 'someone@b.com',
-        sessionId: 's1',
-      } as never,
-    )
+    const intents = await provider(adapter, id).begin(passwordCtx(adapter), {
+      email: 'someone@b.com',
+      sessionId: 's1',
+    })
     const offered = JSON.stringify(intents)
     expect(offered).toContain('cred-live')
     expect(offered).not.toContain('cred-1')
@@ -218,9 +214,9 @@ describe('a passkey past its expiresAt', () => {
     }
     const p = provider(adapter, id)
     const ctx = passwordCtx(adapter)
-    await p.begin(ctx as never, { sessionId: 's1' } as never)
+    await p.begin(ctx, { sessionId: 's1' })
     try {
-      const intents = await p.complete(ctx as never, { response: { id: 'cred-1' }, sessionId: 's1' } as never)
+      const intents = await p.complete(ctx, { response: { id: 'cred-1' }, sessionId: 's1' })
       return (intents[0] as { type: string } | undefined)?.type ?? 'no intents'
     } catch (err) {
       return (err as { code: string }).code
@@ -233,22 +229,22 @@ describe('a passkey past its expiresAt', () => {
   })
 })
 
-describe('a backup code past its expiresAt, on both implementations of the contract', () => {
-  it('BackupCodesFacet neither counts it nor spends it', async () => {
+describe('a backup code past its expiresAt', () => {
+  it('is neither counted nor spent', async () => {
     const adapter = new MemoryAdapter<ProfileShape>()
+    const mfa = new MfaImpl(adapter.credentials, new InMemoryEvents(), {})
+    const code = 'abcde-fghjk'
     const id = await identity(adapter)
-    const facet = new BackupCodesFacet(adapter.credentials, CRYPTO)
     await lapsed(adapter.credentials, {
       identityId: id,
       kind: 'recovery',
       metadata: { purpose: 'mfa-backup-code' },
-      secret: sha256('ABCD-1234'),
+      secret: sha256(code),
     })
-    expect(await facet.remaining(id)).toBe(0)
-    expect(await facet.verify(id, 'ABCD-1234')).toBe(false)
+    expect(await mfa.remainingBackupCodes(id)).toBe(0)
+    expect(await mfa.verifyBackupCode(id, code)).toBe(false)
 
-    // The control, without which both assertions above hold for a code that never matched: `generate`
-    // hashes the *formatted* code and `_normalize` re-applies the grouping, so a bare hash matches nothing.
+    // The control: the same row unexpired is counted and spent.
     const live = await identity(adapter)
     await adapter.credentials.create(
       {
@@ -258,41 +254,12 @@ describe('a backup code past its expiresAt, on both implementations of the contr
         lastUsedAt: null,
         metadata: { purpose: 'mfa-backup-code' },
         revokedAt: null,
-        secret: sha256('ABCD-1234'),
+        secret: sha256(code),
         tenantId: null,
       },
       {},
     )
-    expect(await facet.remaining(live)).toBe(1)
-    expect(await facet.verify(live, 'ABCD-1234')).toBe(true)
-  })
-
-  it('MfaImpl.verifyBackupCode refuses it', async () => {
-    const adapter = new MemoryAdapter<ProfileShape>()
-    const id = await identity(adapter)
-    const mfa = new MfaImpl(adapter.credentials, bus, {})
-    await lapsed(adapter.credentials, {
-      identityId: id,
-      kind: 'recovery',
-      metadata: { purpose: 'mfa-backup-code' },
-      secret: sha256('abcd1234'),
-    })
-    expect(await mfa.verifyBackupCode(id, 'abcd1234')).toBe(false)
-
-    const live = await identity(adapter)
-    await adapter.credentials.create(
-      {
-        expiresAt: null,
-        identityId: live,
-        kind: 'recovery',
-        lastUsedAt: null,
-        metadata: { purpose: 'mfa-backup-code' },
-        revokedAt: null,
-        secret: sha256('abcd1234'),
-        tenantId: null,
-      },
-      {},
-    )
-    expect(await mfa.verifyBackupCode(live, 'abcd1234')).toBe(true)
+    expect(await mfa.remainingBackupCodes(live)).toBe(1)
+    expect(await mfa.verifyBackupCode(live, code)).toBe(true)
   })
 })

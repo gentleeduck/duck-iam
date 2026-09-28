@@ -66,7 +66,7 @@ describe('FlowsImpl - callbackPath sanitization', () => {
       findIdentityByEmail = async () => ({ id: ident.id })
     })
 
-    it.each(ATTACKER_VALUES)('attacker callbackPath %p -> emailed URL stays on app.example.com', async (bad) => {
+    it.each(ATTACKER_VALUES)('attacker callbackPath %o -> emailed URL stays on app.example.com', async (bad) => {
       await auth.flows.requestPasswordReset({
         input: { email: 'victim@x.com', callbackPath: bad },
         findIdentityByEmail,
@@ -102,7 +102,7 @@ describe('FlowsImpl - callbackPath sanitization', () => {
       channel = built.channel
     })
 
-    it.each(ATTACKER_VALUES)('attacker callbackPath %p -> emailed URL stays on app.example.com', async (bad) => {
+    it.each(ATTACKER_VALUES)('attacker callbackPath %o -> emailed URL stays on app.example.com', async (bad) => {
       await auth.flows.requestEmailVerification({
         identityId,
         callbackPath: bad,
@@ -136,7 +136,7 @@ describe('FlowsImpl - callbackPath sanitization', () => {
       channel = built.channel
     })
 
-    it.each(ATTACKER_VALUES)('attacker callbackPath %p -> emailed URL stays on app.example.com', async (bad) => {
+    it.each(ATTACKER_VALUES)('attacker callbackPath %o -> emailed URL stays on app.example.com', async (bad) => {
       await auth.flows.requestAccountDeletion({
         identityId,
         callbackPath: bad,

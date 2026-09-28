@@ -5,6 +5,7 @@ import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core'
 import { bigint, index, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core'
 import type { OidcOP } from '../types'
 
+/** Registered OIDC clients. */
 export const authOidcClientsTable = pgTable('oidc_clients', {
   clientId: text('client_id').primaryKey(),
   clientSecretHash: text('client_secret_hash'),
@@ -19,6 +20,7 @@ export const authOidcClientsTable = pgTable('oidc_clients', {
   createdAt: bigint('created_at', { mode: 'number' }).notNull(),
 })
 
+/** Pending authorization codes. */
 export const authOidcCodesTable = pgTable(
   'oidc_codes',
   {
@@ -37,6 +39,7 @@ export const authOidcCodesTable = pgTable(
   (t) => [index('oidc_codes_exp').on(t.exp)],
 )
 
+/** Issued access tokens, by hash. */
 export const authOidcAccessTokensTable = pgTable(
   'oidc_access_tokens',
   {
@@ -50,6 +53,7 @@ export const authOidcAccessTokensTable = pgTable(
   (t) => [index('oidc_at_exp').on(t.exp)],
 )
 
+/** Issued refresh tokens, by hash. */
 export const authOidcRefreshTokensTable = pgTable(
   'oidc_refresh_tokens',
   {
@@ -65,6 +69,7 @@ export const authOidcRefreshTokensTable = pgTable(
   (t) => [index('oidc_rt_family').on(t.familyId), index('oidc_rt_exp').on(t.exp)],
 )
 
+/** Granted scopes per subject and client. */
 export const authOidcConsentsTable = pgTable(
   'oidc_consents',
   {
@@ -177,8 +182,10 @@ function rowToConsent(row: typeof authOidcConsentsTable.$inferSelect): OidcOP.Co
   }
 }
 
+/** Any drizzle database of this dialect. */
 type AnyPgDatabase = PgDatabase<PgQueryResultHKT, any>
 
+/** The OP's five stores over drizzle Postgres. */
 export function authCreateDrizzlePgOidcOpStores(db: AnyPgDatabase): {
   clients: OidcOP.ClientStore
   codes: OidcOP.CodeStore

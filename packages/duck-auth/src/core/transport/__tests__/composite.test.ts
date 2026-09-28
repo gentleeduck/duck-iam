@@ -172,7 +172,7 @@ describe('verify accepts a token any one transport will vouch for', () => {
     const asked = vi.fn(async () => SESSION)
     const composite = new CompositeTransport([stub('a', { verify: asked })])
 
-    for (const token of ['', 'x'.repeat(4097), 42 as never, null as never]) {
+    for (const token of ['', 'x'.repeat(4097), ...JSON.parse('[42, null]')]) {
       await expect(composite.verify(token)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     }
     expect(asked).not.toHaveBeenCalled()

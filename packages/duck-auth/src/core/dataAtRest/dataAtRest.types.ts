@@ -3,6 +3,7 @@ export namespace Kms {
   /** Encryption context (AAD), binding the wrapped DEK to `{identityId, field}` server-side. */
   export type EncryptionContext = Record<string, string>
 
+  /** A fresh data key: its plaintext and its KMS-wrapped form. */
   export type DataKey = {
     /** 32-byte plaintext DEK. Callers MUST zero it after use. */
     plaintext: Uint8Array
@@ -12,6 +13,7 @@ export namespace Kms {
     keyId: string
   }
 
+  /** A KMS that mints data keys and unwraps them. */
   export type Provider = {
     /** Stable id for audit logs and strict() reporting, such as 'aws-kms' or 'gcp-kms'. */
     readonly id: string
@@ -25,21 +27,25 @@ export namespace Kms {
 
 /** Field-level encryption: the encrypt/decrypt contract and the context it binds ciphertext to. */
 export namespace DataAtRest {
+  /** What a ciphertext is bound to; it decrypts only under the same context. */
   export type Context = {
     /** Field name in Identity.profile that's being encrypted. */
     field: string
     /** Lets an adapter tie keys to subjects, so GDPR right-to-erasure is met by destroying the
      *  per-subject DEK. */
     identityId: string
-    /** Opaque tag for a tenant or row revision; passes straight through. */
+    /** Opaque tag for a tenant or row revision, bound like the other two: a ciphertext decrypts only under
+     *  the tag it was written with. */
     tag?: string
   }
 
+  /** Encrypts and decrypts one profile field at a time. */
   export type Adapter = {
     /** Stable id for audit logs and strict() reporting. */
     readonly id: string
     /** The ciphertext is opaque; base64 it caller-side if the column needs that. */
     encrypt(plain: string, ctx: Context): Promise<string>
+    /** The plaintext `encrypt` was given, under the same `ctx`. */
     decrypt(cipher: string, ctx: Context): Promise<string>
     /** Whether `cipher`'s key version is older than the current one, which is the rotation trigger. */
     needsReEncrypt(cipher: string): boolean

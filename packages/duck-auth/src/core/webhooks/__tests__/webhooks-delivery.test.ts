@@ -18,12 +18,12 @@ function makeDeliverer(
   over: Partial<WebhookDeliverer.Cfg> = {},
   respond: (n: number) => Response | Promise<Response> = () => new Response('', { status: 200 }),
 ) {
-  const calls: Array<{ init: RequestInit; url: string }> = []
+  const calls: Array<{ body: string; headers: Headers; init: RequestInit; url: string }> = []
   let n = 0
-  const fetchStub = (async (url: unknown, init: unknown) => {
-    calls.push({ init: init as RequestInit, url: String(url) })
+  const fetchStub: typeof globalThis.fetch = async (url, init = {}) => {
+    calls.push({ body: String(init.body), headers: new Headers(init.headers), init, url: String(url) })
     return respond(++n)
-  }) as unknown as typeof globalThis.fetch
+  }
 
   return {
     calls,
@@ -37,7 +37,7 @@ function makeDeliverer(
 }
 
 const construct = (url: string, cfg: Partial<WebhookDeliverer.Cfg> = {}) =>
-  new WebhookDeliverer({ endpoints: [{ secret: SECRET, url }], fetch: (async () => new Response()) as never, ...cfg })
+  new WebhookDeliverer({ endpoints: [{ secret: SECRET, url }], fetch: async () => new Response(), ...cfg })
 
 describe('the ssrf guard is a deny-list over the written form of the host', () => {
   it('refuses the obvious loopback and private forms', () => {
@@ -106,6 +106,36 @@ describe('the ssrf guard is a deny-list over the written form of the host', () =
     const [outcome] = await deliverer.deliverOne('authz.revoked', { at: 0, identityId: 'u' })
     expect(calls).toHaveLength(1)
     expect(outcome?.delivered).toBe(true)
+  })
+
+  it('retries a lookup that fails, as it retries a request that does', async () => {
+    let lookups = 0
+    const resolveHost = async () => {
+      if (++lookups === 1) throw new Error('getaddrinfo EAI_AGAIN')
+      return ['93.184.216.34']
+    }
+    const { deliverer, calls } = makeDeliverer({ maxAttempts: 3, resolveHost })
+    const [outcome] = await deliverer.deliverOne('authz.revoked', { at: 0, identityId: 'u' })
+    expect(calls).toHaveLength(1)
+    expect(outcome).toMatchObject({ attempts: 2, delivered: true })
+  })
+
+  it('checks the name before every attempt, and stops at the first that resolves inward', async () => {
+    const answers = [['93.184.216.34'], ['127.0.0.1'], ['93.184.216.34']]
+    const { deliverer, calls } = makeDeliverer(
+      { maxAttempts: 3, resolveHost: async () => answers.shift() ?? [] },
+      () => new Response('', { status: 503 }),
+    )
+    const [outcome] = await deliverer.deliverOne('authz.revoked', { at: 0, identityId: 'u' })
+    expect(calls).toHaveLength(1)
+    expect(outcome).toMatchObject({ attempts: 2, delivered: false, lastError: expect.stringMatching(/SSRF guard/) })
+  })
+
+  it('sends nothing to a name that resolves to no address', async () => {
+    const { deliverer, calls } = makeDeliverer({ maxAttempts: 2, resolveHost: async () => [] })
+    const [outcome] = await deliverer.deliverOne('authz.revoked', { at: 0, identityId: 'u' })
+    expect(calls).toHaveLength(0)
+    expect(outcome?.delivered).toBe(false)
   })
 
   it('admits a public name that merely begins with a blocked address label', () => {
@@ -357,22 +387,31 @@ describe('the retry loop cannot tell a transient failure from a permanent one', 
     expect(entries[0]).toMatchObject({ attempts: 2, lastError: 'econnrefused' })
   })
 
-  it('a dead-letter sink that throws does not propagate to the caller', async () => {
-    const { deliverer } = makeDeliverer(
+  it('a dead-letter sink that fails, rejecting or throwing, is logged and does not reach the caller', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const sinks: WebhookDeliverer.IDeadLetterSink[] = [
       {
-        deadLetter: {
-          put: async () => {
-            throw new Error('sink down')
-          },
+        put: async () => {
+          throw new Error('sink down')
         },
-        maxAttempts: 1,
       },
-      () => new Response('', { status: 500 }),
-    )
-    // The sink's own failure stays swallowed - but the delivery failure it was
-    // handed does not: the caller is still told the event never landed.
-    const [outcome] = await deliverer.deliverOne('authz.revoked', { at: 0, identityId: 'u' })
-    expect(outcome).toMatchObject({ delivered: false, lastError: 'non-2xx response (500)' })
+      {
+        put: () => {
+          throw new Error('sink threw before its promise')
+        },
+      },
+    ]
+    for (const deadLetter of sinks) {
+      const { deliverer } = makeDeliverer({ deadLetter, maxAttempts: 1 }, () => new Response('', { status: 500 }))
+      // The caller is still told the event never landed.
+      const [outcome] = await deliverer.deliverOne('authz.revoked', { at: 0, identityId: 'u' })
+      expect(outcome).toMatchObject({ delivered: false, lastError: 'non-2xx response (500)' })
+    }
+    expect(spy.mock.calls.map(([line]) => line)).toEqual([
+      expect.stringContaining('[@gentleduck/auth] webhook dead-letter sink'),
+      expect.stringContaining('[@gentleduck/auth] webhook dead-letter sink'),
+    ])
+    spy.mockRestore()
   })
 
   it('reports a permanently failed event even with no dead-letter sink', async () => {
@@ -444,11 +483,11 @@ describe('the retry loop cannot tell a transient failure from a permanent one', 
         { secret: SECRET, url: 'https://a.example.com/h' },
         { secret: SECRET, url: 'https://b.example.com/h' },
       ],
-      fetch: (async (url: unknown) => {
+      fetch: async (url) => {
         seen.push(String(url))
         await new Promise((r) => setTimeout(r, 5))
         return new Response('', { status: 200 })
-      }) as never,
+      },
     })
     await deliverer.deliverOne('authz.revoked', { at: 0, identityId: 'u' })
     expect(seen).toHaveLength(2)
@@ -462,11 +501,11 @@ describe('the retry loop cannot tell a transient failure from a permanent one', 
         { secret: SECRET, url: 'https://a.example.com/h' },
         { secret: SECRET, url: 'https://b.example.com/h' },
       ],
-      fetch: (async (url: unknown) => {
+      fetch: async (url) => {
         if (String(url).includes('a.example')) throw new Error('down')
         ok.push(String(url))
         return new Response('', { status: 200 })
-      }) as never,
+      },
       maxAttempts: 1,
     })
     await deliverer.deliverOne('authz.revoked', { at: 0, identityId: 'u' })
@@ -485,16 +524,15 @@ describe('what actually goes on the wire', () => {
     const { deliverer, calls } = makeDeliverer()
     await deliverer.deliverOne('authz.revoked', { at: 0, identityId: 'hi' })
 
-    const headers = calls[0]?.init.headers as Record<string, string>
-    const body = calls[0]?.init.body as string
-    const timestamp = Number(headers['x-duck-timestamp'])
-    expect(verifyWebhookSignature(SECRET, body, headers['X-Duck-Signature'] as string, { timestamp })).toBe(true)
+    const { body = '', headers = new Headers() } = calls[0] ?? {}
+    const timestamp = Number(headers.get('x-duck-timestamp'))
+    expect(verifyWebhookSignature(SECRET, body, String(headers.get('X-Duck-Signature')), { timestamp })).toBe(true)
   })
 
   it('the body names the event and carries the payload unchanged', async () => {
     const { deliverer, calls } = makeDeliverer()
     await deliverer.deliverOne('session.revoked', { identityId: 'u', sessionId: 's' })
-    expect(JSON.parse(calls[0]?.init.body as string)).toMatchObject({
+    expect(JSON.parse(String(calls[0]?.body))).toMatchObject({
       event: 'session.revoked',
       payload: { identityId: 'u', sessionId: 's' },
     })
@@ -506,11 +544,11 @@ describe('what actually goes on the wire', () => {
       identity: makeIdentity({ id: 'u' }),
       session: makeSession({ id: 'sid', identityId: 'u' }),
     })
-    const body = JSON.parse(calls[0]?.init.body as string)
+    const body = JSON.parse(String(calls[0]?.body))
     // The identifying fields still reach the consumer; the credentials do not.
     expect(body.payload.session).toMatchObject({ id: 'sid' })
     expect(body.payload.identity).toMatchObject({ id: 'u' })
-    expect(JSON.stringify(body)).not.toMatch(/"(tokenHash|passwordHash|refreshToken|secret)":"(?!\[redacted\])/)
+    expect(JSON.stringify(body)).not.toMatch(/"(tokenHash|passwordHash|refreshToken|secret)":/)
   })
 
   it('redacts nested credentials at any depth, and leaves the rest alone', async () => {
@@ -519,18 +557,18 @@ describe('what actually goes on the wire', () => {
       meta: { inner: { apiKey: 'live_xyz', label: 'keep' }, sessionToken: 'tok' },
       score: 1,
       signal: 'test',
-    } as never)
-    const { payload } = JSON.parse(calls[0]?.init.body as string)
-    expect(payload.meta.sessionToken).toBe('[redacted]')
-    expect(payload.meta.inner.apiKey).toBe('[redacted]')
+    })
+    const { payload } = JSON.parse(String(calls[0]?.body))
+    expect(payload.meta).not.toHaveProperty('sessionToken')
+    expect(payload.meta.inner).not.toHaveProperty('apiKey')
     expect(payload.meta.inner.label).toBe('keep')
     expect(payload.signal).toBe('test')
   })
 
   it('takes a caller-supplied redactor in place of the default', async () => {
     const { deliverer, calls } = makeDeliverer({ redact: () => ({ only: 'this' }) })
-    await deliverer.deliverOne('authz.revoked', { secret: 'x' } as never)
-    expect(JSON.parse(calls[0]?.init.body as string).payload).toEqual({ only: 'this' })
+    await deliverer.deliverOne('authz.revoked', { secret: 'x' })
+    expect(JSON.parse(String(calls[0]?.body)).payload).toEqual({ only: 'this' })
   })
 
   it('dead-letters an unserialisable payload without spending an attempt on it', async () => {
@@ -549,7 +587,7 @@ describe('what actually goes on the wire', () => {
     // A BigInt rather than a cycle: redaction truncates at its depth cap, so a cycle no longer
     // survives into the body (see the case below). A value `JSON.stringify` refuses outright still
     // does, which is the property this case is here for.
-    const [outcome] = await deliverer.deliverOne('authz.revoked', { n: 1n } as never)
+    const [outcome] = await deliverer.deliverOne('authz.revoked', { n: 1n })
     expect(calls).toHaveLength(0)
     expect(outcome).toMatchObject({ attempts: 0, delivered: false })
     expect(entries[0]).toMatchObject({ attempts: 0 })
@@ -564,9 +602,9 @@ describe('what actually goes on the wire', () => {
     const circular: Record<string, unknown> = {}
     circular.self = circular
 
-    const [outcome] = await deliverer.deliverOne('authz.revoked', circular as never)
+    const [outcome] = await deliverer.deliverOne('authz.revoked', circular)
     expect(outcome).toMatchObject({ delivered: true })
-    expect(JSON.parse(calls[0]?.init.body as string).payload).toBeDefined()
+    expect(JSON.parse(String(calls[0]?.body)).payload).toBeDefined()
   })
 
   it('treats a bigint the same way, and spends no attempt on it either', async () => {
@@ -579,7 +617,7 @@ describe('what actually goes on the wire', () => {
       },
       maxAttempts: 2,
     })
-    await deliverer.deliverOne('authz.revoked', { message: 1n } as never)
+    await deliverer.deliverOne('authz.revoked', { message: 1n })
     expect(calls).toHaveLength(0)
     expect(entries).toHaveLength(1)
     expect(entries[0]?.attempts).toBe(0)
@@ -590,7 +628,7 @@ describe('what actually goes on the wire', () => {
       endpoints: [{ secret: SECRET, signatureHeader: 'X-Custom', url: URL_OK }],
     })
     await deliverer.deliverOne('authz.revoked', { at: 0, identityId: 'u' })
-    expect((calls[0]?.init.headers as Record<string, string>)['X-Custom']).toMatch(/^authSha256=/)
+    expect(calls[0]?.headers.get('X-Custom')).toMatch(/^authSha256=/)
   })
 
   it('refuses a signature header name that fetch could never send', () => {
@@ -622,7 +660,7 @@ describe('what actually goes on the wire', () => {
         },
       },
       endpoints: [{ secret: SECRET, url: 'https://hooks.example.com/h?token=hunter2#frag' }],
-      fetch: (async () => new Response('', { status: 500 })) as never,
+      fetch: async () => new Response('', { status: 500 }),
       maxAttempts: 1,
     })
     await deliverer.deliverOne('authz.revoked', { at: 0, identityId: 'u' })
@@ -676,9 +714,16 @@ describe('signature verification', () => {
   })
 
   it('rejects a non-finite or non-numeric timestamp rather than skipping the window', () => {
-    for (const timestamp of [Number.NaN, Number.POSITIVE_INFINITY, '123' as never, null as never]) {
-      expect(verifyWebhookSignature(SECRET, BODY, signWebhookBody(SECRET, BODY, 1), { timestamp })).toBe(false)
+    // Each is signed over itself, so only the guard stands between it and a match: `now - NaN` is NaN,
+    // which no window comparison refuses.
+    for (const timestamp of [Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(verifyWebhookSignature(SECRET, BODY, signWebhookBody(SECRET, BODY, timestamp), { timestamp })).toBe(false)
     }
+    // A fresh one as the raw header string: the window would coerce it and pass.
+    const ts = Date.now()
+    const offContract = JSON.parse(`{ "timestamp": "${ts}" }`)
+    expect(verifyWebhookSignature(SECRET, BODY, signWebhookBody(SECRET, BODY, ts), offContract)).toBe(false)
+    expect(verifyWebhookSignature(SECRET, BODY, signWebhookBody(SECRET, BODY, ts), { timestamp: ts })).toBe(true)
   })
 
   it('honours a zero tolerance rather than reading it as absent', () => {
@@ -712,20 +757,19 @@ describe('signature verification', () => {
     await deliverer.deliverOne('authz.revoked', { at: 0, identityId: 'u' })
     await deliverer.deliverOne('authz.revoked', { at: 0, identityId: 'u' })
 
-    const ids = calls.map((c) => (c.init.headers as Record<string, string>)['x-duck-delivery-id'])
+    const ids = calls.map((c) => c.headers.get('x-duck-delivery-id'))
     // The two attempts at the same delivery share an id; a second delivery gets its own.
     expect(ids[0]).toBe(ids[1])
     expect(ids[2]).not.toBe(ids[0])
-    expect(JSON.parse(calls[0]?.init.body as string).deliveryId).toBe(ids[0])
+    expect(JSON.parse(String(calls[0]?.body)).deliveryId).toBe(ids[0])
   })
 
   it('signs the timestamp it sends, so neither the header nor the body can be swapped', async () => {
     const { deliverer, calls } = makeDeliverer()
     await deliverer.deliverOne('authz.revoked', { at: 0, identityId: 'u' })
-    const header = Number((calls[0]?.init.headers as Record<string, string>)['x-duck-timestamp'])
-    const body = calls[0]?.init.body as string
-
-    const signature = (calls[0]?.init.headers as Record<string, string>)['X-Duck-Signature'] as string
+    const { body = '', headers = new Headers() } = calls[0] ?? {}
+    const header = Number(headers.get('x-duck-timestamp'))
+    const signature = String(headers.get('X-Duck-Signature'))
     expect(verifyWebhookSignature(SECRET, body, signature, { timestamp: header })).toBe(true)
     // Altering the header alone breaks the HMAC, because the signature covers it.
     expect(verifyWebhookSignature(SECRET, body, signature, { timestamp: header - 1 })).toBe(false)
@@ -740,18 +784,18 @@ describe('signature verification', () => {
     // full size, where attempt 5 is 7.5 minutes out against a 5 minute default tolerance.
     const verdicts: boolean[] = []
     const stamps: number[] = []
-    const fetchStub = (async (_url: unknown, init: unknown) => {
-      const { body, headers } = init as { body: string; headers: Record<string, string> }
-      const timestamp = Number(headers['x-duck-timestamp'])
+    const fetchStub: typeof globalThis.fetch = async (_url, init = {}) => {
+      const headers = new Headers(init.headers)
+      const timestamp = Number(headers.get('x-duck-timestamp'))
       stamps.push(timestamp)
       verdicts.push(
-        verifyWebhookSignature(SECRET, body, headers['X-Duck-Signature'] as string, {
+        verifyWebhookSignature(SECRET, String(init.body), String(headers.get('X-Duck-Signature')), {
           timestamp,
           toleranceMs: 100,
         }),
       )
       return new Response('nope', { status: 500 })
-    }) as unknown as typeof globalThis.fetch
+    }
 
     const deliverer = new WebhookDeliverer({
       backoffMs: 40,
@@ -771,7 +815,7 @@ describe('signature verification', () => {
   it('keeps the body byte-identical across a retry, so idempotency still keys on one delivery', async () => {
     const { calls, deliverer } = makeDeliverer({ maxAttempts: 3 }, () => new Response('nope', { status: 500 }))
     await deliverer.deliverOne('authz.revoked', { at: 0, identityId: 'u' })
-    const bodies = calls.map((c) => c.init.body as string)
+    const bodies = calls.map((c) => c.body)
     expect(bodies).toHaveLength(3)
     expect(new Set(bodies).size).toBe(1)
   })
@@ -787,9 +831,11 @@ describe('signature verification', () => {
   })
 
   it('refuses an empty secret in the exported helpers, not only at construction', () => {
-    for (const secret of ['', null as never, undefined as never]) {
-      expect(() => signWebhookBody(secret, BODY)).toThrow(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
-      expect(() => verifyWebhookSignature(secret, BODY, 'authSha256=x')).toThrow(
+    for (const secret of ['', null, undefined]) {
+      expect(() => Reflect.apply(signWebhookBody, undefined, [secret, BODY])).toThrow(
+        expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
+      )
+      expect(() => Reflect.apply(verifyWebhookSignature, undefined, [secret, BODY, 'authSha256=x'])).toThrow(
         expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
       )
     }

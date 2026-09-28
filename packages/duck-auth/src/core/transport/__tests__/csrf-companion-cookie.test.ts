@@ -10,21 +10,18 @@
  * same way, the latter leaving the token readable at `/` while the session was scoped below it.
  */
 import { describe, expect, it } from 'vitest'
-import type { Sessions } from '~/core/sessions/sessions.types'
+import { makeSession } from '~/test/store-inputs'
 import { type CookieTransport, cookieTransport } from '../cookie.transport'
 
-const session = { expiresAt: new Date(Date.now() + 600_000) } as Sessions.Me
+const session = makeSession({ expiresAt: new Date(Date.now() + 600_000) })
 
-type Cookie = { name: string; options: Record<string, unknown>; value?: string }
-
-function cookies(cfg: CookieTransport.Cfg): { sid: Cookie; csrf: Cookie } {
-  const t = cookieTransport(cfg)
-  const [sid, csrf] = t.issue('the-sid', session, {
+function cookies(cfg: CookieTransport.Cfg) {
+  const [sid, csrf] = cookieTransport(cfg).issue('the-sid', session, {
     absolute: false,
     csrfToken: 'the-token',
     fresh: true,
-  }) as unknown as Cookie[]
-  if (!sid || !csrf) throw new Error('issue() emitted no companion')
+  })
+  if (sid?.type !== 'setCookie' || csrf?.type !== 'setCookie') throw new Error('issue() emitted no companion')
   return { csrf, sid }
 }
 
@@ -35,7 +32,7 @@ const CONFIGS: Array<[string, CookieTransport.Cfg]> = [
   ['sameSite none, for a cross-site SPA', { sameSite: 'none' }],
   ['a scoped path', { name: 'duck-sid', path: '/app' }],
   ['plain http for local dev', { name: 'duck-sid', secure: false }],
-  ['all of them at once', { domain: '.example.com', name: 'sid', path: '/app', sameSite: 'none', secure: false }],
+  ['all of them at once', { domain: '.example.com', name: 'sid', path: '/app', sameSite: 'strict', secure: false }],
 ]
 
 describe('the CSRF companion is scoped to the session cookie', () => {
@@ -43,9 +40,7 @@ describe('the CSRF companion is scoped to the session cookie', () => {
     const { csrf, sid } = cookies(cfg)
     expect(sid.options.httpOnly).toBe(true)
     expect(csrf.options.httpOnly).toBe(false)
-    for (const attr of ['domain', 'path', 'sameSite', 'secure', 'maxAge']) {
-      expect({ [attr]: csrf.options[attr] }).toEqual({ [attr]: sid.options[attr] })
-    }
+    expect({ ...csrf.options, httpOnly: true }).toEqual(sid.options)
   })
 
   it.each(CONFIGS)('%s: the __Host- prefix is there exactly when the cookie satisfies it', (_label, cfg) => {
@@ -82,12 +77,10 @@ describe('the CSRF companion is scoped to the session cookie', () => {
 
   it.each(CONFIGS)('%s: revoke clears both under the attributes they were set with', (_label, cfg) => {
     const issued = cookies(cfg)
-    const [sid, csrf] = cookieTransport(cfg).revoke() as unknown as Cookie[]
-    expect(sid?.name).toBe(issued.sid.name)
-    expect(csrf?.name).toBe(issued.csrf.name)
-    for (const attr of ['domain', 'path', 'sameSite', 'secure']) {
-      expect({ [attr]: csrf?.options[attr] }).toEqual({ [attr]: issued.csrf.options[attr] })
-    }
-    expect(csrf?.options.maxAge).toBe(0)
+    const [sid, csrf] = cookieTransport(cfg).revoke()
+    if (sid?.type !== 'clearCookie' || csrf?.type !== 'clearCookie') throw new Error('revoke() cleared nothing')
+    expect(sid.name).toBe(issued.sid.name)
+    expect(csrf.name).toBe(issued.csrf.name)
+    expect(csrf.options).toEqual({ ...issued.csrf.options, maxAge: 0 })
   })
 })

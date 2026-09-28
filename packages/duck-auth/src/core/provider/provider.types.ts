@@ -29,18 +29,26 @@ export namespace Provider {
         identityId: string
         factors: Sessions.Factor[]
         aal: Sessions.AAL
+        /** `'user'` when absent. */
+        kind?: Sessions.Kind
+        /** Ends every other session the identity holds once this one is open. */
+        endOtherSessions?: boolean
       }
     | { type: 'requireMfa'; identityId: string; methods: string[] }
 
   /** So a provider need not import `node:crypto` itself. */
   export type Crypto = {
+    /** `bytes` random bytes, base64url. */
     authRandomToken(bytes: number): string
+    /** The hex sha256 of `s`. */
     authSha256(s: string): string
+    /** Compares two strings in constant time. */
     authTimingSafeEqual(a: string, b: string): boolean
   }
 
   /** Providers emit through the bus, never to the console. */
   export type Events = {
+    /** Emits on the engine's bus. */
     emit(event: string, payload: unknown): Promise<void>
   }
 
@@ -51,6 +59,7 @@ export namespace Provider {
     credentials: Credential.Store
   }
 
+  /** What the engine hands a provider on every call. */
   export type Context<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase> = {
     stores: Stores<Profile>
     tenant: TenantContext
@@ -60,6 +69,7 @@ export namespace Provider {
     crypto: Crypto
   }
 
+  /** A sign-in provider: `begin` starts its flow and `complete` finishes it. */
   export interface Me<
     BeginIn = unknown,
     CompleteIn = unknown,
@@ -68,7 +78,9 @@ export namespace Provider {
     id: string
     /** Open string so custom providers declare their own kind without patching the type. */
     kind: string
+    /** Starts the flow; answers the intents the server adapter carries out. */
     begin(ctx: Context<Profile>, input: BeginIn): Promise<Intent[]>
+    /** Finishes the flow; answers the intents that open the session. */
     complete(ctx: Context<Profile>, input: CompleteIn): Promise<InternalIntent[]>
   }
 

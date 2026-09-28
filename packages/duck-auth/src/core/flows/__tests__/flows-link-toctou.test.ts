@@ -52,13 +52,13 @@ describe('FlowsImpl.linkProvider - TOCTOU defense', () => {
       auth.flows.linkProvider({
         authorize: ALLOW_LINK,
         identityId: identityA,
-        providerId: 'authGoogle',
+        providerId: 'google',
         providerSub: 'sub-X',
       }),
       auth.flows.linkProvider({
         authorize: ALLOW_LINK,
         identityId: identityB,
-        providerId: 'authGoogle',
+        providerId: 'google',
         providerSub: 'sub-X',
       }),
     ])
@@ -70,7 +70,7 @@ describe('FlowsImpl.linkProvider - TOCTOU defense', () => {
     if (firstRejected && firstRejected.status === 'rejected') {
       expect(firstRejected.reason).toMatchObject({
         code: 'AUTH_PROVIDER_TAKEN',
-        meta: { providerId: 'authGoogle' },
+        meta: { providerId: 'google' },
       })
     } else {
       throw new Error('expected at least one rejection')
@@ -82,18 +82,18 @@ describe('FlowsImpl.linkProvider - TOCTOU defense', () => {
       auth.flows.linkProvider({
         authorize: ALLOW_LINK,
         identityId: identityA,
-        providerId: 'authGoogle',
+        providerId: 'google',
         providerSub: 'sub-X',
       }),
       auth.flows.linkProvider({
         authorize: ALLOW_LINK,
         identityId: identityB,
-        providerId: 'authGoogle',
+        providerId: 'google',
         providerSub: 'sub-X',
       }),
     ])
     // Whichever identity won, ONLY that one has the link.
-    const found = await adapter.identities.find({ providerId: 'authGoogle', providerSub: 'sub-X' })
+    const found = await adapter.identities.find({ providerId: 'google', providerSub: 'sub-X' })
     expect(found).not.toBeNull()
     const otherId = found?.id === identityA ? identityB : identityA
     const other = await adapter.identities.find({ id: otherId })
@@ -111,7 +111,7 @@ describe('FlowsImpl.linkProvider - TOCTOU defense', () => {
       auth.flows.linkProvider({
         authorize: ALLOW_LINK,
         identityId: id,
-        providerId: 'authGithub',
+        providerId: 'github',
         providerSub: 'race-sub',
       }),
     )
@@ -125,7 +125,7 @@ describe('FlowsImpl.linkProvider - TOCTOU defense', () => {
     await auth.flows.linkProvider({
       authorize: ALLOW_LINK,
       identityId: identityA,
-      providerId: 'authGoogle',
+      providerId: 'google',
       providerSub: 'sub-Y',
     })
     // Second link to same identity is a no-op (the facet's
@@ -133,7 +133,7 @@ describe('FlowsImpl.linkProvider - TOCTOU defense', () => {
     const r = await auth.flows.linkProvider({
       authorize: ALLOW_LINK,
       identityId: identityA,
-      providerId: 'authGoogle',
+      providerId: 'google',
       providerSub: 'sub-Y',
     })
     expect(r.identityId).toBe(identityA)
@@ -143,15 +143,15 @@ describe('FlowsImpl.linkProvider - TOCTOU defense', () => {
     // Some app code uses the store directly. The atomic guard must
     // catch the duplicate even without the facet's pre-check.
     await adapter.identities.link(identityA, {
-      providerId: 'authGithub',
+      providerId: 'github',
       providerSub: 'direct-sub',
       addedAt: new Date(),
     })
     await expect(
-      adapter.identities.link(identityB, { providerId: 'authGithub', providerSub: 'direct-sub', addedAt: new Date() }),
+      adapter.identities.link(identityB, { providerId: 'github', providerSub: 'direct-sub', addedAt: new Date() }),
     ).rejects.toMatchObject({
       code: 'AUTH_PROVIDER_TAKEN',
-      meta: { providerId: 'authGithub' },
+      meta: { providerId: 'github' },
     })
   })
 })

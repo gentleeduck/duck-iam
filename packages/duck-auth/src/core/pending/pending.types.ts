@@ -10,6 +10,7 @@ export namespace Pending {
     [K in Events.EventName]: { name: K; payload: Events.EventMap[K] }
   }[Events.EventName]
 
+  /** The buffer a transaction's events wait in until it commits. */
   export interface Effects {
     /** Number of buffered events awaiting publication. */
     readonly size: number

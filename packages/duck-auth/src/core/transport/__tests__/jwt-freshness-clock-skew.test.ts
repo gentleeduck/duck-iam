@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { AuthEngine } from '~/core/engine'
+import { isRecord } from '~/core/predicates'
 import type { Sessions } from '~/core/sessions/sessions.types'
 import { MemoryLimiter } from '~/limiters/memory'
 import { CookieTransport } from '../cookie.transport'
@@ -36,8 +37,9 @@ function fakeSession(overrides: Partial<Sessions.Me> = {}): Sessions.Me {
 }
 
 function accessToken(intents: ReturnType<JwtTransport['issue']>): string {
-  const json = intents.find((i) => i.type === 'json')
-  return (json as { body: { access_token: string } }).body.access_token
+  const body = intents.find((i) => i.type === 'json')?.body
+  if (!isRecord(body) || typeof body.access_token !== 'string') throw new Error('no access token issued')
+  return body.access_token
 }
 
 /**
@@ -67,7 +69,10 @@ describe('freshness is bounded in both directions', () => {
     expect(back?.fresh).toBe(true)
   })
 
-  it('checkStepUp does not accept a rotatedAt far in the future as recent', async () => {
+  it.each([
+    ['far in the future', new Date(Date.now() + 60 * 60 * 1000)],
+    ['nothing can read', new Date(Number.NaN)],
+  ])('checkStepUp does not accept a rotatedAt %s as recent', async (_label, rotatedAt) => {
     const adapter = new MemoryAdapter()
     const auth = new AuthEngine({
       baseUrl: 'https://app.example.com',
@@ -79,9 +84,11 @@ describe('freshness is bounded in both directions', () => {
       },
       transport: new CookieTransport({ name: 'duck-sid', secure: false }),
     })
-    const skewed = fakeSession({ rotatedAt: new Date(Date.now() + 60 * 60 * 1000) })
-    const r = await auth.flows.checkStepUp(skewed, { aal: 2, freshness: FRESHNESS_MS })
+    const r = await auth.flows.checkStepUp(fakeSession({ rotatedAt }), { aal: 2, freshness: FRESHNESS_MS })
     expect(r.satisfied).toBe(false)
     if (!r.satisfied) expect(r.reason).toBe('fresh-required')
+    await expect(auth.flows.checkStepUp(fakeSession(), { aal: 2, freshness: FRESHNESS_MS })).resolves.toMatchObject({
+      satisfied: true,
+    })
   })
 })

@@ -1,13 +1,14 @@
 import type { RedisLike } from '~/core/drivers/redis-like'
 import { AuthError } from '~/core/errors'
 import type { Idempotency } from '~/core/idempotency/idempotency.types'
-import { isFiniteNumber } from '~/core/predicates/predicates'
+import { isFiniteNumber, isRecord } from '~/core/predicates/predicates'
 import type { TenantContext } from '~/core/tenant/tenant.types'
 import { IdempotencyImpl } from './idempotency'
 
 export namespace RedisIdempotency {
+  /** The Redis idempotency store's options. */
   export type Cfg<TRedis extends RedisLike.Client = RedisLike.Client> = {
-    /** An ioredis, @upstash/redis or FakeRedis client. */
+    /** An `@upstash/redis`-shaped client or `FakeRedis`; wrap ioredis and iovalkey with `valkeyAdapter`. */
     redis: TRedis
     /** Default `auth:idem`, composing `${prefix}:{uriEncodedTenantId}:{idempotencyKey}`; the tenant
      *  segment is empty when there is none. */
@@ -51,7 +52,7 @@ export class RedisIdempotency<TRedis extends RedisLike.Client = RedisLike.Client
   async claim(key: string, ttlMs: number, ctx: TenantContext): Promise<boolean> {
     // A NaN or Infinity ttl survives `Math.ceil` and `Math.max` as NaN, and Redis then rejects the
     // command outright.
-    const safeMs = Number.isFinite(ttlMs) && ttlMs > 0 ? Math.min(ttlMs, 24 * 60 * 60 * 1000) : 60_000
+    const safeMs = Number.isFinite(ttlMs) && ttlMs > 0 ? ttlMs : 60_000
     const ex = Math.max(1, Math.ceil(safeMs / 1000))
     const result = await this._redis.set(
       this._k(key, ctx),
@@ -64,7 +65,7 @@ export class RedisIdempotency<TRedis extends RedisLike.Client = RedisLike.Client
   /** Overwrites the tombstone `claim()` left, resetting the TTL to `ttlMs` so the cached entry
    *  survives a slow executor. */
   async put(key: string, response: Idempotency.CachedResponse, ttlMs: number, ctx: TenantContext): Promise<void> {
-    const safeMs = Number.isFinite(ttlMs) && ttlMs > 0 ? Math.min(ttlMs, 24 * 60 * 60 * 1000) : 60_000
+    const safeMs = Number.isFinite(ttlMs) && ttlMs > 0 ? ttlMs : 60_000
     const ex = Math.max(1, Math.ceil(safeMs / 1000))
     await this._redis.set(this._k(key, ctx), JSON.stringify({ ...response, createdAt: response.createdAt.getTime() }), {
       ex,
@@ -92,9 +93,11 @@ function parseStoredIdempotencyEntry(raw: string): Idempotency.CachedResponse | 
   if (!isFiniteNumber(createdAt)) return null
   const body: unknown = Reflect.get(obj, 'body')
   const headers: unknown = Reflect.get(obj, 'headers')
+  const fingerprint: unknown = Reflect.get(obj, 'fingerprint')
   // Built explicitly rather than cast: every field is narrowed.
   const out: Idempotency.CachedResponse = { status, body, createdAt: new Date(createdAt) }
-  if (typeof headers === 'object' && headers !== null && !Array.isArray(headers)) {
+  if (typeof fingerprint === 'string') out.fingerprint = fingerprint
+  if (isRecord(headers)) {
     // The value side is checked too, so a malformed inner shape cannot reach `res.setHeader()`.
     const safe: Record<string, string> = {}
     for (const [k, v] of Object.entries(headers)) {
@@ -108,8 +111,8 @@ function parseStoredIdempotencyEntry(raw: string): Idempotency.CachedResponse | 
 /**
  * Build a redis-backed idempotency facet in one call, the way `redisLimiter`
  * builds a limiter. Store knobs (`redis`, `prefix`) and facet knobs (`ttlMs`,
- * `headerName`, `pollTimeoutMs`) share the one object, so the config key reads
- * `idempotency: redisIdempotency({ prefix: 'auth:idem', redis })`.
+ * `headerName`, `pollTimeoutMs`) share the one object:
+ * `const idem = redisIdempotency({ prefix: 'auth:idem', redis })`.
  */
 export function redisIdempotency<TRedis extends RedisLike.Client = RedisLike.Client>(
   cfg: RedisIdempotency.Cfg<TRedis> & Partial<Idempotency.Cfg>,

@@ -1,7 +1,7 @@
 /** E2E: RedisSessionImpl against a REAL Redis. */
 import Redis from 'ioredis'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { type ValkeyClient, valkeyAdapter } from '~/adapters/valkey'
+import { valkeyAdapter } from '~/adapters/valkey'
 import { sha256 } from '~/core/crypto'
 import type { RedisLike } from '~/core/drivers/redis-like'
 import { dropPrefix, e2ePrefix, redisUrl } from '~/test/e2e-env'
@@ -46,9 +46,9 @@ suite('E2E RedisSessionImpl (real Redis)', () => {
   let prefix: string
 
   beforeAll(async () => {
-    raw = new Redis(URL as string, { maxRetriesPerRequest: 2, lazyConnect: true })
+    raw = new Redis(URL, { maxRetriesPerRequest: 2, lazyConnect: true })
     await raw.connect()
-    client = valkeyAdapter(raw as unknown as ValkeyClient.Me)
+    client = valkeyAdapter(raw)
     prefix = e2ePrefix()
   })
 

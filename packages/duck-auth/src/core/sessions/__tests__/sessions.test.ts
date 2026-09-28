@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Adapter } from '~/adapters/adapter'
 import { MemoryAdapter } from '~/adapters/memory'
 import { orNull } from '~/core/answer'
@@ -21,7 +21,7 @@ describe('SessionsFacet', () => {
   })
 
   describe('create()', () => {
-    it('returns { session, sid } where session.id is the authSha256 of sid', async () => {
+    it('returns { session, sid } where session.id is the sha256 of sid', async () => {
       const { session, sid } = await facet.create({
         identityId: 'user-1',
         kind: 'user',
@@ -154,6 +154,17 @@ describe('SessionsFacet', () => {
       ).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
     })
 
+    it('rejects an Invalid Date completedAt', async () => {
+      await expect(
+        facet.create({
+          aal: 1,
+          factors: [{ completedAt: new Date(Number.NaN), method: 'password' }],
+          identityId: 'u',
+          kind: 'user',
+        }),
+      ).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
+    })
+
     it('still accepts a well-formed factor', async () => {
       const { session } = await facet.create({
         aal: 1,
@@ -162,6 +173,43 @@ describe('SessionsFacet', () => {
         kind: 'user',
       })
       expect(session.factors).toHaveLength(1)
+    })
+  })
+
+  describe('create() refuses a lifetime cap it cannot read', () => {
+    const mint: Sessions.MintInput = { aal: 1, factors: [], identityId: 'u', kind: 'user' }
+    const minutesLeft = (at: Date) => Math.round((at.getTime() - Date.now()) / 60_000)
+
+    it.each([Number.NaN, 0, -1, Number.POSITIVE_INFINITY])(
+      'refuses ttlMs %s, which minted the full TTL',
+      async (ttlMs) => {
+        await expect(facet.create({ ...mint, ttlMs })).rejects.toMatchObject({
+          code: 'AUTH_INVALID_PARAMETERS',
+          meta: { detail: 'sessions.create: ttlMs must be a positive number' },
+        })
+        expect(await adapter.sessions.listByIdentity('u')).toHaveLength(0)
+      },
+    )
+
+    it('caps both deadlines by a readable ttlMs', async () => {
+      const { session } = await facet.create({ ...mint, ttlMs: 60_000 })
+      expect([minutesLeft(session.expiresAt), minutesLeft(session.absoluteExpiresAt)]).toEqual([1, 1])
+    })
+
+    it.each([
+      ['an Invalid Date', new Date(Number.NaN)],
+      ['a number', Date.now() + 60_000],
+    ])('refuses %s maxExpiresAt', async (_label, maxExpiresAt) => {
+      await expect(Reflect.apply(facet.create, facet, [{ ...mint, maxExpiresAt }])).rejects.toMatchObject({
+        code: 'AUTH_INVALID_PARAMETERS',
+        meta: { detail: 'sessions.create: maxExpiresAt must be a valid Date' },
+      })
+      expect(await adapter.sessions.listByIdentity('u')).toHaveLength(0)
+    })
+
+    it('caps both deadlines by a valid maxExpiresAt', async () => {
+      const { session } = await facet.create({ ...mint, maxExpiresAt: new Date(Date.now() + 60_000) })
+      expect([minutesLeft(session.expiresAt), minutesLeft(session.absoluteExpiresAt)]).toEqual([1, 1])
     })
   })
 
@@ -345,6 +393,38 @@ describe('SessionsFacet', () => {
       expect(handler).toHaveBeenCalledOnce()
     })
 
+    it('revokes nothing for a previous SID naming no session, so a stale cookie emits no event', async () => {
+      const handler = vi.fn()
+      events.on('session.revoked', handler)
+      const rotated = vi.fn()
+      events.on('session.rotated', rotated)
+      await facet.rotateOrCreate({
+        aal: 1,
+        factors: [],
+        identityId: 'user-1',
+        kind: 'user',
+        previousSid: 'stale',
+        purpose: 're-auth',
+      })
+      expect(handler).not.toHaveBeenCalled()
+      expect(rotated.mock.calls[0]?.[0].previousSessionId).toBeUndefined()
+    })
+
+    it("names the previous session's own account when a sign-in replaces another account's", async () => {
+      const { sid } = await facet.create({ aal: 1, factors: [], identityId: 'user-a', kind: 'user' })
+      const handler = vi.fn()
+      events.on('session.revoked', handler)
+      await facet.rotateOrCreate({
+        aal: 1,
+        factors: [],
+        identityId: 'user-b',
+        kind: 'user',
+        previousSid: sid,
+        purpose: 're-auth',
+      })
+      expect(handler.mock.calls[0]?.[0]).toMatchObject({ identityId: 'user-a', sessionId: sha256(sid) })
+    })
+
     it('step-up purpose downgrades the previous SID instead of deleting it', async () => {
       const { sid: prevSid } = await facet.create({
         identityId: 'user-1',
@@ -385,7 +465,7 @@ describe('SessionsFacet', () => {
       await expect(adapter.sessions.getByHash(sha256(cSid))).resolves.toBeTruthy()
     })
 
-    it('impersonate-start preserves the real session alongside the actingAs session', async () => {
+    it('impersonate-start replaces the real session, so release leaves no orphan behind', async () => {
       const { sid: realSid } = await facet.create({
         identityId: 'admin',
         kind: 'user',
@@ -407,7 +487,7 @@ describe('SessionsFacet', () => {
         },
       })
       expect(impersonation.actingAs?.realIdentityId).toBe('admin')
-      await expect(adapter.sessions.getByHash(sha256(realSid))).resolves.toBeTruthy()
+      await expect(adapter.sessions.getByHash(sha256(realSid))).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
       await expect(adapter.sessions.getByHash(sha256(impersonationSid))).resolves.toBeTruthy()
     })
 
@@ -423,6 +503,121 @@ describe('SessionsFacet', () => {
       expect(user.kind).toBe('user')
       expect(userSid).not.toBe(guestSid)
       await expect(adapter.sessions.getByHash(sha256(guestSid))).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+    })
+
+    it('promoteGuest refuses a session that is not a guest, and leaves it signed in', async () => {
+      const { sid } = await facet.create({ aal: 1, factors: [], identityId: 'user-1', kind: 'user' })
+      await expect(
+        facet.promoteGuest({ guestSid: sid, identityId: 'user-2', aal: 1, factors: [] }),
+      ).rejects.toMatchObject({ code: 'AUTH_INVALID_PARAMETERS' })
+      await expect(adapter.sessions.getByHash(sha256(sid))).resolves.toMatchObject({ identityId: 'user-1' })
+    })
+
+    const USER: Pick<Sessions.MintInput, 'identityId' | 'kind'> = { identityId: 'user-1', kind: 'user' }
+    const GUEST: Pick<Sessions.MintInput, 'identityId' | 'kind'> = { identityId: null, kind: 'guest' }
+    const BASELINE = { fingerprint: 'fp-1', ip: '10.0.0.1', userAgent: 'Mozilla/5.0 (the browser that signed in)' }
+    const PURPOSES: Sessions.RotateInput['purpose'][] = [
+      'signin',
+      're-auth',
+      'step-up',
+      'step-down',
+      'credential-change',
+      'impersonate-start',
+      'impersonate-release',
+      'guest-promotion',
+      'sign-up',
+      'drift',
+    ]
+
+    it.each(PURPOSES)('%s carries over the baseline the input brings none of', async (purpose) => {
+      const prior = purpose === 'guest-promotion' ? GUEST : USER
+      const { sid } = await facet.create({ aal: 1, factors: [], ...prior, ...BASELINE })
+      const { session } = await facet.rotateOrCreate({
+        aal: 1,
+        factors: [],
+        identityId: 'user-1',
+        kind: 'user',
+        previousSid: sid,
+        purpose,
+      })
+      expect(session).toMatchObject(BASELINE)
+    })
+
+    it("records the request's own over the previous row's, and an empty one as none", async () => {
+      const { sid } = await facet.create({ aal: 1, factors: [], identityId: 'user-1', kind: 'user', ...BASELINE })
+      const request = { fingerprint: '', ip: '10.0.0.2', userAgent: 'Mozilla/5.0 (a new browser)' }
+      const { session } = await facet.rotateOrCreate({
+        aal: 2,
+        factors: [],
+        identityId: 'user-1',
+        kind: 'user',
+        previousSid: sid,
+        purpose: 'step-up',
+        ...request,
+      })
+      expect(session).toMatchObject({ ...request, fingerprint: BASELINE.fingerprint })
+    })
+  })
+
+  describe("a 'drift' re-issue re-authenticates nothing", () => {
+    const DAY = 24 * 60 * 60 * 1000
+    const HOUR = 60 * 60 * 1000
+    const { absoluteTtlMs } = DEFAULT_SESSION_CONFIG
+    const rotate = (purpose: Sessions.RotateInput['purpose'], extra: Partial<Sessions.RotateInput> = {}) =>
+      facet.rotateOrCreate({ aal: 2, factors: [], identityId: 'user-1', kind: 'user', purpose, ...extra })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it.each([
+      ['drift', {}, false, absoluteTtlMs],
+      ['drift', { ttlMs: HOUR }, false, DAY + HOUR],
+      ['re-auth', {}, true, DAY + absoluteTtlMs],
+    ] as const)(
+      "'%s' with %o issues fresh: %s and an absolute deadline at %d",
+      async (purpose, extra, fresh, absoluteAt) => {
+        vi.useFakeTimers({ now: 0, toFake: ['Date'] })
+        const { sid: previousSid } = await facet.create({ aal: 2, factors: [], identityId: 'user-1', kind: 'user' })
+        vi.setSystemTime(DAY)
+        const { session, sid } = await rotate(purpose, { previousSid, ...extra })
+        expect({ absoluteAt: session.absoluteExpiresAt.getTime(), fresh: session.fresh }).toEqual({ absoluteAt, fresh })
+        await expect(facet.getBySid(sid)).resolves.toMatchObject({ fresh })
+        await expect(adapter.sessions.getByHash(sha256(previousSid))).rejects.toMatchObject({
+          code: 'AUTH_SESSION_REVOKED',
+        })
+      },
+    )
+
+    it('keeps an open impersonation window, which a re-auth closes', async () => {
+      const actingAs = {
+        expiresAt: new Date(Date.now() + HOUR),
+        realIdentityId: 'operator-1',
+        reason: 'support',
+        startedAt: new Date(),
+      }
+      const opened = () => facet.create({ aal: 2, actingAs, factors: [], identityId: 'user-1', kind: 'user' })
+      const drifted = await rotate('drift', { previousSid: (await opened()).sid })
+      const reAuthed = await rotate('re-auth', { previousSid: (await opened()).sid })
+      expect([drifted.session.actingAs, reAuthed.session.actingAs]).toEqual([actingAs, null])
+    })
+
+    it.each([
+      ['no previous session', () => Promise.resolve({}), 'AUTH_SESSION_REVOKED'],
+      ['a previous session gone', async () => ({ previousSid: 'never-issued' }), 'AUTH_SESSION_REVOKED'],
+      [
+        'a previous session expired',
+        async () => {
+          vi.useFakeTimers({ now: 0, toFake: ['Date'] })
+          const { sid } = await facet.create({ aal: 2, factors: [], identityId: 'user-1', kind: 'user' })
+          vi.setSystemTime(absoluteTtlMs + 1)
+          return { previousSid: sid }
+        },
+        'AUTH_SESSION_EXPIRED',
+      ],
+    ])('refuses on %s, where a re-auth mints', async (_, previous, code) => {
+      await expect(rotate('drift', await previous())).rejects.toMatchObject({ code })
+      await expect(rotate('re-auth', await previous())).resolves.toMatchObject({ session: { fresh: true } })
     })
   })
 
@@ -615,6 +810,38 @@ describe('SessionsFacet', () => {
       expect(result.deleted).toBe(1)
       expect(await orNull(adapter.sessions.getByHash(sha256(aSid)))).toBeNull()
       await expect(adapter.sessions.getByHash(sha256(bSid))).resolves.toBeTruthy()
+    })
+  })
+
+  describe('the configuration', () => {
+    it('refuses a lifetime or a cap it cannot use, which a variable left unset makes NaN', () => {
+      for (const cfg of [
+        { ttlMs: Number.NaN },
+        { absoluteTtlMs: 0 },
+        { freshnessMs: Number.POSITIVE_INFINITY },
+        { maxSessionsPerIdentity: 1.5 },
+        { maxSessionsPerIdentity: Number.NaN },
+      ]) {
+        expect(
+          () => new SessionsImpl(adapter.sessions, events, { ...DEFAULT_SESSION_CONFIG, ...cfg }),
+          Object.keys(cfg)[0],
+        ).toThrow(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
+      }
+    })
+
+    it('holds an identity to maxSessionsPerIdentity, revoking the oldest to make room', async () => {
+      const capped = new SessionsImpl(adapter.sessions, events, {
+        ...DEFAULT_SESSION_CONFIG,
+        maxSessionsPerIdentity: 2,
+      })
+      const mint = () => capped.create({ aal: 1, factors: [], identityId: 'user-1', kind: 'user' })
+      const first = await mint()
+      await adapter.sessions.update(first.session.id, { createdAt: new Date(Date.now() - 60_000) })
+      const second = await mint()
+      const third = await mint()
+      expect(await orNull(adapter.sessions.getByHash(first.session.id))).toBeNull()
+      await expect(adapter.sessions.getByHash(second.session.id)).resolves.toBeTruthy()
+      await expect(adapter.sessions.getByHash(third.session.id)).resolves.toBeTruthy()
     })
   })
 
@@ -841,9 +1068,10 @@ describe('resolveBySid()', () => {
           expiresAt: 'unbounded',
         },
       })
-      await expect(resolveBySid(sid, adapter.sessions, adapter.identities)).rejects.toMatchObject({
-        code: 'AUTH_IMPERSONATE_WINDOW_CLOSED',
-      })
+      const refused = await resolveBySid(sid, adapter.sessions, adapter.identities).catch((e: unknown) => e)
+      expect(refused).toMatchObject({ code: 'AUTH_IMPERSONATE_WINDOW_CLOSED' })
+      // `now` stands in for the date nothing can read, so the refusal names an instant and not NaN.
+      expect(refused).toHaveProperty('meta.closedAt', expect.closeTo(Date.now(), -4))
       await expect(adapter.sessions.getByHash(hash)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     })
 

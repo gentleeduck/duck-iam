@@ -5,8 +5,11 @@
  * weaker of two signals, treating a stripped header as agreement, or downgrading
  * something the operator asked to be fatal.
  */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { answer } from '~/core/answer'
+import { AuthError } from '~/core/errors'
 import { InMemoryEvents } from '~/core/events'
+import type { Events } from '~/core/events/events.types'
 import type { Sessions } from '~/core/sessions/sessions.types'
 import { HijackFacet } from '../hijack.facet'
 import type { Hijack } from '../hijack.types'
@@ -40,14 +43,22 @@ function session(over: Partial<Sessions.Me> = {}): Sessions.Me {
   }
 }
 
-/** A facet plus the suspicious events it emitted. */
-function makeFacet(policy: Partial<Hijack.Cfg> = {}) {
+/** A facet, the suspicious events it emitted, and the sessions it revoked, with `revoke` as the store. */
+function makeFacet(policy: Hijack.Cfg = {}, revoke = async (id: string): Promise<Sessions.Me> => session({ id })) {
   const events = new InMemoryEvents()
-  const emitted: Array<{ signal: string; score: number; meta: Record<string, unknown> }> = []
+  const emitted: Array<Events.EventMap['suspicious']> = []
   events.on('suspicious', (payload) => {
-    emitted.push(payload as never)
+    emitted.push(payload)
   })
-  return { emitted, facet: new HijackFacet(events, policy) }
+  const revoked: string[] = []
+  const sessions = {
+    revokeByHash: (id: string) =>
+      answer(() => {
+        revoked.push(id)
+        return revoke(id)
+      }),
+  }
+  return { emitted, facet: new HijackFacet(events, sessions, policy), revoked }
 }
 
 describe('a request that matches the session is let through', () => {
@@ -131,6 +142,24 @@ describe('a changed value is drift', () => {
     const { facet, emitted } = makeFacet({ onIpChange: 'ignore', onUserAgentChange: 'ignore' })
     expect(await facet.evaluate(session(), { ip: OTHER_IP, userAgent: OTHER_UA })).toEqual({ ok: true })
     expect(emitted).toHaveLength(2)
+  })
+
+  it('reacts as configured when the sink rejects, logging each drift it could not record', async () => {
+    const emit = vi.spyOn(InMemoryEvents.prototype, 'emit').mockRejectedValue(new Error('sink down'))
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const drifted = { ip: OTHER_IP, userAgent: OTHER_UA }
+    try {
+      const revoking = makeFacet({ onIpChange: 'revoke', onUserAgentChange: 'ignore' }).facet
+      expect(await revoking.evaluate(session(), drifted)).toMatchObject({ ok: false, reaction: 'revoke' })
+      const ignoring = makeFacet({ onIpChange: 'ignore', onUserAgentChange: 'ignore' }).facet
+      expect(await ignoring.evaluate(session(), drifted)).toEqual({ ok: true })
+      // The first drift's rejection does not skip the second's emit.
+      expect(emit).toHaveBeenCalledTimes(4)
+      expect(log).toHaveBeenCalledTimes(4)
+    } finally {
+      emit.mockRestore()
+      log.mockRestore()
+    }
   })
 })
 
@@ -229,6 +258,14 @@ describe('strict closes the free downgrade a dropped header used to buy', () => 
     expect(await facet.evaluate(session({ ip: null }), { ip: OTHER_IP, userAgent: BASE_UA })).toMatchObject({
       reaction: 'rotate',
     })
+    const ua = makeFacet({ onIpChange: 'ignore', onMissingSignal: 'strict', onUserAgentChange: 'revoke' })
+    expect(await ua.facet.evaluate(session({ userAgent: null }), { ip: BASE_IP, userAgent: OTHER_UA })).toEqual({
+      from: '',
+      ok: false,
+      reaction: 'rotate',
+      signal: 'user-agent-change',
+      to: OTHER_UA,
+    })
   })
 
   it('leaves an explicit ignore alone rather than promoting it', async () => {
@@ -237,41 +274,83 @@ describe('strict closes the free downgrade a dropped header used to buy', () => 
   })
 })
 
-describe('diagnostic values are capped before they reach a sink', () => {
+describe('the suspicious event names the session, and the raw values stay in-process', () => {
+  it.each([
+    ['an ip', { ip: OTHER_IP, userAgent: BASE_UA }, { onIpChange: 'mfa' as const }],
+    ['a user agent', { ip: BASE_IP, userAgent: OTHER_UA }, { onUserAgentChange: 'mfa' as const }],
+  ])('emits no address or header when %s drifts, and answers both sides to the caller', async (_, request, policy) => {
+    const { facet, emitted } = makeFacet(policy)
+    const result = await facet.evaluate(session(), request)
+    expect(emitted).toHaveLength(1)
+    expect(emitted[0]?.meta).toEqual({ sessionId: 'sess-1' })
+    for (const raw of [BASE_IP, OTHER_IP, BASE_UA, OTHER_UA]) expect(JSON.stringify(emitted)).not.toContain(raw)
+    expect(result).toMatchObject({ ok: false, from: request.ip === OTHER_IP ? BASE_IP : BASE_UA })
+  })
+})
+
+describe('diagnostic values are capped before they reach the caller', () => {
   it('passes a normal user agent through unchanged', async () => {
-    const { facet, emitted } = makeFacet({ onUserAgentChange: 'mfa' })
-    await facet.evaluate(session(), { ip: BASE_IP, userAgent: OTHER_UA })
-    expect(emitted[0]?.meta).toMatchObject({ from: BASE_UA, to: OTHER_UA })
+    const { facet } = makeFacet({ onUserAgentChange: 'mfa' })
+    const result = await facet.evaluate(session(), { ip: BASE_IP, userAgent: OTHER_UA })
+    expect(result).toMatchObject({ from: BASE_UA, to: OTHER_UA })
   })
 
-  it('truncates an oversize header rather than shipping kilobytes per drift', async () => {
-    const { facet, emitted } = makeFacet({ onUserAgentChange: 'mfa' })
-    const huge = 'U'.repeat(10_000)
-    const result = await facet.evaluate(session(), { ip: BASE_IP, userAgent: huge })
+  it('truncates an oversize header to its first 256 characters rather than carrying kilobytes per drift', async () => {
+    const { facet } = makeFacet({ onUserAgentChange: 'mfa' })
+    const result = await facet.evaluate(session(), { ip: BASE_IP, userAgent: 'U'.repeat(10_000) })
+    expect(result).toMatchObject({ to: `${'U'.repeat(256)}...(truncated)` })
+  })
 
-    expect((emitted[0]?.meta.to as string).length).toBeLessThan(300)
-    expect(emitted[0]?.meta.to).toContain('...(truncated)')
-    expect((result as { to: string }).to).toContain('...(truncated)')
+  it('reports an oversize ip as the session column would hold it', async () => {
+    const { facet } = makeFacet({ onIpChange: 'mfa' })
+    const result = await facet.evaluate(session(), { ip: '1.2.3.4,'.repeat(5000), userAgent: BASE_UA })
+    expect(result).toMatchObject({ to: '1.2.3.4,'.repeat(8) })
+  })
+
+  it('truncates the recorded side too', async () => {
+    const { facet } = makeFacet({ onUserAgentChange: 'mfa' })
+    const result = await facet.evaluate(session({ userAgent: 'B'.repeat(1000) }), { ip: BASE_IP, userAgent: BASE_UA })
+    expect(result).toMatchObject({ from: `${'B'.repeat(256)}...(truncated)` })
   })
 
   it('keeps a value exactly at the limit intact', async () => {
-    const { facet, emitted } = makeFacet({ onUserAgentChange: 'mfa' })
+    const { facet } = makeFacet({ onUserAgentChange: 'mfa' })
     const exact = 'U'.repeat(256)
-    await facet.evaluate(session(), { ip: BASE_IP, userAgent: exact })
-    expect(emitted[0]?.meta.to).toBe(exact)
+    expect(await facet.evaluate(session(), { ip: BASE_IP, userAgent: exact })).toMatchObject({ to: exact })
   })
 
   it('renders a missing side as an empty string rather than the word undefined', async () => {
-    const { facet, emitted } = makeFacet({ onUserAgentChange: 'mfa' })
-    await facet.evaluate(session(), { ip: BASE_IP, userAgent: null })
-    expect(emitted[0]?.meta.to).toBe('')
+    const { facet } = makeFacet({ onUserAgentChange: 'mfa' })
+    expect(await facet.evaluate(session(), { ip: BASE_IP, userAgent: null })).toMatchObject({ to: '' })
   })
 
   it('carries an injection payload as data', async () => {
-    const { facet, emitted } = makeFacet({ onUserAgentChange: 'mfa' })
+    const { facet } = makeFacet({ onUserAgentChange: 'mfa' })
     const payload = `'; DROP TABLE auth_sessions; --`
-    await facet.evaluate(session(), { ip: BASE_IP, userAgent: payload })
-    expect(emitted[0]?.meta.to).toBe(payload)
+    expect(await facet.evaluate(session(), { ip: BASE_IP, userAgent: payload })).toMatchObject({ to: payload })
+  })
+})
+
+describe('an empty request value is an absent one, as the session row stores it', () => {
+  it('finds no drift against a baseline the row never recorded', async () => {
+    const { facet, emitted } = makeFacet()
+    expect(await facet.evaluate(session({ ip: null, userAgent: null }), { ip: '', userAgent: '' })).toEqual({
+      ok: true,
+    })
+    expect(emitted).toEqual([])
+  })
+
+  it('softens a recorded value the request sent empty, as it does one the request dropped', async () => {
+    const { facet } = makeFacet({ onMissingSignal: 'soften', onUserAgentChange: 'mfa' })
+    expect(await facet.evaluate(session(), { ip: BASE_IP, userAgent: '' })).toMatchObject({
+      ok: false,
+      reaction: 'rotate',
+    })
+    const strict = makeFacet({ onMissingSignal: 'strict', onUserAgentChange: 'mfa' }).facet
+    expect(await strict.evaluate(session(), { ip: BASE_IP, userAgent: '' })).toMatchObject({
+      ok: false,
+      reaction: 'mfa',
+    })
   })
 })
 
@@ -284,33 +363,65 @@ describe('a guest session with no identity still reports', () => {
   })
 })
 
-describe('applyReaction turns a decision into the caller’s throw', () => {
-  it('throws a step-up requirement for mfa', () => {
-    const { facet } = makeFacet()
-    expect(() => facet.applyReaction('mfa')).toThrow(/AUTH_STEP_UP_REQUIRED/)
+describe('applyReaction carries a decision out', () => {
+  it('ends the session for revoke, then refuses it, naming the policy', async () => {
+    const { facet, revoked } = makeFacet()
+    await expect(facet.applyReaction('revoke', session())).rejects.toMatchObject({
+      code: 'AUTH_SESSION_REVOKED',
+      meta: { reason: 'hijack-policy' },
+    })
+    expect(revoked).toEqual(['sess-1'])
   })
 
-  it('throws a revocation for revoke', () => {
-    const { facet } = makeFacet()
-    expect(() => facet.applyReaction('revoke')).toThrow(/AUTH_SESSION_REVOKED/)
+  it('refuses a session a concurrent request already ended', async () => {
+    const { facet } = makeFacet({}, async () => {
+      throw new AuthError('AUTH_SESSION_REVOKED', { reason: 'not found' })
+    })
+    await expect(facet.applyReaction('revoke', session())).rejects.toMatchObject({
+      code: 'AUTH_SESSION_REVOKED',
+      meta: { reason: 'hijack-policy' },
+    })
   })
 
-  it('does not throw for rotate, which the caller handles itself', () => {
-    const { facet } = makeFacet()
-    expect(() => facet.applyReaction('rotate')).not.toThrow()
+  it('raises a store outage rather than reading it as a session already ended', async () => {
+    const { facet } = makeFacet({}, async () => {
+      throw new AuthError('AUTH_ADAPTER_FAILED')
+    })
+    await expect(facet.applyReaction('revoke', session())).rejects.toMatchObject({ code: 'AUTH_ADAPTER_FAILED' })
   })
 
-  it('does not throw for ignore', () => {
-    const { facet } = makeFacet()
-    expect(() => facet.applyReaction('ignore')).not.toThrow()
+  it('asks for a step-up on mfa and ends nothing', async () => {
+    const { facet, revoked } = makeFacet()
+    await expect(facet.applyReaction('mfa', session())).rejects.toMatchObject({
+      code: 'AUTH_STEP_UP_REQUIRED',
+      meta: { challenge: { reason: 'hijack-policy' } },
+    })
+    expect(revoked).toEqual([])
   })
 
-  it('names the policy as the reason, so the cause is legible downstream', () => {
-    const { facet } = makeFacet()
-    try {
-      facet.applyReaction('revoke')
-    } catch (err) {
-      expect((err as { meta: { reason: string } }).meta.reason).toBe('hijack-policy')
+  it('does nothing for rotate, which the caller performs, or for ignore', async () => {
+    const { facet, revoked } = makeFacet()
+    await expect(facet.applyReaction('rotate', session())).resolves.toBeUndefined()
+    await expect(facet.applyReaction('ignore', session())).resolves.toBeUndefined()
+    expect(revoked).toEqual([])
+  })
+})
+
+describe('a policy it cannot carry out is refused', () => {
+  it('refuses a reaction or a missing-signal mode it does not know, which it enforced as nothing', () => {
+    for (const json of ['{"onUserAgentChange":"MFA"}', '{"onIpChange":"block"}', '{"onMissingSignal":"Strict"}']) {
+      expect(() => makeFacet(JSON.parse(json)), json).toThrow(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
+    }
+  })
+
+  it('carries out the same policy spelled right', async () => {
+    const { facet } = makeFacet(JSON.parse('{"onMissingSignal":"strict","onUserAgentChange":"mfa"}'))
+    const drift = await facet.evaluate(session(), { ip: BASE_IP, userAgent: OTHER_UA })
+    expect(drift).toMatchObject({ reaction: 'mfa' })
+    if (!drift.ok) {
+      await expect(facet.applyReaction(drift.reaction, session())).rejects.toMatchObject({
+        code: 'AUTH_STEP_UP_REQUIRED',
+      })
     }
   })
 })

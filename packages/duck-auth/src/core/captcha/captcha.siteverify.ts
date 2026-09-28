@@ -1,35 +1,37 @@
-/**
- * The one siteverify call the three providers share: Turnstile, hCaptcha and reCAPTCHA all take a
- * form-encoded `secret` + `response` POST and all answer with `success`, `error-codes`, `hostname` and
- * `challenge_ts`. Kept together because three copies drifted, each needing the status check, the timeout
- * and the token cap added separately.
- */
+/** The siteverify call the three providers share: a form-encoded `secret` + `response` POST, answered
+ *  with `success`, `error-codes`, `hostname` and `challenge_ts`. */
 
 import { AuthError } from '../errors'
+import { isFiniteNumber, isRecord } from '../predicates'
 import { assertSafeOutboundUrl } from '../url-validators'
 import {
   CAPTCHA_FORWARD_SKEW_MS,
   CAPTCHA_MAX_AGE_DEFAULT_MS,
   CAPTCHA_TIMEOUT_DEFAULT_MS,
+  CAPTCHA_TIMEOUT_MAX_MS,
   CAPTCHA_TOKEN_MAX_LENGTH,
 } from './captcha.constants'
 import type { AuthCaptcha } from './captcha.types'
 
+/** A siteverify body, with the wire's `error-codes` and `challenge_ts` renamed and everything a
+ *  provider does not send left off. */
 export interface SiteVerifyResponse {
   success: boolean
   errorCodes?: string[]
   hostname?: string
   challengeTs?: string
+  /** reCAPTCHA v3 only; {@link parseSiteVerifyBasic} never sets it. */
   score?: number
   action?: string
 }
 
-/** Config every verifier resolves its base options into once, at construction. */
+/** A verifier's base options, defaulted and validated once at construction. */
 export interface ResolvedCaptchaCfg {
   secret: string
   fetch: typeof globalThis.fetch
   endpoint: string
   timeoutMs: number
+  /** Lowercased, and `null` when the hostname is reported but not checked. */
   expectedHostnames: string[] | null
   expectedAction: string | undefined
   maxChallengeAgeMs: number
@@ -45,15 +47,16 @@ export function resolveCaptchaCfg(
     throw new AuthError('AUTH_MISCONFIGURED', { detail: `${verifier} requires a \`secret\`` })
   }
   const resolvedEndpoint = cfg.endpoint ?? endpoint
-  // The secret is posted to whatever this points at, so it gets the same guard as any other
-  // outbound URL in the library rather than being the one that takes a loopback address quietly.
+  // The secret is posted here, so it gets the guard every other outbound URL does.
   assertSafeOutboundUrl(resolvedEndpoint, {
     allowInsecure: cfg.allowInsecureEndpoint ?? false,
     label: `${verifier} endpoint`,
   })
   const timeoutMs = cfg.timeoutMs ?? CAPTCHA_TIMEOUT_DEFAULT_MS
-  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
-    throw new AuthError('AUTH_MISCONFIGURED', { detail: `${verifier} timeoutMs must be a positive finite number` })
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0 || timeoutMs > CAPTCHA_TIMEOUT_MAX_MS) {
+    throw new AuthError('AUTH_MISCONFIGURED', {
+      detail: `${verifier} timeoutMs must be a positive number up to ${CAPTCHA_TIMEOUT_MAX_MS}`,
+    })
   }
   const maxChallengeAgeMs = cfg.maxChallengeAgeMs ?? CAPTCHA_MAX_AGE_DEFAULT_MS
   if (!Number.isFinite(maxChallengeAgeMs) || maxChallengeAgeMs < 0) {
@@ -71,9 +74,10 @@ export function resolveCaptchaCfg(
     throw new AuthError('AUTH_MISCONFIGURED', { detail: `${verifier} expectedAction must be a non-empty string` })
   }
   return {
-    endpoint: resolvedEndpoint,
+    // Canonical, so the verifiers' `startsWith('http:')` also catches `HTTP://` and a leading space.
+    endpoint: new URL(resolvedEndpoint).href,
     expectedAction: cfg.expectedAction,
-    expectedHostnames: hosts,
+    expectedHostnames: hosts?.map((h) => h.toLowerCase()) ?? null,
     fetch: cfg.fetch ?? globalThis.fetch,
     maxChallengeAgeMs,
     secret: cfg.secret,
@@ -81,29 +85,36 @@ export function resolveCaptchaCfg(
   }
 }
 
+/** A body that passed every shared check, or the failed result to hand straight back. */
 export type SiteVerifyOutcome =
   | { ok: true; parsed: SiteVerifyResponse }
   | { ok: false; result: AuthCaptcha.IVerifyResult }
 
-/** POST the token and return either the parsed body or the failed result to hand straight back. */
+/** POST the token and run the checks every provider shares. */
 export async function siteVerify(
   cfg: ResolvedCaptchaCfg,
   input: AuthCaptcha.IVerifyInput,
   parse: (raw: unknown) => SiteVerifyResponse | null,
 ): Promise<SiteVerifyOutcome> {
   if (!input.token) return fail(['missing-input-response'])
+  // A parsed body can hand over an array, whose `.length` counts elements and so slips the cap.
+  if (typeof input.token !== 'string') return fail(['invalid-input-response'])
   if (input.token.length > CAPTCHA_TOKEN_MAX_LENGTH) return fail(['invalid-input-response', 'token-too-large'])
+  // SECURITY: `''` would match the `''` a response without a hostname falls back to, turning the check off.
+  const host = input.expectedHostname
+  if (host !== undefined && (typeof host !== 'string' || host.length === 0)) return fail(['invalid-expected-hostname'])
+  // SECURITY: `''` would replace the configured action and match a widget mounted without one.
+  if (input.expectedAction === '') return fail(['invalid-expected-action'])
 
   const body = new URLSearchParams({
     secret: cfg.secret,
     response: input.token,
-    ...(input.remoteIp !== undefined && { remoteip: input.remoteIp }),
+    ...(input.remoteIp ? { remoteip: input.remoteIp } : null),
   })
-  // Captcha fronts sign-in, so a provider that never answers parks the login path. `fetch` settles on
-  // the headers, so the deadline stays armed over the body read too.
+  // Armed over the body read too: `fetch` settles on the headers.
   const abort = new AbortController()
   const timer = setTimeout(() => abort.abort(), cfg.timeoutMs)
-  let raw: unknown
+  let text: string
   try {
     const res = await cfg.fetch(cfg.endpoint, {
       method: 'POST',
@@ -114,62 +125,60 @@ export async function siteVerify(
       redirect: 'error',
       signal: abort.signal,
     })
-    // A five hundred, a four twenty-nine, or a captive portal that happens to serialise
-    // `{"success":true}` is not a solved challenge, however well its body parses.
+    // A non-2xx is not a solved challenge, however well its body parses.
     if (!res.ok) return fail([`provider-http-${res.status}`])
-    raw = await readJsonSafe(res)
+    // As text, so a body the socket dropped fails here as the network's, and only one that is not JSON
+    // reaches `parse` as malformed.
+    text = await res.text()
   } catch (err) {
     if (abort.signal.aborted) return fail(['timeout'])
-    return fail(['network-error', err instanceof Error ? err.message : String(err)])
+    return fail(['network-error'], err instanceof Error ? err.message : String(err))
   } finally {
     clearTimeout(timer)
   }
-  // `readJsonSafe` swallows the aborted read into `null`, which would read as a malformed body.
-  if (abort.signal.aborted) return fail(['timeout'])
 
-  const parsed = parse(raw)
+  const parsed = parse(parseJsonOrNull(text))
   if (!parsed) return fail(['malformed-response'])
 
-  const carried: AuthCaptcha.IVerifyResult = { success: false }
-  if (parsed.hostname !== undefined) carried.hostname = parsed.hostname
-  if (parsed.challengeTs !== undefined) carried.challengeTs = parsed.challengeTs
-  if (parsed.errorCodes !== undefined) carried.errorCodes = parsed.errorCodes
-  if (parsed.action !== undefined) carried.action = parsed.action
-  if (parsed.score !== undefined) carried.score = parsed.score
+  // Every refusal below still reports what the provider sent, so the caller can apply its own rule.
+  const carried = toResult(parsed, false)
+  const refuse = (code: string): SiteVerifyOutcome => ({
+    ok: false,
+    result: { ...carried, errorCodes: [...(carried.errorCodes ?? []), code] },
+  })
 
-  // SECURITY: `''` matches the empty string a response without a hostname falls back to, so an
-  // override the constructor would have refused turns the check off instead of tightening it.
-  const host = input.expectedHostname
-  if (host !== undefined && (typeof host !== 'string' || host.length === 0)) {
-    const codes = [...(carried.errorCodes ?? []), 'invalid-expected-hostname']
-    return { ok: false, result: { ...carried, errorCodes: codes } }
-  }
-  const expected = host !== undefined ? [host] : cfg.expectedHostnames
-  if (expected !== null && !expected.includes(parsed.hostname ?? '')) {
-    return { ok: false, result: { ...carried, errorCodes: [...(carried.errorCodes ?? []), 'hostname-mismatch'] } }
-  }
-  // Turnstile and reCAPTCHA v3 both echo the action their widget was mounted with, so the check sits
-  // here rather than in either. A response carrying the wrong action, or none, fails it.
+  // Case-insensitive, as a hostname is (RFC 4343).
+  const expected = host !== undefined ? [host.toLowerCase()] : cfg.expectedHostnames
+  if (expected !== null && !expected.includes((parsed.hostname ?? '').toLowerCase())) return refuse('hostname-mismatch')
+  // Turnstile and reCAPTCHA v3 both echo the widget's action; a wrong one, or none, fails.
   const action = input.expectedAction ?? cfg.expectedAction
-  if (action !== undefined && parsed.action !== action) {
-    return { ok: false, result: { ...carried, errorCodes: [...(carried.errorCodes ?? []), 'action-mismatch'] } }
-  }
-  const aged = isChallengeTooOld(parsed.challengeTs, cfg.maxChallengeAgeMs)
-  if (aged !== null) {
-    return { ok: false, result: { ...carried, errorCodes: [...(carried.errorCodes ?? []), aged] } }
-  }
+  if (action !== undefined && parsed.action !== action) return refuse('action-mismatch')
+  const aged = challengeAgeRefusal(parsed.challengeTs, cfg.maxChallengeAgeMs)
+  if (aged !== null) return refuse(aged)
+  // A rejection always names a code: `errorCodes` is all a caller has to log.
+  if (!parsed.success && !parsed.errorCodes?.length) parsed.errorCodes = ['provider-rejected']
   return { ok: true, parsed }
 }
 
-function fail(errorCodes: string[]): SiteVerifyOutcome {
-  return { ok: false, result: { errorCodes, success: false } }
+/** The provider's own fields, carried through for a caller applying its own rule. */
+export function toResult(parsed: SiteVerifyResponse, success: boolean): AuthCaptcha.IVerifyResult {
+  const out: AuthCaptcha.IVerifyResult = { success }
+  if (parsed.score !== undefined) out.score = parsed.score
+  if (parsed.errorCodes !== undefined) out.errorCodes = parsed.errorCodes
+  if (parsed.hostname !== undefined) out.hostname = parsed.hostname
+  if (parsed.action !== undefined) out.action = parsed.action
+  if (parsed.challengeTs !== undefined) out.challengeTs = parsed.challengeTs
+  return out
 }
 
-/**
- * `null` when the timestamp is acceptable or absent. A provider that sends no `challenge_ts` cannot
- * be aged, and refusing on that would break the ones that do not send it at all.
- */
-function isChallengeTooOld(challengeTs: string | undefined, maxAgeMs: number): string | null {
+/** A failure with nothing parsed behind it. */
+function fail(errorCodes: string[], detail?: string): SiteVerifyOutcome {
+  return { ok: false, result: { errorCodes, success: false, ...(detail !== undefined && { detail }) } }
+}
+
+/** The code for a `challenge_ts` too old or too far ahead; `null` when fine, or absent, since a provider
+ *  that sends none cannot be aged. */
+function challengeAgeRefusal(challengeTs: string | undefined, maxAgeMs: number): string | null {
   if (maxAgeMs === 0 || challengeTs === undefined) return null
   const at = Date.parse(challengeTs)
   if (Number.isNaN(at)) return 'malformed-challenge-ts'
@@ -178,20 +187,18 @@ function isChallengeTooOld(challengeTs: string | undefined, maxAgeMs: number): s
   return age < -CAPTCHA_FORWARD_SKEW_MS ? 'challenge-in-future' : null
 }
 
-async function readJsonSafe(res: Response): Promise<unknown> {
+/** The body as JSON, or `null` when it is not JSON. */
+function parseJsonOrNull(text: string): unknown {
   try {
-    return await res.json()
+    return JSON.parse(text)
   } catch {
     return null
   }
 }
 
-export function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v)
-}
-
+/** `undefined` when absent, `null` when not a list of strings. */
 function parseErrorCodes(raw: unknown): string[] | null | undefined {
-  if (raw === undefined) return undefined
+  if (raw === undefined || raw === null) return undefined
   if (!Array.isArray(raw)) return null
   const out: string[] = []
   for (const c of raw) {
@@ -201,8 +208,10 @@ function parseErrorCodes(raw: unknown): string[] | null | undefined {
   return out
 }
 
+/** The fields Turnstile and hCaptcha share. `null` for anything that is not a siteverify body, which
+ *  the caller reports as `malformed-response` rather than as a failed challenge. */
 export function parseSiteVerifyBasic(raw: unknown): SiteVerifyResponse | null {
-  if (!isPlainObject(raw)) return null
+  if (!isRecord(raw)) return null
   if (typeof raw.success !== 'boolean') return null
   const errorCodes = parseErrorCodes(raw['error-codes'])
   if (errorCodes === null) return null
@@ -223,11 +232,13 @@ export function parseSiteVerifyBasic(raw: unknown): SiteVerifyResponse | null {
   return out
 }
 
+/** {@link parseSiteVerifyBasic} plus reCAPTCHA v3's `score`. A score that is not a finite number makes
+ *  the whole body malformed, rather than a pass with the score quietly dropped. */
 export function parseSiteVerifyRecaptchaV3(raw: unknown): SiteVerifyResponse | null {
   const base = parseSiteVerifyBasic(raw)
-  if (!base || !isPlainObject(raw)) return null
+  if (!base || !isRecord(raw)) return null
   if (raw.score !== undefined) {
-    if (typeof raw.score !== 'number' || !Number.isFinite(raw.score)) return null
+    if (!isFiniteNumber(raw.score)) return null
     base.score = raw.score
   }
   return base

@@ -46,11 +46,8 @@ export async function resolveSession<Profile extends Identities.ProfileMetadataB
     return { session, identity }
   }
 
-  // SECURITY: these two are the refusals a transport reaches only about a token it authenticated -- every
-  // "not a token of mine" rejection is in the absent set -- so they are kept and answered below. The
-  // store cannot improve on either: it is keyed by sid hash and holds no row for a minted token, so falling
-  // through would replace a dated verdict with "no session for that sid". A closed impersonation window is
-  // the one an operator's SOC alerts on, and it is what the generic refusal used to swallow.
+  // SECURITY: a transport raises these two only about a token it authenticated, and the store holds no
+  // row for a minted token, so they are kept and answered below rather than falling through.
   let verdictByTransport: unknown
   if (engine.transport.verify) {
     // A transport whose dependency broke still throws here rather than being read as "not signed in";
@@ -68,10 +65,12 @@ export async function resolveSession<Profile extends Identities.ProfileMetadataB
       if (opts.expectedTenantId !== undefined && verified.tenantId !== opts.expectedTenantId) {
         throw new AuthError('AUTH_SESSION_REVOKED', { reason: 'the token was minted for another tenant' })
       }
-      const identity = verified.identityId
-        ? await orNull(engine.cfg.stores.identities.find({ id: verified.identityId }))
+      const { scope, ...session } = verified
+      const identity = session.identityId
+        ? await orNull(engine.cfg.stores.identities.find({ id: session.identityId }))
         : null
-      return finalize(verified, identity)
+      const result = await finalize(session, identity)
+      return scope ? { ...result, scope } : result
     }
   }
 
@@ -94,5 +93,18 @@ export async function resolveSession<Profile extends Identities.ProfileMetadataB
     throw verdictByTransport ?? err
   })
 
-  return finalize(resolved.session, resolved.identity)
+  // Slides the idle deadline once less than half of it is left, so an active user stays signed in up to the
+  // absolute cap and the row is written at most once per half TTL. A concurrent request that slid it first wins.
+  const { session } = resolved
+  const ttlMs = engine.cfg.session?.ttlMs ?? DEFAULT_SESSION_CONFIG.ttlMs
+  const expiresAtMs = session.expiresAt.getTime()
+  const slid =
+    expiresAtMs < session.absoluteExpiresAt.getTime() && expiresAtMs - Date.now() < ttlMs / 2
+      ? await engine.sessions.touch(token).catch((err: unknown) => {
+          if (err instanceof AuthError && err.code === 'AUTH_STALE_WRITE') return session
+          throw err
+        })
+      : session
+
+  return finalize(slid, resolved.identity)
 }

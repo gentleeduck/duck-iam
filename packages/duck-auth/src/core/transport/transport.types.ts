@@ -4,6 +4,7 @@ import type { Sessions } from '~/core/sessions/sessions.types'
 /** Cookie for web, Bearer for native and API keys, JWT for the stateless edge. Apps pick one or
  *  compose them, and the same AuthEngine wires either way. */
 export namespace Transport {
+  /** Cookie attributes a transport sets. */
   export type CookieOptions = {
     domain?: string
     path?: string
@@ -16,6 +17,7 @@ export namespace Transport {
     expires?: Date
   }
 
+  /** What `issue` needs besides the session. */
   export type IssueOpts = {
     /** Newly created or just rotated; drives the cookie `Max-Age` and the JWT `exp`. */
     fresh: boolean
@@ -29,6 +31,10 @@ export namespace Transport {
     csrfToken?: string
   }
 
+  /** A session rebuilt from a self-contained token, with the scopes the token was granted when it carries any. */
+  export type Verified = Sessions.Me & { scope?: string[] }
+
+  /** How a session travels: read from a request, written to a response. */
   export type ITransport = {
     /** The cookie value, header token or JWT carried by an inbound request. */
     extract(req: { headers: Headers }): string | null
@@ -39,7 +45,7 @@ export namespace Transport {
     /** The response Intent that revokes any persisted bearer. */
     revoke(): Provider.Intent[]
     /** `CookieTransport` has no `verify` at all and leaves the caller to the `Sessions.Store` lookup. */
-    verify?(token: string): Promise<Sessions.Me>
+    verify?(token: string): Promise<Verified>
     /** The longest token this transport accepts. A composite takes the largest its members declare rather than
      *  carrying its own constant, which silently clamped any member with a wider ceiling. */
     maxTokenLength?: number

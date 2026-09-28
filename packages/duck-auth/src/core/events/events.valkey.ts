@@ -23,7 +23,13 @@ export function valkeyPubSubAdapter(
         if (ch === channel) void onMessage(ch, message)
       }
       sub.on('message', listener)
-      await sub.subscribe(channel)
+      try {
+        await sub.subscribe(channel)
+      } catch (err) {
+        // Detached, or the retry the next `on()` makes adds a second listener and every message runs twice.
+        sub.off('message', listener)
+        throw err
+      }
       return async () => {
         sub.off('message', listener)
         await sub.unsubscribe(channel)

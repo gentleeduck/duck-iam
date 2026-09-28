@@ -26,21 +26,27 @@ export namespace Flows {
     cfg: Flows.Cfg
   }
 
+  /** The flows facet's settings. */
   export interface Cfg {
     /** What `signIn` calls `SessionsImpl.rotateOrCreate` with by default. */
     signInPurpose: 'signin' | 're-auth'
   }
 
+  /** What `flows.signIn` takes: the provider, its input, and the caller. */
   export interface SignInOptions {
+    /** The registered provider to sign in with. */
     providerId: string
+    /** What that provider's `complete` takes. */
     input: unknown
     /** The active SID, from the cookie or the bearer; `rotateOrCreate` revokes it. */
     previousSid?: string
+    /** The caller's address and user agent, stamped on the session and read by the hijack check. */
     ip?: string
     userAgent?: string
     tenantId?: string
   }
 
+  /** What `flows.signIn` answers: the new session and the intents to apply to the response. */
   export type SignInOutcome = {
     /** Persisted session row, keyed by the hashed sid. Null when the provider issued no `startSession`
      *  intent and wants the caller to answer with something else - a redirect or a json body it put in
@@ -53,6 +59,7 @@ export namespace Flows {
     intents: Provider.Intent[]
   }
 
+  /** What a privileged operation demands of the session before it runs. */
   export type StepUpRequirement = {
     /** Required AAL on the post-step-up session. Default 2. */
     aal?: Sessions.AAL
@@ -62,10 +69,12 @@ export namespace Flows {
     freshness?: number
   }
 
+  /** Whether the session meets a `StepUpRequirement`, and what is missing when it does not. */
   export type StepUpOutcome =
     | { satisfied: true; session: Sessions.Me; sid: string; intents: Provider.Intent[] }
     | { satisfied: false; reason: 'mfa-required' | 'fresh-required'; methods: Sessions.FactorMethod[] }
 
+  /** Where a reset link goes and how long it lives. */
   export type PasswordResetRequestInput = {
     email: string
     /** Path on the app that handles the reset; the library appends `?token=`. */
@@ -74,11 +83,13 @@ export namespace Flows {
     ttlMs?: number
   }
 
+  /** The reset token and the password it sets. */
   export type PasswordResetCompleteInput = {
     token: string
     newPassword: string
   }
 
+  /** A multi-stage sign-up in progress. */
   export type SignUpFlowState<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase> = {
     /** Opaque flow id; surfaced to the framework adapter to put on a __Host-duck-signup cookie. */
     id: string
@@ -98,6 +109,7 @@ export namespace Flows {
     createdAt: number
   }
 
+  /** Who starts an impersonation, of whom, and why. */
   export type ImpersonateOptions = {
     /** Caller's session id (the real subject). */
     realSid: string
@@ -113,6 +125,7 @@ export namespace Flows {
     tenantId?: string
   }
 
+  /** The impersonating session and the intents that hand it to the operator. */
   export type ImpersonateOutcome = {
     session: Sessions.Me
     /** For the new `actingAs` session, separate from the real one. */
@@ -121,6 +134,7 @@ export namespace Flows {
     intents: Provider.Intent[]
   }
 
+  /** A step of a multi-stage sign-up. */
   export type SignUpStage =
     | 'email-collected'
     | 'email-verified'
@@ -129,10 +143,11 @@ export namespace Flows {
     | 'terms-accepted'
     | 'completed'
 
+  /** Attach a provider login to an identity, behind the host's own authorization. */
   export type LinkProviderInput<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase> = {
     /** Identity to attach the provider link to. */
     identityId: string
-    /** Such as `'authGoogle'` or `'authGithub'`. */
+    /** The id the provider signs in under, such as `'oauth:google'`; sign-in finds no link under any other. */
     providerId: string
     /** Verified by the oauth dance the caller just completed. */
     providerSub: string
@@ -152,6 +167,7 @@ export namespace Flows {
     tenantId?: string
   }
 
+  /** Detach a provider login from an identity. */
   export type UnlinkProviderInput = {
     identityId: string
     providerId: string
@@ -160,6 +176,7 @@ export namespace Flows {
     allowLockout?: boolean
   }
 
+  /** Who to send a verification link to, and where it lands. */
   export type EmailVerificationRequestInput = {
     /** Identity to verify. */
     identityId: string
@@ -170,12 +187,14 @@ export namespace Flows {
     tenantId?: string
   }
 
+  /** The token from a verification link. */
   export type EmailVerificationCompleteInput = {
     /** Token plaintext as received from the verify link. */
     token: string
     tenantId?: string
   }
 
+  /** Who asked to delete their account, and where the confirmation link lands. */
   export type AccountDeletionRequestInput = {
     identityId: string
     /** Default 30 minutes. */
@@ -187,6 +206,7 @@ export namespace Flows {
     tenantId?: string
   }
 
+  /** The confirmation token, and whether to send the undo link. */
   export type AccountDeletionCompleteInput = {
     /** Token from the confirmation link. */
     token: string

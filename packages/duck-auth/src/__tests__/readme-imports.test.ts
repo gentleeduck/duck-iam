@@ -1,6 +1,6 @@
 /**
- * Every `@gentleduck/auth/...` import we hand a consumer has to resolve. The README examples are strings,
- * so no build anywhere type-checks them, and a renamed export or a retired subpath rots there silently.
+ * Every `@gentleduck/auth/...` path and import we hand a consumer has to resolve. The README examples are
+ * strings, so no build anywhere type-checks them, and a renamed export or a retired subpath rots there silently.
  */
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
@@ -14,7 +14,8 @@ const EXPORTS: Record<string, unknown> = JSON.parse(readFileSync(resolve(ROOT, '
 /** `import { a, b } from '@gentleduck/auth/x'`, tolerating multi-line blocks and `// ...` comments. */
 function importsIn(text: string, label: string): { where: string; subpath: string; symbols: string[] }[] {
   const out: { where: string; subpath: string; symbols: string[] }[] = []
-  const re = /import\s*\{([\s\S]*?)\}\s*from\s*'@gentleduck\/auth([^']*)'/g
+  // `[^}]`, so an import from another package does not run on into the next one of ours.
+  const re = /import\s*\{([^}]*)\}\s*from\s*'@gentleduck\/auth([^']*)'/g
   for (const m of text.matchAll(re)) {
     const names = (m[1] ?? '')
       .replace(/\/\/[^\n]*/g, '')
@@ -91,9 +92,22 @@ describe('the imports we ship to consumers', () => {
     expect(imports.length).toBeGreaterThan(10)
   })
 
-  it('names only subpaths the package exports', () => {
-    const bad = imports.filter((i) => !(i.subpath in EXPORTS)).map((i) => `${i.where} ${i.subpath}`)
+  it('names only subpaths the package exports, in tables and prose as well as imports', () => {
+    const bad: string[] = []
+    for (const m of README.matchAll(/@gentleduck\/auth(\/[\w./-]*[\w-])?/g)) {
+      const subpath = `.${m[1] ?? ''}`
+      if (!(subpath in EXPORTS)) bad.push(`README.md:${README.slice(0, m.index).split('\n').length} ${subpath}`)
+    }
     expect(bad).toEqual([])
+  })
+
+  it('exports only subpaths the build emits', () => {
+    const config = readFileSync(resolve(ROOT, 'tsdown.config.ts'), 'utf8')
+    const entries = new Set([...config.matchAll(/'?([\w./-]+)'?: 'src\//g)].map((m) => m[1]))
+    const pkg = readFileSync(resolve(ROOT, 'package.json'), 'utf8')
+    const targets = [...pkg.matchAll(/"\.\/dist\/([\w./-]+)\.js"/g)].map((m) => m[1])
+    expect(targets.length).toBe(Object.keys(EXPORTS).length)
+    expect(targets.filter((t) => !entries.has(t))).toEqual([])
   })
 
   it('names only symbols those modules export', () => {

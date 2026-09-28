@@ -5,6 +5,7 @@ import type { RedisLike } from './redis-like'
  * `iovalkey` is an `ioredis` fork, so one adapter serves both.
  */
 export namespace ValkeyClient {
+  /** The client surface the Valkey-backed stores call. */
   export type Me = {
     /** The string at this key, or `null` when it is unset. */
     get(key: string): Promise<string | null>
@@ -37,7 +38,9 @@ export namespace ValkeyClient {
      * type-check against its own adapter.
      */
     set(key: string, value: string, ...args: any[]): Promise<any>
+    /** Adds members to a sorted set. */
     zadd(key: string, ...args: any[]): Promise<any>
+    /** The members of a sorted set whose score falls between `min` and `max`. */
     zrangebyscore(key: string, min: number | string, max: number | string, ...args: any[]): Promise<any>
   }
 }
@@ -98,10 +101,15 @@ export function valkeyAdapter(client: ValkeyClient.Me): RedisLike.Client {
  * unsubscribes, so this is always a second, separate client from the command one.
  */
 export namespace ValkeySubscriberClient {
+  /** The pub/sub surface a dedicated subscriber connection needs. */
   export type Me = {
+    /** Subscribes to the channels. */
     subscribe(...channels: string[]): Promise<unknown>
+    /** Unsubscribes from the channels. */
     unsubscribe(...channels: string[]): Promise<unknown>
+    /** Adds a message listener. */
     on(event: 'message', listener: (channel: string, message: string) => void): unknown
+    /** Removes a message listener. */
     off(event: 'message', listener: (channel: string, message: string) => void): unknown
   }
 }

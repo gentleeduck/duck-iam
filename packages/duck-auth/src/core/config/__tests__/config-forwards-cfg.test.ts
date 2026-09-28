@@ -3,7 +3,6 @@ import { MemoryAdapter } from '~/adapters/memory'
 import { actorId, setDefaultActorResolver } from '~/core/actor'
 import { type AuthCaptcha, AuthUnconfiguredCaptchaVerifier } from '~/core/captcha'
 import { createAuth } from '~/core/config/config'
-import { idempotency as idempotencyFacet, MemoryIdempotency } from '~/core/idempotency'
 
 function base() {
   const a = new MemoryAdapter()
@@ -45,11 +44,6 @@ describe('createAuth forwards the whole engine config', () => {
     // `updated_by` / `deleted_by` empty, which is the audit trail going missing
     // for exactly the host that took the trouble to wire one up.
     expect(actorId()).toBe('ops-7')
-  })
-
-  it('forwards idempotency', () => {
-    const idempotency = idempotencyFacet(new MemoryIdempotency())
-    expect(createAuth({ ...base(), idempotency }).idempotency).toBe(idempotency)
   })
 
   it('still defaults transport when none was given', () => {

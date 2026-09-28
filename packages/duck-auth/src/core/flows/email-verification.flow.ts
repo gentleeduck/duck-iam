@@ -20,6 +20,11 @@ export async function requestEmailVerification<Profile extends Identities.Profil
 ): Promise<{ ok: true }> {
   const ctx = deps.ctxFactory(opts.tenantId)
   const ttlMs = opts.ttlMs ?? 30 * 60 * 1000
+  if (!Number.isFinite(ttlMs) || ttlMs <= 0) {
+    throw new AuthError('AUTH_MISCONFIGURED', {
+      detail: `email-verification: ttlMs must be a finite positive number (got ${ttlMs})`,
+    })
+  }
   const callbackPath = isSafeCallbackPath(opts.callbackPath) ? opts.callbackPath : '/auth/verify-email'
 
   const identity = await orNull(ctx.stores.identities.find({ id: opts.identityId }))
@@ -58,14 +63,16 @@ export async function requestEmailVerification<Profile extends Identities.Profil
       identityId: opts.identityId,
       kind: 'recovery',
       secret: tokenHash,
-      metadata: { purpose: RECOVERY_PURPOSES.emailVerification },
+      // The address the link is mailed to, so it cannot verify whatever the profile says by the time it is clicked.
+      metadata: { email: identity.profile.email, purpose: RECOVERY_PURPOSES.emailVerification },
       expiresAt: new Date(Date.now() + ttlMs),
     }),
     ctx.tenant,
   )
 
   const url = `${ctx.baseUrl}${callbackPath}?token=${encodeURIComponent(token)}`
-  await deliver(ctx.events, 'email-verification', deps.deliver, {
+  await deliver(ctx.events, deps.deliver, {
+    kind: 'email-verification',
     identity,
     vars: { url, ttlMin: Math.round(ttlMs / 60_000) },
     tenant: ctx.tenant,
@@ -83,7 +90,13 @@ export async function completeEmailVerification<Profile extends Identities.Profi
   const ctx = deps.ctxFactory(input.tenantId)
   const hash = ctx.crypto.authSha256(input.token)
   const row = await orNull(ctx.stores.credentials.findByHashedSecret(hash, 'recovery', ctx.tenant))
-  if (!row || isRevoked(row) || getCredentialPurpose(row) !== RECOVERY_PURPOSES.emailVerification) {
+  const email = row?.metadata?.email
+  if (
+    !row ||
+    isRevoked(row) ||
+    getCredentialPurpose(row) !== RECOVERY_PURPOSES.emailVerification ||
+    typeof email !== 'string'
+  ) {
     throw new AuthError('AUTH_RECOVERY_TOKEN_INVALID')
   }
   if (isCredentialExpired(row)) {
@@ -96,7 +109,12 @@ export async function completeEmailVerification<Profile extends Identities.Profi
   // Through the facet, not the raw store. `IdentitiesImpl` is where the profile size cap and the
   // stale-write retry live, and a flow reaching past it to `ctx.stores.identities.update` gets
   // neither.
-  const verified = await deps.identities.markEmailVerified(row.identityId)
+  // A link mailed to an address the account has since moved off verifies nothing.
+  const verified = await deps.identities.markEmailVerified(row.identityId, email).catch((err: unknown) => {
+    throw err instanceof AuthError && err.code === 'AUTH_INVALID_PARAMETERS'
+      ? new AuthError('AUTH_RECOVERY_TOKEN_INVALID')
+      : err
+  })
   await ctx.stores.credentials.delete(row.id, ctx.tenant)
   // The verified row, straight off the write that set the flag, so a caller rendering the account
   // after verification need not read it back.

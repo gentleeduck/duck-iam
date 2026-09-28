@@ -7,7 +7,7 @@
   ],
   "infrastructure": {
     "provisioning": "src/test/e2e-containers.ts",
-    "note": "Redis, Postgres and MySQL containers start on ephemeral ports, are seeded, and are removed when the run ends. Suites skip themselves when DUCKAUTH_E2E_* is unset and docker is absent.",
+    "note": "Postgres, MySQL and Valkey containers start on ephemeral ports, are seeded, and are left up for the next run to reuse. Suites skip themselves when DUCKAUTH_E2E_* is unset and docker is absent; DUCKAUTH_E2E_REQUIRE=1 makes that a failure.",
     "schemas": [
       "src/test/pg-e2e-schema.sql",
       "src/test/mysql-e2e-schema.sql",
@@ -97,7 +97,6 @@
       "url": "src/__tests__/hostile-input.e2e.test.ts",
       "usedFor": [
         "Injection payloads, prototype-pollution keys, NUL bytes, four-byte emoji, combining marks, RTL overrides, oversize values, type confusion and concurrent stampedes, against a real database rather than a Map that accepts anything.",
-        "Cases named FINDING pin behaviour that is surprising and was left unrepaired, so the next reader meets a decision rather than a discovery.",
         "Values that are the right type and the wrong thing: an AAL of nine, an undefined session kind, a closed impersonation window, a negative rate-limit weight, a javascript: redirect target."
       ]
     },
@@ -121,12 +120,96 @@
         "Reset links time limited, and rate limited per account.",
         "Responses that do not vary by whether the account exists, in content or in timing."
       ]
+    },
+    "rfc6749": {
+      "title": "RFC 6749: The OAuth 2.0 Authorization Framework",
+      "publisher": "IETF",
+      "url": "https://www.rfc-editor.org/rfc/rfc6749",
+      "usedFor": [
+        "The client_credentials grant (section 4.4) and the scope grammar (section 3.3) the m2m exchange enforces."
+      ]
+    },
+    "rfc6750": {
+      "title": "RFC 6750: The OAuth 2.0 Authorization Framework: Bearer Token Usage",
+      "publisher": "IETF",
+      "url": "https://www.rfc-editor.org/rfc/rfc6750",
+      "usedFor": [
+        "A client must not send a token by more than one method in one request (section 2), which is why a composite transport refuses two credentials.",
+        "The Authorization: Bearer syntax the bearer transport parses."
+      ]
+    },
+    "rfc9449": {
+      "title": "RFC 9449: OAuth 2.0 Demonstrating Proof of Possession (DPoP)",
+      "publisher": "IETF",
+      "url": "https://www.rfc-editor.org/rfc/rfc9449",
+      "usedFor": [
+        "A proof's jti is accepted once, which is what the nonce stores enforce.",
+        "A proof-of-possession transport must not be bypassed by an unbound one composed beside it."
+      ]
+    },
+    "owasp-ssrf": {
+      "title": "OWASP Server-Side Request Forgery Prevention Cheat Sheet",
+      "publisher": "OWASP Cheat Sheet Series",
+      "url": "https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html",
+      "usedFor": [
+        "Refuse an outbound webhook target that reaches loopback, private or link-local space, in every spelling a URL parser accepts."
+      ]
+    },
+    "rfc4193": {
+      "title": "RFC 4193: Unique Local IPv6 Unicast Addresses",
+      "publisher": "IETF",
+      "url": "https://www.rfc-editor.org/rfc/rfc4193",
+      "usedFor": [
+        "fc00::/7, the IPv6 private range the webhook deny-list has to cover."
+      ]
+    },
+    "rfc4291": {
+      "title": "RFC 4291: IP Version 6 Addressing Architecture",
+      "publisher": "IETF",
+      "url": "https://www.rfc-editor.org/rfc/rfc4291",
+      "usedFor": [
+        "Loopback, link-local fe80::/10 and IPv4-mapped addresses, the IPv6 spellings of an inward target."
+      ]
+    },
+    "saml2-core": {
+      "title": "Assertions and Protocols for the OASIS Security Assertion Markup Language (SAML) V2.0",
+      "publisher": "OASIS",
+      "url": "https://docs.oasis-open.org/security/saml/v2.0/saml-core-2.0-os.pdf",
+      "usedFor": [
+        "NameID and its format, the assertion ID and AuthnContextClassRef, the fields the provider reads off a response."
+      ]
+    },
+    "saml2-profiles": {
+      "title": "Profiles for the OASIS Security Assertion Markup Language (SAML) V2.0",
+      "publisher": "OASIS",
+      "url": "https://docs.oasis-open.org/security/saml/v2.0/saml-profiles-2.0-os.pdf",
+      "usedFor": [
+        "The Web Browser SSO profile: RelayState returned from the request, Destination checked, and an assertion ID never accepted twice."
+      ]
+    },
+    "owasp-saml": {
+      "title": "OWASP SAML Security Cheat Sheet",
+      "publisher": "OWASP Cheat Sheet Series",
+      "url": "https://cheatsheetseries.owasp.org/cheatsheets/SAML_Security_Cheat_Sheet.html",
+      "usedFor": [
+        "Replay protection, unsolicited responses, and binding a response to the request that began it."
+      ]
+    },
+    "webauthn-l3": {
+      "title": "Web Authentication: An API for accessing Public Key Credentials, Level 3",
+      "publisher": "W3C",
+      "url": "https://www.w3.org/TR/webauthn-3/",
+      "usedFor": [
+        "Registering a New Credential (7.1): a relying party refuses a credential id already registered, because sign-in looks a credential up by that id and the id is the authenticator's to choose.",
+        "Registering a New Credential (7.1): the credential public key's algorithm is one of those registration offered in pubKeyCredParams; a verifier left to its own list takes others, SHA-1 RSA among them.",
+      "Registering a New Credential (7.1): a credential id past 1023 bytes fails registration, and sign-in takes any id up to that, so a key that registers can sign in.",
+        "Signature Counter Considerations and Verifying an Authentication Assertion (7.2): a count that does not advance, from an authenticator that counts, is a cloned authenticator; the check applies to an assertion whose signature verified."
+      ]
     }
   },
   "suites": [
     {
       "file": "src/__tests__/engine.e2e.test.ts",
-      "cases": 7,
       "backing": [
         "postgres",
         "redis"
@@ -138,7 +221,6 @@
     },
     {
       "file": "src/__tests__/flows.e2e.test.ts",
-      "cases": 23,
       "backing": [
         "postgres",
         "redis"
@@ -151,7 +233,6 @@
     },
     {
       "file": "src/__tests__/hostile-input.e2e.test.ts",
-      "cases": 43,
       "backing": [
         "postgres",
         "redis"
@@ -160,11 +241,10 @@
         "hostile-input",
         "internal-audit"
       ],
-      "proves": "Injection payloads stay data, prototype keys stay data, caps on ip, user agent and fingerprint hold, wrong types and blanks are refused, the limiter never over-admits under a two-hundred-way stampede, and malformed cookies resolve to null. Four cases marked FINDING record unrepaired behaviour: a NUL byte reaches the driver, an empty or non-string email is accepted, and NFC and NFD spellings of one address make two accounts."
+      "proves": "Injection payloads and prototype keys stay data; four-byte, combining and right-to-left unicode round-trip; a NUL byte and an empty, missing or non-string email are refused; NFC and NFD spellings of one address are one account; caps on ip, user agent, fingerprint, sid and factor count hold; wrong types and blanks are refused; the limiter never over-admits under a stampede and a hostile key stays in its own bucket; revoking a session twice is harmless, one that never existed reads as null through orNull, and touching a revoked one does not revive it; and malformed cookies resolve to null."
     },
     {
       "file": "src/__tests__/hostile-values.e2e.test.ts",
-      "cases": 28,
       "backing": [
         "postgres",
         "redis"
@@ -174,11 +254,10 @@
         "rfc9700",
         "internal-audit"
       ],
-      "proves": "Redirect-target validation, session field ranges, limiter weight handling, idempotency ttl clamping and tenant scoping under values that parse cleanly but mean nothing. Nine cases marked FINDING record unrepaired behaviour, the worst being that javascript:, data: and file: URIs are all accepted as OIDC redirect targets, and that a large limiter weight is spent as one Redis round trip each."
+      "proves": "Values that parse cleanly but mean nothing. OIDC redirect targets refuse javascript:, data:, file: and blob: schemes, a dotless private-use scheme, userinfo, a protocol-relative target, a fragment and plain http off loopback, and admit the reverse-DNS scheme RFC 8252 asks native clients for and http to loopback. An out-of-range, zero or NaN aal, an unknown session kind and a closed impersonation window are refused as typed errors. A negative, NaN or infinite limiter weight counts as one, a fraction is floored, and any weight is spent in one round trip; a negative, NaN or absurd idempotency ttl is clamped; an empty tenant id is refused and tenant ids compare exactly."
     },
     {
       "file": "src/__tests__/linking-and-keys.e2e.test.ts",
-      "cases": 26,
       "backing": [
         "postgres"
       ],
@@ -190,7 +269,6 @@
     },
     {
       "file": "src/__tests__/one-shot-credentials.e2e.test.ts",
-      "cases": 17,
       "backing": [
         "postgres"
       ],
@@ -204,7 +282,6 @@
     },
     {
       "file": "src/__tests__/revocation.multiprocess.e2e.test.ts",
-      "cases": 4,
       "backing": [
         "redis"
       ],
@@ -215,7 +292,6 @@
     },
     {
       "file": "src/__tests__/session-security.e2e.test.ts",
-      "cases": 20,
       "backing": [
         "postgres",
         "redis"
@@ -228,7 +304,6 @@
     },
     {
       "file": "src/__tests__/token-quality.e2e.test.ts",
-      "cases": 24,
       "backing": [
         "postgres",
         "redis"
@@ -237,11 +312,10 @@
         "owasp-asvs",
         "owasp-forgot-password"
       ],
-      "proves": "Guessability, which cannot be read off a diff: session ids, CSRF tokens, API keys and reset tokens are sampled in bulk and checked for uniqueness, alphabet spread near six bits per character, absence of a shared prefix between consecutive issues, and hashed-at-rest storage. Also that no secret travels in a URL, that reset requests are rate limited per address, and that known and unknown accounts answer alike in content and in time. One case marked FINDING records that issuing a new reset token leaves every earlier one live."
+      "proves": "Guessability, which cannot be read off a diff: session ids, CSRF tokens, API keys and reset tokens are sampled in bulk and checked for uniqueness, alphabet spread near six bits per character, absence of a shared prefix between consecutive issues, and hashed-at-rest storage. Also that no secret travels in a URL, that reset requests are rate limited per address, and that known and unknown accounts answer alike in content and in time. Issuing a new reset token retires every earlier one, and a user can list and end their own sessions without the listing carrying a secret."
     },
     {
       "file": "src/adapters/drizzle/mysql/__tests__/compliance.mysql.e2e.test.ts",
-      "cases": 34,
       "backing": [
         "mysql"
       ],
@@ -253,7 +327,6 @@
     },
     {
       "file": "src/adapters/drizzle/pg/__tests__/compliance.pg.e2e.test.ts",
-      "cases": 45,
       "backing": [
         "postgres"
       ],
@@ -265,7 +338,6 @@
     },
     {
       "file": "src/adapters/valkey/__tests__/valkey.e2e.test.ts",
-      "cases": 21,
       "backing": [
         "redis"
       ],
@@ -273,11 +345,10 @@
         "store-contract",
         "internal-audit"
       ],
-      "proves": "The ioredis-to-RedisLike translation this adapter exists for: an options object silently dropping EX leaves an immortal key, and dropping NX makes a conditional write unconditional. Also drives the whole session store contract through the adapter."
+      "proves": "The ioredis-to-RedisLike translation this adapter exists for, where dropping EX would leave an immortal key and dropping NX would make a conditional write unconditional, checked on a real server with the rest of the surface. Also drives the whole session store contract through the adapter."
     },
     {
       "file": "src/core/engine/__tests__/resolve-session.pg.e2e.test.ts",
-      "cases": 9,
       "backing": [
         "postgres"
       ],
@@ -288,7 +359,6 @@
     },
     {
       "file": "src/core/events/__tests__/events.redis.e2e.test.ts",
-      "cases": 5,
       "backing": [
         "redis"
       ],
@@ -299,7 +369,6 @@
     },
     {
       "file": "src/core/idempotency/__tests__/idempotency.redis.e2e.test.ts",
-      "cases": 7,
       "backing": [
         "redis"
       ],
@@ -310,7 +379,6 @@
     },
     {
       "file": "src/core/sessions/__tests__/sessions.pg.e2e.test.ts",
-      "cases": 10,
       "backing": [
         "postgres"
       ],
@@ -321,7 +389,6 @@
     },
     {
       "file": "src/core/sessions/__tests__/sessions.redis-parser.e2e.test.ts",
-      "cases": 17,
       "backing": [
         "redis"
       ],
@@ -333,7 +400,6 @@
     },
     {
       "file": "src/core/sessions/__tests__/sessions.redis.e2e.test.ts",
-      "cases": 13,
       "backing": [
         "redis"
       ],
@@ -345,18 +411,17 @@
     },
     {
       "file": "src/core/transport/__tests__/dpop-nonce.redis.e2e.test.ts",
-      "cases": 5,
       "backing": [
         "redis"
       ],
       "derivedFrom": [
+        "rfc9449",
         "internal-audit"
       ],
       "proves": "A DPoP jti replay is refused when presented to a different store instance, which is the property the store's own docstring says the memory store cannot provide."
     },
     {
       "file": "src/limiters/redis/__tests__/redis-limiter.e2e.test.ts",
-      "cases": 6,
       "backing": [
         "redis"
       ],
@@ -367,7 +432,6 @@
     },
     {
       "file": "src/oidc/op/__tests__/op-security.pg.e2e.test.ts",
-      "cases": 21,
       "backing": [
         "postgres"
       ],
@@ -379,7 +443,6 @@
     },
     {
       "file": "src/oidc/op/drizzle/__tests__/oidc-op.mysql.e2e.test.ts",
-      "cases": 23,
       "backing": [
         "mysql"
       ],
@@ -391,7 +454,6 @@
     },
     {
       "file": "src/oidc/op/drizzle/__tests__/oidc-op.pg.e2e.test.ts",
-      "cases": 23,
       "backing": [
         "postgres"
       ],
@@ -403,7 +465,6 @@
     },
     {
       "file": "src/providers/magic-link/__tests__/magic-link.e2e.test.ts",
-      "cases": 18,
       "backing": [
         "postgres"
       ],
@@ -415,8 +476,75 @@
       "proves": "A magic link works once and no more, eight simultaneous redemptions admit exactly one because the claim is a compare-and-set on the row version, the row is revoked in the database rather than forgotten in memory, an expired link reports distinctly, and a link minted for one identity never touches another. Also that the provider refuses a callback path that could move the authority at construction, so a typo cannot turn every future link into cross-origin token exfiltration."
     },
     {
+      "file": "src/core/actor/__tests__/actor.mysql.e2e.test.ts",
+      "backing": [
+        "mysql"
+      ],
+      "derivedFrom": [
+        "internal-audit"
+      ],
+      "proves": "Concurrent writes queued on a one-connection mysql2 pool each stamp the actor of the scope that made them, and a write outside every scope stamps no one, on create and on link alike."
+    },
+    {
+      "file": "src/core/actor/__tests__/actor.pg.e2e.test.ts",
+      "backing": [
+        "postgres"
+      ],
+      "derivedFrom": [
+        "internal-audit",
+        "regression"
+      ],
+      "proves": "The actor columns name who wrote each row across real HTTP: nobody on an anonymous request, even under a server started inside another actor's scope; the identity on a signed-in one; the operator while impersonating; and the configured default only where no session is. Concurrent requests on a one-connection pool each stamp their own actor."
+    },
+    {
+      "file": "src/core/anomaly/__tests__/anomaly.pg.e2e.test.ts",
+      "backing": [
+        "postgres"
+      ],
+      "derivedFrom": [
+        "internal-audit",
+        "regression"
+      ],
+      "proves": "The detectors decide real requests through requestSecurity: a first device steps up once and writes one suspicious event with neither the address nor the user agent in it, a deny reaction refuses before the handler runs, an impossible hop is refused until the identity is back where it was, and an onAnomaly that forgets the device refuses it again on the retry."
+    },
+    {
+      "file": "src/core/captcha/__tests__/captcha.siteverify.e2e.test.ts",
+      "backing": [
+        "loopback http"
+      ],
+      "derivedFrom": [
+        "internal-audit",
+        "regression"
+      ],
+      "proves": "The siteverify call against a real HTTP peer: the form it posts, a 307 that is refused rather than re-posted with the secret, a stall before the status line or halfway through the body that times out rather than reading as malformed, a 503 that fails whatever its body says, and an HTML answer that fails as malformed."
+    },
+    {
+      "file": "src/server/__tests__/actor-context.frameworks.e2e.test.ts",
+      "backing": [
+        "memory",
+        "loopback http",
+        "loopback grpc"
+      ],
+      "derivedFrom": [
+        "internal-audit",
+        "regression"
+      ],
+      "proves": "The actor wrappers inside the frameworks they are written for rather than fakes of them: honoActorContext on a Hono app, nestActorContext applied through a Nest 11 MiddlewareConsumer, expressActorContext on Express 5, koaActorContext on Koa 3, fastifyWithActor on Fastify 5, elysiaWithActor on Elysia 1.4 and withGrpc on a grpc-js server, with no error handler of the host's own except Hono's. Each serves a signed-in request as its identity and an anonymous one as nobody, answers a session whose identity is gone at 401 or UNAUTHENTICATED, and raises a store outage to the framework's own error layer, the handler never running for either. Pins findings 213, 214, 216 and 221: Nest dropping the middleware, Hono answering a refusal 500, and withGrpc and the Fastify adapter not compiling against their frameworks."
+    },
+    {
+      "file": "src/server/nestjs/__tests__/nestjs.e2e.test.ts",
+      "backing": [
+        "memory",
+        "loopback http"
+      ],
+      "derivedFrom": [
+        "internal-audit",
+        "regression"
+      ],
+      "proves": "The Nest handlers mounted as the example app mounts them, on a Nest 11 controller behind NestExceptionFilter on platform-express, rather than on a hand-built reply. A sign-in answers with its session and CSRF cookies and Cache-Control: no-store, and a refused one answers 401 once, with the filter leaving that answer alone and nothing logged. Pins finding 251: the filter wrote a second answer, and Nest logged ERR_HTTP_HEADERS_SENT in place of the auth error."
+    },
+    {
       "file": "src/core/hijack/__tests__/hijack-policy.test.ts",
-      "cases": 53,
       "backing": [
         "memory"
       ],
@@ -424,11 +552,10 @@
         "internal-audit",
         "owasp-asvs"
       ],
-      "proves": "The hijack policy resolves the way an operator configured it: the stronger of two reactions wins across the whole revoke/mfa/rotate/ignore matrix, a signal is still emitted when the reaction is ignore so audit keeps the record, absence on both sides is agreement while exactly one side present is softened one notch, and the diagnostic values are clipped before they reach an event. Pins that the per-signal softening lets a stripped header weaken a genuine mismatch."
+      "proves": "The hijack policy resolves the way an operator configured it: the stronger of two reactions wins across the whole revoke/mfa/rotate/ignore matrix, a signal is still emitted when the reaction is ignore so audit keeps the record, absence on both sides is agreement, and exactly one side present drops a revoke or mfa to rotate unless onMissingSignal is strict. Diagnostic values on both sides are clipped before they reach an event. applyReaction ends the session before refusing on revoke, refuses one a concurrent request already ended, raises a store outage, and ends nothing on mfa, rotate or ignore."
     },
     {
-      "file": "src/core/anomaly/__tests__/anomaly-scoring.test.ts",
-      "cases": 56,
+      "file": "src/core/anomaly/__tests__/anomaly.test.ts",
       "backing": [
         "memory"
       ],
@@ -438,11 +565,32 @@
         "nist-800-63b",
         "hostile-input"
       ],
-      "proves": "The anomaly ladder holds at its boundaries and a misbehaving detector cannot take authentication down with it. Pins the arithmetic a hostile or buggy detector can steer (a negative score cancels a real signal, a duplicate registration doubles a weight, weak signals sum into a deny), the paths where a decision is taken with no suspicious event written, and the inputs each detector agrees not to look at: a sub-minute continent hop, a future last-seen stamp, a stripped or over-long user agent."
+      "proves": "The anomaly ladder holds at its boundaries and a misbehaving detector cannot take authentication down with it. The aggregate saturates, so a negative score cannot cancel a real signal and weak signals cannot sum into a deny; an id registers once; a detector that throws, hangs or emits a malformed signal is logged and skipped; every detector reads a frozen snapshot; a bus that throws leaves the deny standing; and decide agrees with evaluate over the same signals."
+    },
+    {
+      "file": "src/core/anomaly/__tests__/device-fingerprint.test.ts",
+      "backing": [
+        "memory"
+      ],
+      "derivedFrom": [
+        "internal-audit",
+        "hostile-input"
+      ],
+      "proves": "A device is new once per identity and stays new until a verdict lets it through, so a denied device is denied again on the retry and parallel first requests all score. The fingerprint is the user agent and the /24 or /48 alone: a stripped, padded or unparseable value cannot switch the detector off or mint a device per request, and neither the address nor the user agent reaches the evidence."
+    },
+    {
+      "file": "src/core/anomaly/__tests__/impossible-travel.test.ts",
+      "backing": [
+        "memory"
+      ],
+      "derivedFrom": [
+        "internal-audit",
+        "hostile-input"
+      ],
+      "proves": "A hop faster than the configured speed scores, a sub-interval continent hop and a last-seen stamped in the future included, while a short hop inside the minimum interval, a missing or off-planet position, a non-numeric request time and a step across the antimeridian do not. Neither position reaches the evidence."
     },
     {
       "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
-      "cases": 59,
       "backing": [
         "memory"
       ],
@@ -453,11 +601,10 @@
         "rfc4291",
         "hostile-input"
       ],
-      "proves": "The webhook SSRF deny-list holds against the numeric spellings of loopback because the URL parser canonicalises them first, and fails against the ones it never sees: a trailing-dot localhost, unique-local and link-local IPv6 whose patterns forgot the brackets, and any DNS name that resolves inward. Also that delivery runs inside the emit, so a dead consumer's retry ladder is added to the latency of the sign-in that produced the event, and that the loop cannot tell a 400 or an unserialisable payload from a transient failure."
+      "proves": "The webhook SSRF deny-list refuses loopback and private targets in every spelling: decimal, octal and hex, IPv4-mapped, NAT64 and 6to4, a fully qualified or subdomain reserved name, all of fc00::/7 and fe80::/10, and a name that resolves inward once a resolver is wired; userinfo, a non-https scheme outside the dev flag and a redirect are refused. Delivery releases the emitting flow before the retry ladder runs, stops after one attempt on a permanent 4xx or an oversize or unserialisable payload, retries a 5xx and the two 4xx codes that mean later on a jittered backoff, and blanks secret-bearing keys before signing. Signatures cover a per-delivery id and the timestamp, verify within a tolerance in either direction, and refuse an empty secret."
     },
     {
       "file": "src/core/m2m/__tests__/m2m-grant.test.ts",
-      "cases": 35,
       "backing": [
         "memory"
       ],
@@ -467,22 +614,20 @@
         "rfc9700",
         "internal-audit"
       ],
-      "proves": "The client_credentials grant binds a token to the key that asked for it, refuses a mismatched id and secret pair, and honours the scope caps. Pins that a key carrying no tenant lets the request body choose the tid claim it is minted for, that an empty intersection issues a scopeless token rather than refusing, that an empty or whitespace scope string is read as omitted and grants everything the key holds, and that every exchange persists a session row outliving the token it was capped for."
+      "proves": "The client_credentials grant binds a token to the key that asked for it and to that key's tenant: a key with no tenant cannot mint for one the caller names, and a tenant-scoped key refuses another. Requested scopes are intersected with the key's and refused when nothing is left, strict mode refuses a partly-held request, the refusal names only what was asked, and the scope string is held to the RFC 6749 grammar and to length and count caps. A mismatched or empty pair, a client id differing in case, a revoked key and an over-long secret are refused. Every exchange writes an apikey session at aal 1 that expires with its token, and a transport may shorten the advertised lifetime but not extend it."
     },
     {
       "file": "src/core/compliance/__tests__/compliance-presets.test.ts",
-      "cases": 25,
       "backing": [
         "memory"
       ],
       "derivedFrom": [
         "internal-audit"
       ],
-      "proves": "The preset resolver takes the stricter side of every numeric field and the brand validator refuses anything that is not a known preset. Pins the gap between what a preset declares and what is enforced: nothing in the library reads the brand a config was stamped with, minAal is resolved and consumed by nothing, and seven of the nine names in requiredStrictChecks are never asserted. Also that the no-preset path hands back the module's own default object, aliased inside two presets."
+      "proves": "strict() reads the preset a config was branded with and demands evidence for every check the preset declares, reporting every gap in one error; a claimed limiter or lockout listener cannot stand over what the engine can see, and hipaa and fips boot once an mfa provider is registered. The resolver takes the stricter side of every field in any order, hands back fresh objects rather than the module defaults, refuses an unknown or prototype-key name, and ratchets the session windows down without lengthening one the operator set shorter. The brand survives a spread and layers without repeating."
     },
     {
       "file": "src/core/captcha/__tests__/captcha-verifiers.test.ts",
-      "cases": 32,
       "backing": [
         "memory"
       ],
@@ -490,11 +635,10 @@
         "internal-audit",
         "hostile-input"
       ],
-      "proves": "The siteverify parsers fail closed on every malformed shape, encode a hostile remote address, and keep the secret out of the query string. Pins that the HTTP status is never consulted so an error response carrying a success body passes, that hostname and challenge_ts are read by nobody, that there is no request timeout in front of sign-in, and that the reCAPTCHA threshold accepts a zero, a negative or a NaN without validation."
+      "proves": "Every verifier fails closed on what it cannot trust: a non-2xx however well its body parses, a malformed or mistyped body, a hung provider, a hostname or action that does not match, and a challenge_ts too old or too far ahead. The secret and token go in the POST body and follow no redirect, a hostile remote address is encoded, an oversized or non-string token is never relayed, and the reCAPTCHA threshold refuses a value outside 0 to 1."
     },
     {
       "file": "src/core/config/__tests__/create-auth.test.ts",
-      "cases": 21,
       "backing": [
         "memory"
       ],
@@ -502,11 +646,10 @@
         "internal-audit",
         "regression"
       ],
-      "proves": "Every Engine.Cfg knob createAuth accepts reaches the constructed engine, including the idempotency store whose earlier silent drop made strict refuse to boot. Pins the two keys the config type declares and the body never reads, plugins and the oauth-wide state signing secret, plus the absence of any unknown-key check, so a typo disables the setting it meant to change."
+      "proves": "Every Engine.Cfg knob createAuth accepts reaches the constructed engine: stores, transport, limiter, bus wrapped in the audit stamper, idempotency store, session windows, hijack policy, providers and org store. A plugins array, an oauth-wide state signing secret and an unknown key are refused rather than dropped, a missing store is named, and the base URL must be an absolute http(s) origin. Construction runs the production check, following NODE_ENV when no env is given and refusing an env it does not know, the string \"false\" included."
     },
     {
       "file": "src/core/provider/__tests__/provider-dispatch.test.ts",
-      "cases": 23,
       "backing": [
         "memory"
       ],
@@ -514,11 +657,10 @@
         "internal-audit",
         "hostile-input"
       ],
-      "proves": "Dispatch routes by exact id with this still bound to the registered instance, and a duplicate id is refused at registration. Pins that list() filters on complete alone while dispatch needs begin too, so the sign-in grid can advertise a provider whose first call fails, and that resolve() returns the first instanceof match in insertion order, which is what auth.passwords, auth.mfa and auth.apiKeys read."
+      "proves": "Registration refuses a taken id, an empty one, one that would not survive a log line or a URL, and a prototype-shaped one, registers a list whole or not at all, and has no removal. Ids match case-insensitively. list() leaves out a capability that cannot complete a sign-in, and one holding half a sign-in or nothing reachable is refused. Dispatch reaches the registered instance with this still bound, and resolve() refuses an ambiguous match rather than letting registration order pick."
     },
     {
       "file": "src/providers/saml/__tests__/saml-binding.test.ts",
-      "cases": 26,
       "backing": [
         "memory"
       ],
@@ -529,26 +671,10 @@
         "nist-800-63b",
         "internal-audit"
       ],
-      "proves": "The provider refuses a logout response on the sign-in path, a null or blank nameID, and a body past the size cap before the parser sees it, and keeps the client's error text off the wire. Pins that nothing binds a response to the request that started it: complete takes no relay state, succeeds with no preceding begin, accepts the same body replayed, and never reads the callbackUrl it required at construction. Also that every SAML session is stamped aal 2 without inspecting AuthnContextClassRef, and that neither path touches the limiter."
-    },
-    {
-      "file": "src/channels/__tests__/channels-contract.test.ts",
-      "cases": 30,
-      "backing": [
-        "memory"
-      ],
-      "derivedFrom": [
-        "rfc8030",
-        "rfc8291",
-        "rfc5321",
-        "owasp-asvs",
-        "internal-audit"
-      ],
-      "proves": "Every channel reports a kind and an id, treats a missing or non-string recipient as a soft failure naming itself, and never throws. Pins what that shared contract does not cover: the recipient is any non-empty string with no address, number, length or CR LF check, nothing caps a rendered body or subject on a route billed per segment, no adapter applies a timeout or a retry, and the console channel logs the vars that carry the magic link and the one-time code."
+      "proves": "The SAML provider binds a response to the request that began it: the relay state begin issued is checked on the way back, a response without one is refused unless unsolicited responses are opted into, an assertion id is consumed once so a captured body cannot be replayed, and a callbackUrl the client does not validate Destination against is refused. The assurance level comes from what the IdP asserted, and the nameID must be present, not blank, of the requested format, and match any asserted email. Limiter budget is spent on begin and complete before the verifier runs, the size cap is measured in UTF-8 bytes before the parser, and every refusal carries the same detail with the client's text kept off the wire."
     },
     {
       "file": "src/core/transport/__tests__/composite.test.ts",
-      "cases": 34,
       "backing": [
         "memory"
       ],
@@ -558,11 +684,10 @@
         "owasp-asvs",
         "internal-audit"
       ],
-      "proves": "First coverage for CompositeTransport. It falls through on extract, returns the first successful verification, caps a token before asking anyone, and composes a cookie with a bearer cleanly. Pins that array order is the whole policy: a request presenting two different credentials is silently resolved rather than refused as RFC 6750 requires, and verification is a disjunction, so composing a proof-of-possession transport with an unbound one leaves the unbound path answering."
+      "proves": "CompositeTransport refuses an empty list and a request presenting two different credentials, the same token by two methods being one, with first-wins an explicit opt-in for a migration. Extract falls through past a transport that finds nothing, answers an empty string or throws on a header it cannot parse, raising that failure only when nothing else matched. Verify runs in order, caps the token before asking anyone, lets a strict transport veto rather than be fallen through past, and surfaces a fault or a falsy throw rather than reading it as nobody vouching. Issue and revoke emit every transport's intents in order, nothing when one throws, and refuse two body-emitting transports."
     },
     {
       "file": "src/core/config/__tests__/config-ergonomics.test.ts",
-      "cases": 26,
       "backing": [
         "memory"
       ],
@@ -571,6 +696,99 @@
         "regression"
       ],
       "proves": "Every config key takes the value a caller naturally has, in one call, the way limiter already did. Idempotency accepts a one-call facet, a bare store, or an explicitly wrapped one, and wrapping twice is a no-op. Anomaly thresholds and reactions reach the facet through the engine instead of being fixed at the defaults. Guards that a later change reintroducing a wrapper step, or dropping a declared key, fails here."
+    },
+    {
+      "file": "src/adapters/drizzle/pg/__tests__/adapter.pg.e2e.test.ts",
+      "backing": [
+        "postgres"
+      ],
+      "derivedFrom": [
+        "internal-audit",
+        "regression"
+      ],
+      "proves": "The Drizzle Postgres adapter against a real server, beyond the shared matrix: identities, credentials and sessions read and write as the schema leaves them, the actor columns record who wrote and who hid a row, versioned writes refuse a lost race, erase takes credentials, sessions and links with it, and garbage in a factors or actingAs column is read as empty or refused. Every constraint the schema declares answers its typed error, with a sweep that fails on one left untested, and an unreadable value, a timed-out statement, a missing schema and an unreachable server each answer theirs. The fixture is multi-connection, so a read that ignored its transaction handle cannot hide."
+    },
+    {
+      "file": "src/core/engine/__tests__/transaction.pg.e2e.test.ts",
+      "backing": [
+        "postgres"
+      ],
+      "derivedFrom": [
+        "internal-audit"
+      ],
+      "proves": "withTransaction on real Postgres: a rollback leaves no identity, session or credential row and publishes no event, a commit publishes only on flush, a read inside the transaction sees its own write, a nested flow inherits the caller's transaction, one bad row rolls a batch back while a soft failure does not, and the unbound engine still commits and emits on its own."
+    },
+    {
+      "file": "src/core/events/__tests__/events.valkey.e2e.test.ts",
+      "backing": [
+        "redis"
+      ],
+      "derivedFrom": [
+        "internal-audit"
+      ],
+      "proves": "valkeyEvents over real pub/sub: an emit on one instance reaches a listener on another, and the emitting instance does not see its own emit twice."
+    },
+    {
+      "file": "src/core/idempotency/__tests__/idempotency.valkey.e2e.test.ts",
+      "backing": [
+        "redis"
+      ],
+      "derivedFrom": [
+        "internal-audit"
+      ],
+      "proves": "valkeyIdempotency on a real server: a second call inside the window replays the first response, and exactly one of many concurrent claims executes."
+    },
+    {
+      "file": "src/core/sessions/__tests__/sessions.valkey.e2e.test.ts",
+      "backing": [
+        "redis"
+      ],
+      "derivedFrom": [
+        "internal-audit"
+      ],
+      "proves": "valkeySessionImpl round-trips and deletes a session on a real server."
+    },
+    {
+      "file": "src/core/transport/__tests__/dpop-nonce.valkey.e2e.test.ts",
+      "backing": [
+        "redis"
+      ],
+      "derivedFrom": [
+        "rfc9449",
+        "internal-audit"
+      ],
+      "proves": "valkeyDPoPNonceStore on a real server accepts a jti once and refuses the replay, including one presented on a different connection."
+    },
+    {
+      "file": "src/limiters/valkey/__tests__/valkey-limiter.e2e.test.ts",
+      "backing": [
+        "redis"
+      ],
+      "derivedFrom": [
+        "internal-audit"
+      ],
+      "proves": "valkeyLimiter on a real server counts down to zero and then refuses, and two instances share one counter."
+    },
+    {
+      "file": "src/providers/passkey/__tests__/challenge-store.redis.e2e.test.ts",
+      "backing": [
+        "redis"
+      ],
+      "derivedFrom": [
+        "internal-audit"
+      ],
+      "proves": "RedisPasskeyChallengeStore on a real server hands a challenge back once across instances, admits one of twenty simultaneous takes, and leaves expiry to the server."
+    },
+    {
+      "file": "src/providers/passkey/__tests__/passkey.pg.e2e.test.ts",
+      "backing": [
+        "postgres"
+      ],
+      "derivedFrom": [
+        "webauthn-l3",
+        "internal-audit"
+      ],
+      "proves": "Passkeys and WebAuthn MFA on real Postgres, signed by a software authenticator and checked by the real verifier: a registered passkey signs its owner in and its count lands on the row; a signed rollback is refused and reported and a forged assertion refused unreported; a credential id another account already holds is refused at registration on both paths, so its owner keeps signing in."
     }
   ]
 }

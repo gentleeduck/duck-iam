@@ -41,6 +41,8 @@ export class MemoryDPoPNonceStore implements DPoPVerifier.NonceStore {
 }
 
 /** In-process DPoP nonce store. Single node only; a fleet needs the Redis store. */
-export function memoryDPoPNonceStore(): MemoryDPoPNonceStore {
-  return new MemoryDPoPNonceStore()
+export function memoryDPoPNonceStore(
+  ...args: ConstructorParameters<typeof MemoryDPoPNonceStore>
+): MemoryDPoPNonceStore {
+  return new MemoryDPoPNonceStore(...args)
 }

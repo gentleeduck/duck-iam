@@ -1,7 +1,5 @@
 import { detail, fault } from '@gentleduck/error'
 
-export { detail, fault }
-
 /** Every code this package raises, at its HTTP status, carrying what the code itself cannot say. */
 export const AUTH_ERRORS = {
   AUTH_UNAUTHENTICATED: 401,
@@ -26,7 +24,6 @@ export const AUTH_ERRORS = {
   // Separate from PROVIDER_FAILED because "no such provider" and "that one signs nobody in" are
   // different things to have done wrong, and only one of them is worth retrying against another id.
   AUTH_PROVIDER_UNSUPPORTED: detail<{ providerId: string; detail?: string }>(400),
-  AUTH_OAUTH_REUSE_DETECTED: detail<{ familyRevoked: boolean }>(401),
   AUTH_OAUTH_STATE_MISMATCH: 400,
   AUTH_OAUTH_NONCE_REPLAY: 400,
   AUTH_CSRF: 403,

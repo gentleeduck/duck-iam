@@ -53,14 +53,9 @@ describe('AuthEngine.withTransaction', () => {
     // AuthError puts the human-readable reason in `meta.detail`; `message` is the code. The detail must say
     // what is missing so an operator knows what to change.
     expect(() => engine.withTransaction({})).toThrowError(AuthError)
-    try {
-      engine.withTransaction({})
-      expect.unreachable('withTransaction should have thrown')
-    } catch (err) {
-      expect(err).toBeInstanceOf(AuthError)
-      expect((err as AuthError).code).toBe('AUTH_MISCONFIGURED')
-      expect((err as AuthError).meta.detail).toMatch(/withClient/)
-    }
+    expect(() => engine.withTransaction({})).toThrowError(
+      expect.objectContaining({ code: 'AUTH_MISCONFIGURED', meta: { detail: expect.stringMatching(/withClient/) } }),
+    )
   })
 
   it('buffers events instead of emitting them', async () => {
@@ -71,7 +66,7 @@ describe('AuthEngine.withTransaction', () => {
     const engine = createTest<P>({ events: bus, stores: s })
 
     const auth = engine.withTransaction({})
-    await auth.identities.create({ profile: { email: 'b@x', username: 'b' } as P })
+    await auth.identities.create({ profile: { email: 'b@x', username: 'b' } })
 
     expect(handler).not.toHaveBeenCalled()
     expect(auth.pending.size).toBe(1)
@@ -86,7 +81,7 @@ describe('AuthEngine.withTransaction', () => {
     bus.on('signup.completed', handler)
     const engine = createTest<P>({ events: bus })
 
-    await engine.identities.create({ profile: { email: 'c@x', username: 'c' } as P })
+    await engine.identities.create({ profile: { email: 'c@x', username: 'c' } })
 
     expect(handler).toHaveBeenCalledTimes(1)
   })
@@ -94,12 +89,12 @@ describe('AuthEngine.withTransaction', () => {
   it('does not expose the layer-2 guards', () => {
     const s = trackingStores()
     const engine = createTest<P>({ stores: s })
-    const auth = engine.withTransaction({}) as unknown as Record<string, unknown>
+    const auth = engine.withTransaction({})
 
     // Guards write nothing to SQL, so a rollback has nothing to undo and
     // joining a transaction would be meaningless. Reach them on the engine.
-    for (const guard of ['limiter', 'idempotency', 'hijack', 'anomaly', 'transport', 'plugins']) {
-      expect(auth[guard]).toBeUndefined()
+    for (const guard of ['limiter', 'hijack', 'anomaly', 'transport', 'plugins']) {
+      expect(Reflect.get(auth, guard)).toBeUndefined()
     }
   })
 

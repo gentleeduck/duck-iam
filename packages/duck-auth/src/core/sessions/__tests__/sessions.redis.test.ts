@@ -55,7 +55,7 @@ function storedRow(id: string, overrides: Record<string, unknown> = {}): string 
   })
 }
 
-describe('RedisSessionStore', () => {
+describe('RedisSessionImpl', () => {
   let redis: FakeRedis
   let store: RedisSessionImpl
 
@@ -69,6 +69,16 @@ describe('RedisSessionStore', () => {
     await store.create(s)
     const got = await store.getByHash(s.id)
     expect(got).toEqual(s)
+  })
+
+  it.each([
+    ['', 'RedisSessionImpl.create requires session.id to be set (sha-256 of sid)'],
+    ['a:b', "RedisSessionImpl.create requires a session.id without ':' (got a:b)"],
+  ])('refuses the id %o, naming the class', async (id, detail) => {
+    await expect(store.create(buildSession({ id }))).rejects.toMatchObject({
+      code: 'AUTH_MISCONFIGURED',
+      meta: { detail },
+    })
   })
 
   it('getByHash returns null on miss', async () => {
@@ -126,6 +136,15 @@ describe('RedisSessionStore', () => {
     expect(await store.listByIdentity('ident-1')).toEqual([])
     await expect(store.getByHash(a.id)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     await expect(store.getByHash(b.id)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+  })
+
+  it('create refuses when the revoke mark cannot be read, and not once a readable one predates it', async () => {
+    await redis.set('test:revokedAt:ident-1', 'not-a-number')
+    await expect(store.create(buildSession())).rejects.toMatchObject({ code: 'AUTH_STALE_WRITE' })
+    await redis.set('test:revokedAt:ident-1', String(Date.now() - 2 * 86_400_000))
+    const s = buildSession()
+    await store.create(s)
+    await expect(store.getByHash(s.id)).resolves.toEqual(s)
   })
 
   it('gc sweeps a session past its deadline and leaves a live one alone', async () => {
@@ -393,8 +412,7 @@ describe('RedisSessionStore', () => {
       return realSet(k, v, o)
     }
     // An adapter handing back a serialised date instead of a Date. The old branch
-    // assumed a number, so `ex` arrived as NaN - and FakeRedis's eviction check
-    // (`expiresAt < Date.now()`) is false for NaN, so the key never expired.
+    // assumed a number, so `ex` arrived as NaN.
     const broken = buildSession()
     Object.assign(broken, { absoluteExpiresAt: new Date(Date.now() + 60_000).toISOString() })
 
@@ -404,6 +422,29 @@ describe('RedisSessionStore', () => {
     // Parsed rather than capped: a serialised date still yields the real TTL.
     expect(ttls.some((t) => t !== undefined && t <= 60)).toBe(true)
     await expect(store.getByHash(broken.id)).resolves.toBeTruthy()
+  })
+
+  it('an Invalid Date deadline is capped and dated as due, never sent as NaN', async () => {
+    const ttls: unknown[] = []
+    const scores: number[] = []
+    const realSet = redis.set.bind(redis)
+    const realZadd = redis.zadd.bind(redis)
+    redis.set = async (k: string, v: string, o: { ex?: number; nx?: boolean } = {}) => {
+      ttls.push(o.ex)
+      return realSet(k, v, o)
+    }
+    redis.zadd = async (k: string, score: number, member: string) => {
+      scores.push(score)
+      return realZadd(k, score, member)
+    }
+    const s = buildSession()
+    await store.create(s)
+    await store.update(s.id, { absoluteExpiresAt: new Date(Number.NaN) })
+    await store.create(buildSession({ absoluteExpiresAt: new Date(Number.NaN), expiresAt: new Date(Number.NaN) }))
+
+    expect(ttls.length).toBeGreaterThan(0)
+    expect(ttls.every((t) => t === undefined || Number.isFinite(t))).toBe(true)
+    expect(scores.every(Number.isFinite)).toBe(true)
   })
 
   it('create does not leave an index entry behind when the record write fails', async () => {

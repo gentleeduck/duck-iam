@@ -1,23 +1,19 @@
-/**
- * A captcha verifier's job is to be the thing that fails closed. It sits in
- * front of sign-in and sign-up, it talks to a third party over the network, and
- * everything about that call, the timeout, the status code, the fields it
- * chooses to read, decides whether an automated client gets through.
- */
+/** A captcha verifier fronts sign-in, so every way the provider call can go wrong must fail closed. */
 import { describe, expect, it } from 'vitest'
+import type { AuthCaptcha } from '../captcha.types'
 import { AuthHCaptchaVerifier, AuthNullCaptchaVerifier, AuthRecaptchaV3Verifier, AuthTurnstileVerifier } from '../index'
 
 /** A fetch stub that answers with one JSON body and records what it was sent. */
 function stub(body: unknown, init: ResponseInit = {}) {
-  const calls: Array<{ body: string; url: string }> = []
-  const fetchStub = (async (url: unknown, req: unknown) => {
-    calls.push({ body: String((req as RequestInit).body ?? ''), url: String(url) })
+  const calls: Array<{ body: string; redirect: RequestRedirect | undefined; url: string }> = []
+  const fetch: typeof globalThis.fetch = async (url, req) => {
+    calls.push({ body: String(req?.body ?? ''), redirect: req?.redirect, url: String(url) })
     return new Response(typeof body === 'string' ? body : JSON.stringify(body), {
       headers: { 'content-type': 'application/json' },
       ...init,
     })
-  }) as unknown as typeof globalThis.fetch
-  return { calls, fetch: fetchStub }
+  }
+  return { calls, fetch }
 }
 
 const turnstile = (body: unknown, init?: ResponseInit) => {
@@ -25,10 +21,26 @@ const turnstile = (body: unknown, init?: ResponseInit) => {
   return { calls: s.calls, verifier: new AuthTurnstileVerifier({ fetch: s.fetch, secret: 'sk' }) }
 }
 
+const PROVIDERS: Array<{
+  name: string
+  make: (fetch: typeof globalThis.fetch) => AuthCaptcha.IVerifier
+  passing: Record<string, unknown>
+}> = [
+  {
+    make: (fetch) => new AuthTurnstileVerifier({ fetch, secret: 'sk' }),
+    name: 'turnstile',
+    passing: { success: true },
+  },
+  { make: (fetch) => new AuthHCaptchaVerifier({ fetch, secret: 'sk' }), name: 'hcaptcha', passing: { success: true } },
+  {
+    make: (fetch) => new AuthRecaptchaV3Verifier({ fetch, secret: 'sk' }),
+    name: 'recaptcha v3',
+    passing: { score: 0.9, success: true },
+  },
+]
+
 describe('the http response is trusted as far as its body parses', () => {
   it('refuses a non-2xx however well its body parses', async () => {
-    // Nothing read `res.ok`, so a five hundred, a four twenty-nine, or a captive portal that
-    // happens to serialise `{"success":true}` verified as a solved challenge.
     for (const status of [400, 429, 500, 503]) {
       const { verifier } = turnstile({ success: true }, { status })
       expect(await verifier.verify({ token: 't' })).toEqual({
@@ -55,26 +67,25 @@ describe('the http response is trusted as far as its body parses', () => {
     }
   })
 
-  it('a network throw fails closed and carries the message', async () => {
+  it('a network throw fails closed, with the message beside the code rather than in it', async () => {
     const verifier = new AuthTurnstileVerifier({
-      fetch: (async () => {
+      fetch: async () => {
         throw new Error('econnreset')
-      }) as never,
+      },
       secret: 'sk',
     })
     const result = await verifier.verify({ token: 't' })
     expect(result.success).toBe(false)
-    expect(result.errorCodes).toEqual(['network-error', 'econnreset'])
+    expect(result.errorCodes).toEqual(['network-error'])
+    expect(result.detail).toBe('econnreset')
   })
 
   it('gives up on a hung siteverify instead of holding the sign-in open', async () => {
-    // A provider that accepts the connection and never answers used to park the request until
-    // something upstream gave up, and captcha fronts sign-in, so that was the whole login path.
     const verifier = new AuthTurnstileVerifier({
-      fetch: ((_url: string, init: RequestInit) =>
+      fetch: (_url, init) =>
         new Promise<Response>((_resolve, reject) => {
-          init.signal?.addEventListener('abort', () => reject(new Error('aborted')))
-        })) as never,
+          init?.signal?.addEventListener('abort', () => reject(new Error('aborted')))
+        }),
       secret: 'sk',
       timeoutMs: 20,
     })
@@ -82,20 +93,47 @@ describe('the http response is trusted as far as its body parses', () => {
     expect(await verifier.verify({ token: 't' })).toEqual({ errorCodes: ['timeout'], success: false })
   })
 
-  it('refuses a timeout that could never fire', () => {
-    for (const timeoutMs of [0, -1, Number.NaN]) {
+  it('refuses a timeout that could never fire, or would fire at once', async () => {
+    // Past 2^31-1, `setTimeout` fires after 1ms, so every token would come back `timeout`.
+    for (const timeoutMs of [0, -1, Number.NaN, 2 ** 31]) {
       expect(() => new AuthTurnstileVerifier({ secret: 'sk', timeoutMs })).toThrow(
         expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
       )
     }
+    const slow: typeof globalThis.fetch = async () => {
+      await new Promise((r) => setTimeout(r, 20))
+      return Response.json({ success: true })
+    }
+    const verifier = new AuthTurnstileVerifier({ fetch: slow, secret: 'sk', timeoutMs: 2 ** 31 - 1 })
+    expect(await verifier.verify({ token: 't' })).toEqual({ success: true })
   })
 })
 
-describe('the fields a siteverify response carries that nobody reads', () => {
+describe.each(PROVIDERS)('$name reads the body by type, not by truthiness', ({ make, passing }) => {
+  it('passes a well-formed success', async () => {
+    expect((await make(stub(passing).fetch).verify({ token: 't' })).success).toBe(true)
+  })
+
+  it.each(['true', 1, {}])('refuses success: %j as malformed', async (success) => {
+    expect(await make(stub({ ...passing, success }).fetch).verify({ token: 't' })).toMatchObject({
+      errorCodes: ['malformed-response'],
+      success: false,
+    })
+  })
+
+  it.each(['should-be-array', ['valid', 42]])(
+    'refuses error-codes: %j as malformed beside a success',
+    async (codes) => {
+      expect(await make(stub({ ...passing, 'error-codes': codes }).fetch).verify({ token: 't' })).toMatchObject({
+        errorCodes: ['malformed-response'],
+        success: false,
+      })
+    },
+  )
+})
+
+describe('the fields a siteverify response carries beyond success', () => {
   it('checks the hostname the challenge was solved on when told which one to expect', async () => {
-    // Turnstile and reCAPTCHA both return the hostname the widget ran on and both sets of docs tell
-    // the integrator to compare it. A token solved on an attacker's page under a leaked or shared
-    // sitekey used to verify here.
     const evil = stub({ hostname: 'evil.example', success: true })
     const verifier = new AuthTurnstileVerifier({ expectedHostname: 'app.test', fetch: evil.fetch, secret: 'sk' })
     expect(await verifier.verify({ token: 't' })).toMatchObject({
@@ -119,6 +157,25 @@ describe('the fields a siteverify response carries that nobody reads', () => {
     expect((await verifier.verify({ expectedHostname: 'admin.app.test', token: 't' })).success).toBe(true)
   })
 
+  it.each([
+    ['expectedHostname', { action: 'login' }, 'invalid-expected-hostname'],
+    ['expectedAction', { action: '', hostname: 'app.test' }, 'invalid-expected-action'],
+  ] as const)(
+    'refuses a per-call %s of nothing unsent, since the token solved without one would match',
+    async (field, solved, code) => {
+      const s = stub({ ...solved, success: true })
+      const verifier = new AuthTurnstileVerifier({
+        expectedAction: 'login',
+        expectedHostname: 'app.test',
+        fetch: s.fetch,
+        secret: 'sk',
+      })
+      expect((await verifier.verify({ token: 't' })).success).toBe(false)
+      expect(await verifier.verify({ [field]: '', token: 't' })).toEqual({ errorCodes: [code], success: false })
+      expect(s.calls).toHaveLength(1)
+    },
+  )
+
   it('refuses an expected hostname that names nothing', () => {
     for (const expectedHostname of ['', [], ['app.test', '']]) {
       expect(() => new AuthTurnstileVerifier({ expectedHostname, secret: 'sk' })).toThrow(
@@ -127,9 +184,14 @@ describe('the fields a siteverify response carries that nobody reads', () => {
     }
   })
 
+  it('refuses a wired expected action of nothing, which a widget mounted without one would match', () => {
+    expect(() => new AuthTurnstileVerifier({ expectedAction: '', secret: 'sk' })).toThrow(
+      expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
+    )
+    expect(() => new AuthTurnstileVerifier({ expectedAction: 'login', secret: 'sk' })).not.toThrow()
+  })
+
   it('refuses a challenge older than the providers keep one valid', async () => {
-    // Turnstile and hCaptcha both expire a token after 300s, so an older one was never going to
-    // pass anyway; leaving the age entirely to the provider meant not noticing when it did.
     const { verifier } = turnstile({ challenge_ts: '1999-01-01T00:00:00Z', success: true })
     expect(await verifier.verify({ token: 't' })).toMatchObject({
       challengeTs: '1999-01-01T00:00:00Z',
@@ -164,9 +226,15 @@ describe('the fields a siteverify response carries that nobody reads', () => {
     expect((await verifier.verify({ token: 't' })).success).toBe(true)
   })
 
+  it('refuses a max age that is negative or not a finite number', () => {
+    for (const maxChallengeAgeMs of [-1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(() => new AuthTurnstileVerifier({ maxChallengeAgeMs, secret: 'sk' })).toThrow(
+        expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
+      )
+    }
+  })
+
   it('carries the fields the provider sent rather than narrowing them away', async () => {
-    // A caller who wants to apply its own hostname or action rule could not: the parsed response
-    // was cut to two fields before it was returned.
     const { verifier } = turnstile({ challenge_ts: new Date().toISOString(), hostname: 'app.test', success: true })
     expect(await verifier.verify({ token: 't' })).toMatchObject({ hostname: 'app.test', success: true })
     expect((await verifier.verify({ token: 't' })).challengeTs).toBeDefined()
@@ -174,12 +242,14 @@ describe('the fields a siteverify response carries that nobody reads', () => {
 })
 
 describe('what is sent to the provider', () => {
-  it('posts the secret and the token in the body, not the query string', async () => {
+  it('posts the secret and the token in the body, and follows no redirect with them', async () => {
     const { calls, verifier } = turnstile({ success: true })
     await verifier.verify({ token: 'the-token' })
     expect(calls[0]?.url).not.toContain('sk')
     expect(calls[0]?.body).toContain('secret=sk')
     expect(calls[0]?.body).toContain('response=the-token')
+    // A 307 re-posts the body, secret included, to a host the endpoint guard never saw.
+    expect(calls[0]?.redirect).toBe('error')
   })
 
   it('forwards the remote address only when one is given', async () => {
@@ -209,8 +279,6 @@ describe('what is sent to the provider', () => {
   })
 
   it('refuses an oversized token without relaying it to the provider', async () => {
-    // The empty check was the only check, so a client could post a ten megabyte token and the
-    // verifier relayed all of it to the provider, once per attempt.
     const { calls, verifier } = turnstile({ success: true })
     expect(await verifier.verify({ token: 'x'.repeat(2_000_000) })).toEqual({
       errorCodes: ['invalid-input-response', 'token-too-large'],
@@ -219,10 +287,21 @@ describe('what is sent to the provider', () => {
     expect(calls).toHaveLength(0)
   })
 
+  it('refuses a token that is not a string, which a parsed body can hand over, without relaying it', async () => {
+    const { calls, verifier } = turnstile({ success: true })
+    for (const raw of [`["${'x'.repeat(100_000)}"]`, '{"a":1}', '42']) {
+      const body = JSON.parse(`{"token":${raw}}`)
+      expect(await verifier.verify({ token: body.token })).toEqual({
+        errorCodes: ['invalid-input-response'],
+        success: false,
+      })
+    }
+    expect(calls).toHaveLength(0)
+    await verifier.verify({ token: 'x'.repeat(8_192) })
+    expect(calls).toHaveLength(1)
+  })
+
   it('refuses an endpoint that is plaintext or points inside the network', async () => {
-    // The secret is posted to whatever this points at. Every other outbound URL in the library is
-    // validated for https and for private hosts; this one took a plaintext loopback address without
-    // comment. It is now the same guard the webhook deliverer uses.
     for (const endpoint of [
       'http://127.0.0.1:9/x',
       'https://169.254.169.254/latest',
@@ -235,7 +314,7 @@ describe('what is sent to the provider', () => {
     }
   })
 
-  it('still allows a loopback endpoint when a dev deployment asks for one', async () => {
+  it('allows a plaintext endpoint when asked, but never a loopback or private one', async () => {
     const s = stub({ success: true })
     const verifier = new AuthTurnstileVerifier({
       allowInsecureEndpoint: true,
@@ -245,29 +324,40 @@ describe('what is sent to the provider', () => {
     })
     await verifier.verify({ token: 't' })
     expect(s.calls[0]?.url).toBe('http://siteverify.test/x')
+    for (const endpoint of ['http://127.0.0.1:8080/x', 'http://localhost:8080/x', 'http://10.0.0.5/x']) {
+      expect(() => new AuthTurnstileVerifier({ allowInsecureEndpoint: true, endpoint, secret: 'sk' })).toThrow(
+        expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
+      )
+    }
+    // Marked, so `strict()` refuses it in production.
+    expect(verifier.__insecureCaptchaEndpoint).toBe(true)
   })
 
   it('refuses construction without a secret', () => {
-    expect(() => new AuthTurnstileVerifier({ secret: '' })).toThrow()
-    expect(() => new AuthHCaptchaVerifier({ secret: '' })).toThrow()
-    expect(() => new AuthRecaptchaV3Verifier({ secret: '' })).toThrow()
+    for (const make of [
+      () => new AuthTurnstileVerifier({ secret: '' }),
+      () => new AuthHCaptchaVerifier({ secret: '' }),
+      () => new AuthRecaptchaV3Verifier({ secret: '' }),
+    ]) {
+      expect(make).toThrow(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
+    }
   })
 })
 
 describe('the reCAPTCHA v3 score threshold', () => {
-  const recaptcha = (body: unknown, cfg: { expectedAction?: string; minScore?: number } = {}) => {
-    const s = stub(body)
-    const { minScore } = cfg
-    return new AuthRecaptchaV3Verifier({
-      fetch: s.fetch,
-      secret: 'sk',
-      ...(minScore !== undefined && { minScore }),
-    })
-  }
+  const recaptcha = (body: unknown, minScore?: number) =>
+    new AuthRecaptchaV3Verifier({ fetch: stub(body).fetch, secret: 'sk', ...(minScore !== undefined && { minScore }) })
 
-  it('passes at the threshold and fails just below it', async () => {
-    expect((await recaptcha({ score: 0.5, success: true }).verify({ token: 't' })).success).toBe(true)
-    expect((await recaptcha({ score: 0.49, success: true }).verify({ token: 't' })).success).toBe(false)
+  it('passes at the threshold and fails just below it, reporting the score either way', async () => {
+    expect(await recaptcha({ score: 0.5, success: true }).verify({ token: 't' })).toMatchObject({
+      score: 0.5,
+      success: true,
+    })
+    expect(await recaptcha({ score: 0.49, success: true }).verify({ token: 't' })).toMatchObject({
+      errorCodes: ['score-too-low'],
+      score: 0.49,
+      success: false,
+    })
   })
 
   it('an absent score is refused as its own thing, not read as zero', async () => {
@@ -277,34 +367,34 @@ describe('the reCAPTCHA v3 score threshold', () => {
   })
 
   it('a zero threshold accepts any score the provider reports and still refuses none at all', async () => {
-    // `(score ?? 0) >= 0` is always true, so `minScore: 0` - which reads as "accept any score" -
-    // also accepted a response that reported none, and the two stopped being distinguishable.
-    expect((await recaptcha({ score: 0, success: true }, { minScore: 0 }).verify({ token: 't' })).success).toBe(true)
-    const none = await recaptcha({ success: true }, { minScore: 0 }).verify({ token: 't' })
+    expect((await recaptcha({ score: 0, success: true }, 0).verify({ token: 't' })).success).toBe(true)
+    const none = await recaptcha({ success: true }, 0).verify({ token: 't' })
     expect(none.success).toBe(false)
     expect(none.errorCodes).toContain('missing-score')
   })
 
   it('refuses a threshold outside the range a score can take', async () => {
-    // Below zero passes every bot, above one walls out every human, and a NaN read from a
-    // mis-parsed environment variable did the second silently. None of the three was validated.
     for (const minScore of [-1, 5, Number.NaN, Number.POSITIVE_INFINITY]) {
-      expect(() => recaptcha({ success: true }, { minScore })).toThrow(
+      expect(() => recaptcha({ success: true }, minScore)).toThrow(
         expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
       )
     }
   })
 
   it('a non-numeric or non-finite score fails closed as malformed', async () => {
-    for (const score of ['0.9', Number.NaN, null, {}]) {
-      const result = await recaptcha({ score, success: true }).verify({ token: 't' })
+    // JSON has no NaN, but `1e999` parses to Infinity.
+    for (const body of [
+      { score: '0.9', success: true },
+      { score: null, success: true },
+      '{"score":1e999,"success":true}',
+    ]) {
+      const result = await recaptcha(body).verify({ token: 't' })
       expect(result).toMatchObject({ errorCodes: ['malformed-response'], success: false })
     }
   })
 
   it('a score outside the documented range is passed through rather than rejected', async () => {
-    // Worth pinning: nothing clamps to 0..1, so a provider or a proxy reporting 99
-    // is a pass under any threshold.
+    // Nothing clamps to 0..1, so a provider or a proxy reporting 99 passes any threshold.
     expect((await recaptcha({ score: 99, success: true }).verify({ token: 't' })).success).toBe(true)
   })
 
@@ -323,15 +413,11 @@ describe('the reCAPTCHA v3 score threshold', () => {
   })
 
   it('an action can be pinned once at wiring rather than on every call', async () => {
-    // `expectedAction` was per-call only, so the common integration - verify the token and move on -
-    // accepted a token minted for any action on the site, which is the reuse v3 actions exist to
-    // stop. Set on the verifier it applies to every call; the per-call value still overrides it.
     const s = stub({ action: 'newsletter-signup', score: 0.9, success: true })
     const pinned = new AuthRecaptchaV3Verifier({ expectedAction: 'login', fetch: s.fetch, secret: 'sk' })
     const result = await pinned.verify({ token: 't' })
     expect(result.success).toBe(false)
     expect(result.errorCodes).toContain('action-mismatch')
-    // Reported either way, so a caller that would rather judge for itself now can.
     expect(result.action).toBe('newsletter-signup')
 
     const s2 = stub({ action: 'newsletter-signup', score: 0.9, success: true })
@@ -340,8 +426,6 @@ describe('the reCAPTCHA v3 score threshold', () => {
   })
 
   it('without an expected action on either side the action is reported, not enforced', async () => {
-    // Left deliberate: the verifier cannot invent which action a call belongs to. What it can do is
-    // stop silently discarding the one the provider sent.
     const result = await recaptcha({ action: 'newsletter-signup', score: 0.9, success: true }).verify({ token: 't' })
     expect(result).toMatchObject({ action: 'newsletter-signup', success: true })
   })
@@ -360,10 +444,6 @@ describe('the null verifier', () => {
   })
 
   it('refuses to construct under NODE_ENV=production', () => {
-    // It is documented as a test helper and it is the reference the other verifiers are compared
-    // against in wiring examples. With no guard, wiring it in production silently removed captcha
-    // from every path it fronted, and a thing that cannot fail looks exactly like a thing that
-    // works. Same escape hatch as MemoryIdempotency, for a deployment that means it.
     const before = process.env.NODE_ENV
     process.env.NODE_ENV = 'production'
     try {
@@ -376,25 +456,35 @@ describe('the null verifier', () => {
 })
 
 describe('hcaptcha behaves the same as turnstile', () => {
-  const hcaptcha = (body: unknown, init?: ResponseInit) => {
-    const s = stub(body, init)
-    return { calls: s.calls, verifier: new AuthHCaptchaVerifier({ fetch: s.fetch, secret: 'sk' }) }
-  }
+  const hcaptcha = (body: unknown, init?: ResponseInit) =>
+    new AuthHCaptchaVerifier({ fetch: stub(body, init).fetch, secret: 'sk' })
 
   it('passes a successful response and carries the error codes on a failure', async () => {
-    expect(await hcaptcha({ success: true }).verifier.verify({ token: 't' })).toEqual({ success: true })
+    expect(await hcaptcha({ success: true }).verify({ token: 't' })).toEqual({ success: true })
     expect(
-      await hcaptcha({ 'error-codes': ['invalid-input-response'], success: false }).verifier.verify({ token: 't' }),
-    ).toEqual({ errorCodes: ['invalid-input-response'], success: false })
+      await hcaptcha({ 'error-codes': ['invalid-input-response'], success: false }).verify({ token: 't' }),
+    ).toEqual({
+      errorCodes: ['invalid-input-response'],
+      success: false,
+    })
   })
 
   it('refuses a non-2xx for the same reason turnstile does', async () => {
-    const result = await hcaptcha({ success: true }, { status: 500 }).verifier.verify({ token: 't' })
+    const result = await hcaptcha({ success: true }, { status: 500 }).verify({ token: 't' })
     expect(result).toEqual({ errorCodes: ['provider-http-500'], success: false })
   })
 
-  it('rejects a non-boolean success and a non-string error code', async () => {
-    expect((await hcaptcha({ success: 'true' }).verifier.verify({ token: 't' })).success).toBe(false)
-    expect((await hcaptcha({ 'error-codes': [1], success: false }).verifier.verify({ token: 't' })).success).toBe(false)
+  it('refuses an expected action, which hCaptcha never returns, when wired and on a call', async () => {
+    expect(() => new AuthHCaptchaVerifier(Object.assign({ secret: 'sk' }, { expectedAction: 'login' }))).toThrow(
+      expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
+    )
+    const s = stub({ success: true })
+    const verifier = new AuthHCaptchaVerifier({ fetch: s.fetch, secret: 'sk' })
+    expect(await verifier.verify({ expectedAction: 'login', token: 't' })).toEqual({
+      errorCodes: ['expected-action-unsupported'],
+      success: false,
+    })
+    expect(s.calls).toHaveLength(0)
+    expect(await verifier.verify({ token: 't' })).toEqual({ success: true })
   })
 })

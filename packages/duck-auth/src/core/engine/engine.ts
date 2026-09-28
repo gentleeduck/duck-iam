@@ -2,9 +2,10 @@ import type { Limiter } from '~/limiters'
 import { MemoryLimiter } from '~/limiters/memory'
 import { ApiKeysFacet } from '~/providers/api-key'
 import { MfaFacet } from '~/providers/mfa'
+import { PasskeyImpl } from '~/providers/passkey'
 import { PasswordsImpl } from '~/providers/passwords'
 import { setDefaultActorResolver } from '../actor'
-import { AnomalyFacet, DEFAULT_ANOMALY_CONFIG } from '../anomaly'
+import { AnomalyFacet } from '../anomaly'
 import type { Anomaly } from '../anomaly/anomaly.types'
 import { type Answer, answer } from '../answer'
 import { type AuthCaptcha, AuthUnconfiguredCaptchaVerifier } from '../captcha'
@@ -14,12 +15,11 @@ import { AuthError } from '../errors'
 import { type Events, InMemoryEvents, withAuditStamping } from '../events'
 import { DEFAULT_FLOWS_CONFIG, FlowsImpl } from '../flows'
 import { HijackFacet } from '../hijack'
-import { type IdempotencyImpl, MemoryIdempotency, resolveIdempotency } from '../idempotency'
 import { DEFAULT_IDENTITIES_CONFIG, type Identities, IdentitiesImpl } from '../identities'
 import { ORGS_NOT_CONFIGURED, OrgsImpl } from '../orgs'
 import { PluginRegistry } from '../plugin'
 import { Providers } from '../provider'
-import { DEFAULT_SESSION_CONFIG, SessionsImpl } from '../sessions'
+import { SessionsImpl } from '../sessions'
 import type { Transport } from '../transport/transport.types'
 import { type Bound, buildBoundEngine } from './engine.bound'
 import { resolveSession } from './engine.resolve-session'
@@ -45,7 +45,6 @@ export class AuthEngine<
   readonly captcha: AuthCaptcha.IVerifier
   readonly hijack: HijackFacet
   readonly anomaly: AnomalyFacet
-  readonly idempotency: IdempotencyImpl
   readonly plugins: PluginRegistry<Profile, Tenant, OrgMeta>
   /** Behind the `orgs` getter: null is "no org store was configured", which the getter turns into a
    *  throw so no caller has to null-check the facet. */
@@ -55,21 +54,28 @@ export class AuthEngine<
   /** Password facet. Throws `AUTH_PROVIDER_NOT_REGISTERED` when passwords() was not added. */
   get passwords(): PasswordsImpl {
     const p = this.providers.resolve(PasswordsImpl)
-    if (!p) throw this._providerMissing('password')
+    if (!p) throw this._providerMissing('password', 'passwords')
+    return p
+  }
+
+  /** Passkey facet. Throws `AUTH_PROVIDER_NOT_REGISTERED` when passkey() was not added. */
+  get passkeys(): PasskeyImpl {
+    const p = this.providers.resolve(PasskeyImpl)
+    if (!p) throw this._providerMissing('passkey', 'passkey')
     return p
   }
 
   /** MFA facet. Throws `AUTH_PROVIDER_NOT_REGISTERED` when mfaProvider() was not added. */
   get mfa(): MfaFacet {
     const f = this.providers.resolve(MfaFacet)
-    if (!f) throw this._providerMissing('mfa')
+    if (!f) throw this._providerMissing('mfa', 'mfaProvider')
     return f
   }
 
   /** API-key facet. Throws `AUTH_PROVIDER_NOT_REGISTERED` when apiKeyProvider() was not added. */
   get apiKeys(): ApiKeysFacet {
     const f = this.providers.resolve(ApiKeysFacet)
-    if (!f) throw this._providerMissing('api-key')
+    if (!f) throw this._providerMissing('api-key', 'apiKeyProvider')
     return f
   }
 
@@ -80,9 +86,9 @@ export class AuthEngine<
     return this._orgs
   }
 
-  private _providerMissing(name: string): AuthError {
+  private _providerMissing(id: string, factory: string): AuthError {
     return new AuthError('AUTH_PROVIDER_NOT_REGISTERED', {
-      detail: `this operation needs the '${name}' provider; add ${name}Provider() to providers[]`,
+      detail: `this operation needs the '${id}' provider; add ${factory}() to providers[]`,
     })
   }
 
@@ -99,14 +105,7 @@ export class AuthEngine<
     this.limiter = cfg.limiter ?? new MemoryLimiter()
     // Refusing, not passing. See `Engine.Cfg.captcha`.
     this.captcha = cfg.captcha ?? new AuthUnconfiguredCaptchaVerifier()
-    // Dev-only fallback: under NODE_ENV=production `MemoryIdempotency` refuses to
-    // build, so a deploy that forgot to configure a shared store fails at boot.
-    this.idempotency = resolveIdempotency(cfg.idempotency ?? new MemoryIdempotency())
-    this.sessions = new SessionsImpl(cfg.stores.sessions, this.events, {
-      ttlMs: cfg.session?.ttlMs ?? DEFAULT_SESSION_CONFIG.ttlMs,
-      absoluteTtlMs: cfg.session?.absoluteTtlMs ?? DEFAULT_SESSION_CONFIG.absoluteTtlMs,
-      freshnessMs: cfg.session?.freshnessMs ?? DEFAULT_SESSION_CONFIG.freshnessMs,
-    })
+    this.sessions = new SessionsImpl(cfg.stores.sessions, this.events, cfg.session)
     this.identities = new IdentitiesImpl<Profile>(
       cfg.stores.identities,
       this.events,
@@ -121,15 +120,15 @@ export class AuthEngine<
     for (const entry of cfg.providers ?? []) {
       if (!entry) continue
       // A thunk receives the constructed engine and `deliver`, so a capability can bind to stores and
-      // events, as mfa and api-key do, or to delivery, as magic-link and otp do.
+      // events, as mfa and api-key do, or to delivery, as magic-link does.
       const cap = typeof entry === 'function' ? entry(this, cfg.deliver) : entry
       if (!cap) continue
       this.providers.register(cap)
     }
     this.plugins = new PluginRegistry<Profile, Tenant, OrgMeta>()
     this._orgs = cfg.stores.orgs ? new OrgsImpl<OrgMeta>(cfg.stores.orgs, this.events) : null
-    this.hijack = new HijackFacet(this.events, cfg.hijack ?? {})
-    this.anomaly = new AnomalyFacet(this.events, { ...DEFAULT_ANOMALY_CONFIG, ...cfg.anomaly })
+    this.hijack = new HijackFacet(this.events, this.sessions, cfg.hijack)
+    this.anomaly = new AnomalyFacet(this.events, cfg.anomaly)
     this.flows = new FlowsImpl<Profile>(
       this.sessions,
       this.identities,
@@ -169,11 +168,7 @@ export class AuthEngine<
           this.cfg.identities?.softDeleteGracePeriodMs ?? DEFAULT_IDENTITIES_CONFIG.softDeleteGracePeriodMs,
         profileMaxBytes: this.cfg.identities?.profileMaxBytes ?? DEFAULT_IDENTITIES_CONFIG.profileMaxBytes,
       },
-      sessionsCfg: {
-        ttlMs: this.cfg.session?.ttlMs ?? DEFAULT_SESSION_CONFIG.ttlMs,
-        absoluteTtlMs: this.cfg.session?.absoluteTtlMs ?? DEFAULT_SESSION_CONFIG.absoluteTtlMs,
-        freshnessMs: this.cfg.session?.freshnessMs ?? DEFAULT_SESSION_CONFIG.freshnessMs,
-      },
+      sessionsCfg: this.cfg.session,
       stores: this.cfg.stores,
       buildProviders: (bus, stores) => this.providers.withClient(stores, bus),
       buildFlows: ({ sessions, identities, providers, events, stores }) =>

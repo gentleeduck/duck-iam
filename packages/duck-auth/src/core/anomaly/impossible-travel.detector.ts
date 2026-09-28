@@ -7,9 +7,9 @@ import {
 } from './anomaly.constants'
 import type { Anomaly, AuthImpossibleTravel } from './anomaly.types'
 
-/** Whether a pair is a place on earth. `Number.isFinite` alone let a latitude of 900 be scored. */
+/** Whether a pair is a place on earth, within ±90 / ±180. NaN and Infinity fail both bounds. */
 function isCoordinate(lat: number, lon: number): boolean {
-  return Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180
+  return Math.abs(lat) <= 90 && Math.abs(lon) <= 180
 }
 
 /** Haversine distance in km between two (lat, lon) pairs. */
@@ -21,20 +21,30 @@ function haversineKm(a: { lat: number; lon: number }, b: { lat: number; lon: num
   return 2 * EARTH_RADIUS_KM * Math.asin(Math.sqrt(s))
 }
 
-/** `getLastSeen(identityId)` reads the prior coords from wherever the app persists them, often
- *  `Identity.attributes.lastSeen`. */
+/**
+ * Emits `impossible-travel` when the distance from the last position over the time since implies a
+ * speed above `maxKmPerHour`. It reads positions and never writes them: `getLastSeen` answers from
+ * wherever the host records one, and `req.geo` arrives through `getCaller`.
+ *
+ * WARN: never record a position from a denied request. It moves "last seen" to the attacker, and their
+ * next request is no travel at all.
+ */
 export function authImpossibleTravelDetector(opts: {
+  /** The last position the host recorded for the identity. `at` is epoch ms, like `req.now`: seconds read
+   *  as a trip of decades, and nothing ever scores. */
   getLastSeen: (identityId: string) => Promise<{ lat: number; lon: number; at: number } | null>
   config?: Partial<AuthImpossibleTravel.Cfg>
 }): Anomaly.Detector {
-  const cfg: AuthImpossibleTravel.Cfg = { ...DEFAULT_IMPOSSIBLE_TRAVEL_CONFIG, ...(opts.config ?? {}) }
+  const cfg: AuthImpossibleTravel.Cfg = {
+    maxKmPerHour: opts.config?.maxKmPerHour ?? DEFAULT_IMPOSSIBLE_TRAVEL_CONFIG.maxKmPerHour,
+    minElapsedMs: opts.config?.minElapsedMs ?? DEFAULT_IMPOSSIBLE_TRAVEL_CONFIG.minElapsedMs,
+  }
   if (!Number.isFinite(cfg.maxKmPerHour) || cfg.maxKmPerHour <= 0) {
     throw new AuthError('AUTH_MISCONFIGURED', {
       detail: `authImpossibleTravelDetector: maxKmPerHour must be a finite positive number (got ${cfg.maxKmPerHour})`,
     })
   }
-  // Zero is the interval the speed is divided by, so it turns the most extreme possible teleport
-  // into an infinite speed and the finite check then discards it.
+  // Zero divides by zero, and the finite check below would discard the fastest trip there is.
   if (!Number.isFinite(cfg.minElapsedMs) || cfg.minElapsedMs <= 0) {
     throw new AuthError('AUTH_MISCONFIGURED', {
       detail: `authImpossibleTravelDetector: minElapsedMs must be a finite positive number (got ${cfg.minElapsedMs})`,
@@ -49,14 +59,12 @@ export function authImpossibleTravelDetector(opts: {
       const last = await opts.getLastSeen(identity.id)
       if (!last) return []
       if (!isCoordinate(last.lat, last.lon) || !Number.isFinite(last.at)) return []
+      // A floor, not a skip: a teleport inside it still scores, and a last-seen in the future loses to it.
       const elapsedMs = req.now - last.at
-      // `minElapsedMs` is a floor on the interval, not a reason to skip: applied as a skip it made two
-      // sign-ins from opposite sides of the planet fifty seconds apart, the least plausible pattern there
-      // is, the one case that reported nothing. A last-seen in the future is not a long gap either, so it
-      // clamps to zero and then floors, and tomorrow's date in the store no longer turns the detector off.
-      const intervalMs = Math.max(Math.max(0, elapsedMs), cfg.minElapsedMs)
+      const intervalMs = Math.max(elapsedMs, cfg.minElapsedMs)
       const distanceKm = haversineKm({ lat: last.lat, lon: last.lon }, { lat: req.geo.lat, lon: req.geo.lon })
       const speedKmH = distanceKm / (intervalMs / MS_PER_HOUR)
+      // Reachable only through `req.now`, the one number here nothing has validated.
       if (!Number.isFinite(speedKmH)) return []
       if (speedKmH <= cfg.maxKmPerHour) return []
       const overshoot = speedKmH / cfg.maxKmPerHour
@@ -66,10 +74,11 @@ export function authImpossibleTravelDetector(opts: {
           kind: 'impossible-travel',
           score,
           evidence: {
-            from: { lat: last.lat, lon: last.lon },
-            to: { lat: req.geo.lat, lon: req.geo.lon },
             distanceKm: Math.round(distanceKm),
+            // Both: they differ when the reading is odd (a gap under the floor, a future last-seen), and
+            // `speedKmH` is over `intervalMs`.
             elapsedMs,
+            intervalMs,
             speedKmH: Math.round(speedKmH),
             threshold: cfg.maxKmPerHour,
           },

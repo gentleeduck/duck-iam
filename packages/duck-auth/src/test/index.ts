@@ -1,4 +1,4 @@
-/** `authCreateTest()` wires an in-memory AuthEngine for e2e-style tests. */
+/** `createTest()` wires an in-memory AuthEngine for e2e-style tests. */
 
 /** The in-process redis double. It lives here rather than on `adapters/redis`, which is a production
  *  entry: an app reaching for it is writing a test, and the contract type it implements stays there. */
@@ -6,7 +6,7 @@ export { FakeRedis, fakeRedis } from '../core/drivers/redis-like'
 
 import { MemoryAdapter } from '../adapters/memory'
 import { AuthEngine, type Engine } from '../core/engine'
-import type { Deliver, DeliveryKind } from '../core/flows/flows.delivery'
+import type { Deliver, DeliveryMessage } from '../core/flows/flows.delivery'
 import type { Identities } from '../core/identities/identities.types'
 import { BearerTransport } from '../core/transport/bearer.transport'
 import { MemoryLimiter } from '../limiters/memory'
@@ -16,6 +16,7 @@ import { type Passwords, passwords, ScryptHasher } from '../providers/passwords'
 
 /** Overrides a test harness may supply when building an engine. */
 export namespace Test {
+  /** What `createTest` lets a test replace. */
   export interface Overrides<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase, Tenant = string, OrgMeta = unknown> {
         /** Drop-in replacement for the bundled {@link MemoryAdapter}. */
     adapter?: MemoryAdapter<Profile, OrgMeta>
@@ -68,17 +69,12 @@ export function createTest<Profile extends Identities.ProfileMetadataBase = Iden
  *  the engine config, `outbox` is what it captured. */
 export function authTestDeliver(): {
   deliver: Deliver
-  outbox: Array<{ kind: DeliveryKind; identityId: string; tenantId: string | null; vars: Record<string, unknown> }>
+  outbox: Array<DeliveryMessage & { identityId: string; tenantId: string | null }>
 } {
-  const outbox: Array<{
-    kind: DeliveryKind
-    identityId: string
-    tenantId: string | null
-    vars: Record<string, unknown>
-  }> = []
+  const outbox: Array<DeliveryMessage & { identityId: string; tenantId: string | null }> = []
   return {
-    deliver: async ({ identity, kind, tenant, vars }) => {
-      outbox.push({ identityId: identity.id, kind, tenantId: tenant.tenantId ?? null, vars })
+    deliver: async (message) => {
+      outbox.push({ ...message, identityId: message.identity.id, tenantId: message.tenant.tenantId ?? null })
     },
     outbox,
   }

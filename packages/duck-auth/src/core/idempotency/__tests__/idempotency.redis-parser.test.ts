@@ -139,6 +139,11 @@ describe('RedisIdempotencyStore.get - parser hardening', () => {
       expect(got.headers).toEqual({ 'X-Trace-Id': 'abc' })
     })
 
+    it('round-trips the request fingerprint', async () => {
+      await store.put('k1', { status: 200, body: null, createdAt: new Date(42), fingerprint: 'fp' }, 60_000, ctx)
+      expect((await store.get('k1', ctx)).fingerprint).toBe('fp')
+    })
+
     it('still filters the claim tombstone', async () => {
       await store.claim('k1', 60_000, ctx)
       await expect(store.get('k1', ctx)).rejects.toMatchObject({ code: 'AUTH_IDEMPOTENCY_MISS' })

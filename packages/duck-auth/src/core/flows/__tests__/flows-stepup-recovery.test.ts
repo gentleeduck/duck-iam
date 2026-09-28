@@ -7,19 +7,20 @@ import type { Identities } from '~/core/identities/identities.types'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
 import { mfaProvider, totpAt } from '~/providers/mfa'
+import { AuthMemoryPasskeyChallengeStore, type Passkey } from '~/providers/passkey'
 import { passwords, ScryptHasher } from '~/providers/passwords'
 
 interface MyProfile extends Identities.ProfileMetadataBase {
   email: string
 }
 
-function fakeChannel(): Deliver & { sent: Array<{ to: string; url: string }> } {
-  const sent: Array<{ to: string; url: string }> = []
+function fakeChannel(): Deliver & { sent: Array<{ to: string; url: string; requiresMfa?: boolean }> } {
+  const sent: Array<{ to: string; url: string; requiresMfa?: boolean }> = []
   return Object.assign(
     async (message: Parameters<Deliver>[0]): Promise<void> => {
-      const url = (message.vars as { url?: string }).url ?? ''
+      const url = message.vars.url
       const email = (message.identity.profile as { email?: string } | undefined)?.email ?? ''
-      sent.push({ to: email, url })
+      sent.push({ to: email, url, ...(message.kind === 'password-reset' && { requiresMfa: message.vars.requiresMfa }) })
     },
     { sent },
   )
@@ -28,7 +29,7 @@ function fakeChannel(): Deliver & { sent: Array<{ to: string; url: string }> } {
 function buildAuth(opts: { credentials?: (base: Credential.Store) => Credential.Store } = {}): {
   auth: AuthEngine<MyProfile>
   adapter: MemoryAdapter<MyProfile>
-  channel: Deliver & { sent: Array<{ to: string; url: string }> }
+  channel: Deliver & { sent: Array<{ to: string; url: string; requiresMfa?: boolean }> }
 } {
   const adapter = new MemoryAdapter<MyProfile>()
   const channel = fakeChannel()
@@ -50,6 +51,41 @@ function buildAuth(opts: { credentials?: (base: Credential.Store) => Credential.
 
 function tokenFrom(url: string): string {
   return new URL(url).searchParams.get('token') ?? ''
+}
+
+/** An authenticator that registers `wa-1` and signs every assertion, counting up. */
+function fakeWebauthn(): Passkey.SimpleWebAuthnServerModule {
+  let counter = 0
+  return {
+    generateRegistrationOptions: async () => ({
+      challenge: 'reg',
+      rp: { id: 'app.example.com', name: 'app' },
+      user: { id: 'u', name: 'a' },
+      pubKeyCredParams: [{ alg: -7, type: 'public-key' }],
+    }),
+    verifyRegistrationResponse: async () => ({
+      verified: true,
+      registrationInfo: { credential: { id: 'wa-1', publicKey: new Uint8Array([1]), counter: 0 } },
+    }),
+    generateAuthenticationOptions: async () => ({ challenge: `auth-${counter}` }),
+    verifyAuthenticationResponse: async () => ({
+      verified: true,
+      authenticationInfo: { newCounter: ++counter, credentialID: 'wa-1', userVerified: true },
+    }),
+  }
+}
+
+/** Enrols WebAuthn-MFA and answers the options `completeStepUp` takes for one assertion. */
+async function enrolWebauthnMfa(auth: AuthEngine<MyProfile>, identityId: string) {
+  const webauthnModule = fakeWebauthn()
+  const challengeStore = new AuthMemoryPasskeyChallengeStore()
+  const rp = { challengeStore, expectedOrigins: 'https://app.example.com', rpID: 'app.example.com', webauthnModule }
+  await auth.mfa.beginWebauthnMfaEnrollment(identityId, { ...rp, challengeKey: 'enrol', rpName: 'app', userName: 'a' })
+  await auth.mfa.confirmWebauthnMfaEnrollment(identityId, { ...rp, challengeKey: 'enrol', response: { id: 'wa-1' } })
+  return async () => {
+    await auth.mfa.beginWebauthnMfaVerify(identityId, { ...rp, challengeKey: 'verify' })
+    return { ...rp, challengeKey: 'verify', response: { id: 'wa-1' } }
+  }
 }
 
 describe('FlowsImpl - step-up', () => {
@@ -109,6 +145,31 @@ describe('FlowsImpl - step-up', () => {
     })
     expect(stepped.session.aal).toBe(2)
     expect(stepped.session.factors.some((f) => f.method === 'totp')).toBe(true)
+  })
+
+  it('completeStepUp verifies a WebAuthn-MFA assertion + rotates the session to AAL=2', async () => {
+    const { auth } = buildAuth()
+    const identity = await auth.identities.create({ profile: { username: 'a@x.com', email: 'a@x.com' } })
+    const assertion = await enrolWebauthnMfa(auth, identity.id)
+    const { sid } = await auth.sessions.create({ identityId: identity.id, kind: 'user', aal: 1, factors: [] })
+    const stepped = await auth.flows.completeStepUp({
+      currentSid: sid,
+      method: 'webauthn',
+      webauthn: await assertion(),
+    })
+    expect(stepped.session.aal).toBe(2)
+    expect(stepped.session.factors.map((f) => f.method)).toEqual(['webauthn'])
+  })
+
+  it('completeStepUp refuses a WebAuthn-MFA assertion with no challenge behind it', async () => {
+    const { auth } = buildAuth()
+    const identity = await auth.identities.create({ profile: { username: 'a@x.com', email: 'a@x.com' } })
+    const assertion = await enrolWebauthnMfa(auth, identity.id)
+    const { sid } = await auth.sessions.create({ identityId: identity.id, kind: 'user', aal: 1, factors: [] })
+    const webauthn = { ...(await assertion()), challengeKey: 'never-issued' }
+    await expect(auth.flows.completeStepUp({ currentSid: sid, method: 'webauthn', webauthn })).rejects.toMatchObject({
+      code: 'AUTH_INVALID_CREDENTIALS',
+    })
   })
 
   it('completeStepUp with wrong code surfaces AUTH_INVALID_CREDENTIALS', async () => {
@@ -293,6 +354,37 @@ describe('FlowsImpl - password reset', () => {
     })
     expect(reset.ok).toBe(true)
     expect(reset.intents.length).toBeGreaterThan(0)
+  })
+
+  it('reset of an account whose second factor is WebAuthn-MFA requires a fresh AAL=2 session', async () => {
+    const { auth, channel, adapter } = buildAuth()
+    const identity = await auth.identities.create({ profile: { username: 'a@x.com', email: 'a@x.com' } })
+    await auth.passwords.set(identity.id, 'old-password-9', adapter.credentials)
+    const assertion = await enrolWebauthnMfa(auth, identity.id)
+    await auth.flows.requestPasswordReset({
+      input: { email: 'a@x.com' },
+      findIdentityByEmail: (email) => auth.identities.getByEmail(email),
+    })
+    expect(channel.sent[0]?.requiresMfa).toBe(true)
+    const token = tokenFrom(channel.sent[0]?.url ?? '')
+
+    await expect(auth.flows.completePasswordReset({ token, newPassword: 'new-password-9' })).rejects.toMatchObject({
+      code: 'AUTH_RECOVERY_REQUIRES_MFA',
+      meta: { methods: ['webauthn'] },
+    })
+
+    const { sid } = await auth.sessions.create({ identityId: identity.id, kind: 'user', aal: 1, factors: [] })
+    const stepped = await auth.flows.completeStepUp({
+      currentSid: sid,
+      method: 'webauthn',
+      webauthn: await assertion(),
+    })
+    const reset = await auth.flows.completePasswordReset({
+      token,
+      newPassword: 'new-password-9',
+      currentSid: stepped.sid,
+    })
+    expect(reset.ok).toBe(true)
   })
 
   it('expired reset token surfaces AUTH_RECOVERY_TOKEN_EXPIRED', async () => {

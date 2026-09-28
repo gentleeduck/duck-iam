@@ -19,7 +19,9 @@ export namespace Events {
     actorId?: string
   }
 
+  /** Every event the engine emits, keyed by name, to its payload. */
   export interface EventMap {
+    /** A session was created. */
     'session.created': {
       session: Sessions.Me
       identity: Identities.Me | null
@@ -49,34 +51,42 @@ export namespace Events {
     /** Emitted after every rotation. `previousSessionId` is the hashed id rotated away from, present whenever
      *  the caller supplied a `previousSid`, and it is what chains a session's lineage for audit. */
     'session.rotated': { session: Sessions.Me; previousSessionId?: string; audit?: Envelope }
+    /** A session was deleted by a revoke, a cascade, or a rotation that replaced it. */
     'session.revoked': {
       sessionId: string
       identityId: string | null
       audit?: Envelope
     }
+    /** A sign-in finished and its session was issued. */
     'signin.success': {
       identity: Identities.Me
       factors: Sessions.Factor[]
       audit?: Envelope
     }
+    /** A sign-in or link attempt was refused; `reason` is for logs, never for the caller. */
     'signin.failed': {
       providerId: string
       reason: string
       ip?: string
       audit?: Envelope
     }
+    /** A sign-up finished and its identity exists. */
     'signup.completed': { identity: Identities.Me; audit?: Envelope }
+    /** An identity is locked out until `until` (epoch ms). */
     lockout: { identityId: string; until: number; audit?: Envelope }
+    /** A second factor was added. */
     'mfa.enrolled': {
       identityId: string
       method: Sessions.FactorMethod
       audit?: Envelope
     }
+    /** A second factor was removed. */
     'mfa.removed': {
       identityId: string
       method: Sessions.FactorMethod
       audit?: Envelope
     }
+    /** A provider login was attached to an identity. */
     'identity.linked': {
       identityId: string
       providerId: string
@@ -92,6 +102,13 @@ export namespace Events {
       allowedLockout: boolean
       audit?: Envelope
     }
+    /** An identity erased for good. The `operatorId` given to `erase` arrives as `audit.actorId`. */
+    'identity.erased': {
+      identityId: string
+      reason: string
+      audit?: Envelope
+    }
+    /** An operator opened an impersonation window. */
     'identity.impersonated': {
       realIdentityId: string
       targetIdentityId: string
@@ -111,7 +128,9 @@ export namespace Events {
       endedBy: 'release' | 'revoke' | 'expiry'
       audit?: Envelope
     }
+    /** A password-reset mail was sent. */
     'recovery.password.requested': { identityId: string; audit?: Envelope }
+    /** A password was reset through its mailed link. */
     'recovery.password.completed': { identityId: string; audit?: Envelope }
     /** A second factor satisfied by a recovery credential instead of the factor itself. `credentialId`
      *  is the backup code that was spent, already burnt and revoked by the time this is emitted. */
@@ -120,6 +139,7 @@ export namespace Events {
       credentialId: string
       audit?: Envelope
     }
+    /** A detector flagged this request: anomaly, hijack, or a replayed factor. */
     suspicious: {
       identityId?: string
       signal: string
@@ -127,18 +147,32 @@ export namespace Events {
       meta: Record<string, unknown>
       audit?: Envelope
     }
+    /** An identity joined an org with `roles`. */
+    'org.member.added': { orgId: string; identityId: string; roles: string[]; audit?: Envelope }
+    /** An identity left an org. */
+    'org.member.removed': { orgId: string; identityId: string; audit?: Envelope }
+    /** `roles` is the whole set the member now holds, as stored. */
+    'org.roles.set': { orgId: string; identityId: string; roles: string[]; audit?: Envelope }
     /** Published by the IAM side when an identity's authorization is revoked, so every instance drops its cached
      *  decisions. duck-auth only subscribes, which is why this carries no `audit` envelope. */
     'authz.revoked': { identityId: string; at: number }
   }
 
+  /** The name of any event on the bus. */
   export type EventName = keyof EventMap
+  /** A listener for event `K`. */
   export type Handler<K extends EventName> = (payload: EventMap[K]) => void | Promise<void>
+  /** Removes the listener it was returned for. */
   export type Unsubscribe = () => void
 
+  /** What the engine needs from a bus: subscribe and publish. */
   export interface IBus {
+    /** Subscribes `handler` to `event`. */
     on<K extends EventName>(event: K, handler: Handler<K>): Unsubscribe
+    /** Publishes `payload` to every listener of `event`. */
     emit<K extends EventName>(event: K, payload: EventMap[K]): Promise<void>
+    /** The handlers `event` has in this process. `strict()` skips its `lockout` check on a bus without it. */
+    listenerCount?<K extends EventName>(event: K): number
   }
 
   /** True when a payload declares `audit`.
@@ -150,10 +184,4 @@ export namespace Events {
   export type AuditedEvent = {
     [K in EventName]: DeclaresAudit<EventMap[K]> extends true ? K : never
   }[EventName]
-
-  /** The fields the stamper probes for on an outgoing payload. */
-  export type Stampable = {
-    audit?: Envelope
-    session?: { actingAs?: Sessions.ActingAs | null }
-  }
 }

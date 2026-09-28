@@ -20,6 +20,11 @@ export async function requestAccountDeletion<Profile extends Identities.ProfileM
 ): Promise<{ ok: true }> {
   const ctx = deps.ctxFactory(opts.tenantId)
   const ttlMs = opts.ttlMs ?? 30 * 60 * 1000
+  if (!Number.isFinite(ttlMs) || ttlMs <= 0) {
+    throw new AuthError('AUTH_MISCONFIGURED', {
+      detail: `account-deletion: ttlMs must be a finite positive number (got ${ttlMs})`,
+    })
+  }
   const callbackPath = isSafeCallbackPath(opts.callbackPath) ? opts.callbackPath : '/auth/delete-account'
   if (opts.reason !== undefined && (typeof opts.reason !== 'string' || opts.reason.length > 1024)) {
     throw new AuthError('AUTH_MISCONFIGURED', {
@@ -66,7 +71,8 @@ export async function requestAccountDeletion<Profile extends Identities.ProfileM
   )
 
   const url = `${ctx.baseUrl}${callbackPath}?token=${encodeURIComponent(token)}`
-  await deliver(ctx.events, 'account-deletion', deps.deliver, {
+  await deliver(ctx.events, deps.deliver, {
+    kind: 'account-deletion',
     identity,
     vars: { url, ttlMin: Math.round(ttlMs / 60_000) },
     tenant: ctx.tenant,
@@ -128,7 +134,8 @@ export async function completeAccountDeletion<Profile extends Identities.Profile
   if (input.sendUndoLink && deps.deliver) {
     const callbackPath = isSafeCallbackPath(input.callbackPath) ? input.callbackPath : '/auth/cancel-deletion'
     const url = `${ctx.baseUrl}${callbackPath}?token=${encodeURIComponent(cancellationToken)}`
-    await deliver(ctx.events, 'account-deletion-cancel', deps.deliver, {
+    await deliver(ctx.events, deps.deliver, {
+      kind: 'account-deletion-cancel',
       identity,
       vars: { url, restorableUntil, ttlMin: Math.max(0, Math.round((restorableUntil - Date.now()) / 60_000)) },
       tenant: ctx.tenant,

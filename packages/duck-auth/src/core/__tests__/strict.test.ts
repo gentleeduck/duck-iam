@@ -2,14 +2,19 @@ import { describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { InMemoryEvents } from '~/core/events'
 import type { Events } from '~/core/events/events.types'
-import type { Idempotency } from '~/core/idempotency/idempotency.types'
 import { memoryDPoPNonceStore } from '~/core/transport/dpop-nonce.memory'
+import type { Transport } from '~/core/transport/transport.types'
 import type { Limiter } from '~/limiters'
 import { MemoryLimiter } from '~/limiters/memory'
 import { NoopLimiter } from '~/limiters/mock'
+import { apiKeyProvider } from '~/providers/api-key'
 import { github } from '~/providers/oauth/github'
 import { AuthEngine } from '../engine'
+import type { Engine } from '../engine/engine.types'
+import { AuthError } from '../errors'
 import type { Identities } from '../identities/identities.types'
+import { BearerTransport } from '../transport/bearer.transport'
+import { CompositeTransport } from '../transport/composite.transport'
 import { CookieTransport } from '../transport/cookie.transport'
 import { JwtTransport } from '../transport/jwt.transport'
 
@@ -19,12 +24,22 @@ interface MyProfile extends Identities.ProfileMetadataBase {
 
 /** A bus carrying no in-process brand, which is what a fleet-safe one looks like to `strict()`. It
  *  keeps `listenerCount`, or the `lockout` check would be skipped rather than satisfied. */
-function foreignEvents(): Events.IBus & { listenerCount(event: Events.EventName): number } {
+function foreignEvents(): Events.IBus {
   const bus = new InMemoryEvents()
   return {
     emit: (event, payload) => bus.emit(event, payload),
     listenerCount: (event) => bus.listenerCount(event),
     on: (event, handler) => bus.on(event, handler),
+  }
+}
+
+/** What `strict()` refused in production, or `''` when it booted. */
+function detailOf(auth: AuthEngine<MyProfile>): string {
+  try {
+    auth.strict({ env: 'production' })
+    return ''
+  } catch (err) {
+    return err instanceof AuthError ? String(err.meta.detail ?? '') : String(err)
   }
 }
 
@@ -34,6 +49,7 @@ function makeAuth(
     secureCookie: boolean
     providers: boolean
     lockoutHandler: boolean
+    transport: Transport.ITransport
   }> = {},
 ) {
   const adapter = new MemoryAdapter<MyProfile>()
@@ -47,7 +63,7 @@ function makeAuth(
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app.example.com',
     events: foreignEvents(),
-    transport: new CookieTransport({ secure: o.secureCookie, name: 'duck-sid' }),
+    transport: o.transport ?? new CookieTransport({ secure: o.secureCookie, name: 'duck-sid' }),
     stores: {
       identities: adapter.identities,
       sessions: adapter.sessions,
@@ -121,6 +137,31 @@ describe('AuthEngine.strict()', () => {
       )
     })
 
+    it('counts what registered, not the entries left out or answering nothing', () => {
+      const adapter = new MemoryAdapter<MyProfile>()
+      const signIn = {
+        async begin() {
+          return []
+        },
+        async complete() {
+          return []
+        },
+        id: 'fake',
+        kind: 'password',
+      }
+      const build = (providers: NonNullable<Engine.Cfg<MyProfile>['providers']>) =>
+        new AuthEngine<MyProfile>({
+          baseUrl: 'https://app.example.com',
+          providers,
+          stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
+          transport: new CookieTransport({ name: 'duck-sid', secure: true }),
+        })
+      expect(detailOf(build([false, null, '', () => null]))).toMatch(/no provider registered/)
+      expect(detailOf(build([false, signIn]))).not.toMatch(/no provider registered/)
+      // An attach-only facet counts: an m2m-only deployment holds just the api-key facet.
+      expect(detailOf(build([apiKeyProvider()]))).not.toMatch(/no provider registered/)
+    })
+
     it('rejects when no `lockout` listener is subscribed', () => {
       const auth = makeAuth({ lockoutHandler: false })
       expect(() => auth.strict({ env: 'production' })).toThrow(
@@ -131,7 +172,7 @@ describe('AuthEngine.strict()', () => {
       )
     })
 
-    it('rejects an explicitly-passed AuthNoopLimiter (not just missing limiter)', async () => {
+    it('rejects an explicitly-passed NoopLimiter (not just missing limiter)', async () => {
       const adapter = new MemoryAdapter<MyProfile>()
       const auth = new AuthEngine<MyProfile>({
         baseUrl: 'https://app.example.com',
@@ -155,24 +196,16 @@ describe('AuthEngine.strict()', () => {
       expect(() => auth.strict({ env: 'production' })).toThrow(
         expect.objectContaining({
           code: 'AUTH_MISCONFIGURED',
-          meta: expect.objectContaining({ detail: expect.stringMatching(/AuthNoopLimiter rejected/) }),
+          meta: expect.objectContaining({ detail: expect.stringMatching(/\bNoopLimiter rejected/) }),
         }),
       )
     })
 
     it('aggregates multiple errors in one throw', () => {
-      const auth = makeAuth({ limiter: false, providers: false, lockoutHandler: false })
-      try {
-        auth.strict({ env: 'production' })
-        expect.fail('expected throw')
-      } catch (err) {
-        const msg = String((err as Error).message)
-        // Memory adapter + missing limiter + no provider + no lockout listener
-        // (cookie still flagged because the test helper uses memory adapter
-        // matching the constructor name heuristic too, so it surfaces in
-        // the error list).
-        expect(msg).toContain('AUTH_MISCONFIGURED')
-      }
+      const detail = detailOf(makeAuth({ limiter: false, providers: false, lockoutHandler: false }))
+      expect(detail).toMatch(/Limiter adapter required/)
+      expect(detail).toMatch(/no provider registered/)
+      expect(detail).toMatch(/lockout.*event handler/)
     })
 
     it('refuses http:// baseUrl in production', () => {
@@ -198,13 +231,7 @@ describe('AuthEngine.strict()', () => {
         },
       })
       auth.events.on('lockout', () => {})
-      try {
-        auth.strict({ env: 'production' })
-        expect.fail('expected throw')
-      } catch (err) {
-        const detail = (err as { meta?: { detail?: string } }).meta?.detail ?? ''
-        expect(detail).toMatch(/must use https/)
-      }
+      expect(detailOf(auth)).toMatch(/must use https/)
     })
   })
 })
@@ -213,15 +240,6 @@ describe('AuthEngine.strict() - signing secrets', () => {
   /** 32 bytes, the RFC 7518 floor for HMAC-SHA256. */
   const STRONG = 'secret-material-of-32-bytes-ok!!'
   const WEAK = 'short'
-
-  function detailOf(auth: AuthEngine<MyProfile>): string {
-    try {
-      auth.strict({ env: 'production' })
-      return ''
-    } catch (err) {
-      return (err as { meta?: { detail?: string } }).meta?.detail ?? ''
-    }
-  }
 
   function authWithJwtKey(key: string) {
     const adapter = new MemoryAdapter<MyProfile>()
@@ -317,19 +335,10 @@ describe('AuthEngine.strict() and the in-process limiter', () => {
     }
   }
 
-  /** Never consulted: `strict()` only checks that one is wired. */
-  const idempotency: Idempotency.Store = {
-    claim: async () => true,
-    delete: async () => {},
-    get: async () => ({ body: '', createdAt: new Date(), headers: {}, status: 200 }),
-    put: async () => {},
-  }
-
   const production = (limiter: Limiter.Me) => {
     const auth = new AuthEngine<MyProfile>({
       baseUrl: 'https://app.example.com',
       events: foreignEvents(),
-      idempotency,
       limiter,
       stores: foreignStores(),
       transport: new CookieTransport({ name: 'duck-sid', secure: true }),
@@ -348,32 +357,50 @@ describe('AuthEngine.strict() and the in-process limiter', () => {
     return auth
   }
 
-  const detail = (auth: AuthEngine<MyProfile>): string => {
-    try {
-      auth.strict({ env: 'production' })
-      return ''
-    } catch (err) {
-      return String((err as { meta?: { detail?: string } }).meta?.detail ?? '')
-    }
-  }
-
   it('boots a production config that breaks none of the checks', () => {
-    expect(detail(production(foreignLimiter))).toBe('')
+    expect(detailOf(production(foreignLimiter))).toBe('')
   })
 
   it('refuses an AuthMemoryLimiter the operator supplied on purpose', () => {
-    expect(detail(production(new MemoryLimiter()))).toMatch(/AuthMemoryLimiter rejected in production/)
+    expect(detailOf(production(new MemoryLimiter()))).toMatch(/AuthMemoryLimiter rejected in production/)
   })
 
   it('still refuses the always-allow one, by its own name', () => {
-    expect(detail(production(new NoopLimiter()))).toMatch(/AuthNoopLimiter rejected in production/)
+    expect(detailOf(production(new NoopLimiter()))).toMatch(/\bNoopLimiter rejected in production/)
   })
 
   it('asks an operator who supplied none to supply one, rather than naming the fallback they never chose', () => {
     // The engine falls back to `MemoryLimiter`, so the object in hand is the in-process one either way;
     // only `cfg.limiter` distinguishes the operator who chose it from the one who chose nothing.
-    const said = detail(makeAuth({ limiter: false }))
+    const said = detailOf(makeAuth({ limiter: false }))
     expect(said).toMatch(/Limiter adapter required/)
     expect(said).not.toMatch(/AuthMemoryLimiter rejected/)
+  })
+})
+
+describe('AuthEngine.strict() inside a CompositeTransport', () => {
+  const cookie = (secure: boolean) => new CookieTransport({ name: 'duck-sid', secure })
+  const jwt = (key: string) =>
+    new JwtTransport({
+      issuer: 'https://app.example.com',
+      signKey: { alg: 'HS256', key, kid: 'k1' },
+      verifyKeys: [{ alg: 'HS256', key, kid: 'k1' }],
+    })
+  const composite = (...parts: Transport.ITransport[]) =>
+    detailOf(makeAuth({ transport: new CompositeTransport(parts) }))
+
+  it('checks each part as if it were configured alone', () => {
+    expect(composite(cookie(false), new BearerTransport())).toMatch(/secure=false/)
+    expect(composite(cookie(true), jwt('short'))).toMatch(/signing key is under 32 bytes/)
+  })
+
+  it('checks the parts of a composite nested in another', () => {
+    expect(composite(new CompositeTransport([cookie(false)]), new BearerTransport())).toMatch(/secure=false/)
+  })
+
+  it('says nothing of parts that would each pass alone', () => {
+    const said = composite(cookie(true), jwt('secret-material-of-32-bytes-ok!!'), new BearerTransport())
+    expect(said).not.toMatch(/secure=false/)
+    expect(said).not.toMatch(/signing key/)
   })
 })

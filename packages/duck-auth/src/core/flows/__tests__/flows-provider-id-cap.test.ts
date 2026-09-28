@@ -24,53 +24,29 @@ function buildAuth(): AuthEngine<MyProfile> {
 }
 
 describe('FlowsImpl provider id reflection-DoS defense', () => {
+  const refused = { code: 'AUTH_PROVIDER_FAILED', meta: { providerId: 'invalid' } }
+
   it('signIn refuses an oversize providerId without echoing it back in meta', async () => {
     const auth = buildAuth()
-    const huge = 'x'.repeat(129)
-    try {
-      await auth.flows.signIn({ providerId: huge, input: {} })
-      throw new Error('expected AUTH_PROVIDER_FAILED')
-    } catch (err) {
-      const e = err as { code?: string; meta?: { providerId?: string } }
-      expect(e.code).toBe('AUTH_PROVIDER_FAILED')
-      expect(e.meta?.providerId).toBe('invalid')
-    }
+    await expect(auth.flows.signIn({ providerId: 'x'.repeat(129), input: {} })).rejects.toMatchObject(refused)
   })
 
-  it('signIn still echoes a normal-length unknown providerId for legitimate debugging', async () => {
+  it.each([['nope'], ['x'.repeat(128)]])('signIn echoes an in-range unknown providerId (%#)', async (providerId) => {
     const auth = buildAuth()
-    try {
-      await auth.flows.signIn({ providerId: 'nope', input: {} })
-      throw new Error('expected AUTH_PROVIDER_FAILED')
-    } catch (err) {
-      const e = err as { code?: string; meta?: { providerId?: string } }
-      expect(e.code).toBe('AUTH_PROVIDER_FAILED')
-      expect(e.meta?.providerId).toBe('nope')
-    }
+    await expect(auth.flows.signIn({ providerId, input: {} })).rejects.toMatchObject({
+      code: 'AUTH_PROVIDER_FAILED',
+      meta: { providerId },
+    })
   })
 
   it('beginProvider refuses an oversize providerId without echoing it back', async () => {
     const auth = buildAuth()
-    const huge = 'y'.repeat(200)
-    try {
-      await auth.flows.beginProvider(huge, {})
-      throw new Error('expected AUTH_PROVIDER_FAILED')
-    } catch (err) {
-      const e = err as { code?: string; meta?: { providerId?: string } }
-      expect(e.code).toBe('AUTH_PROVIDER_FAILED')
-      expect(e.meta?.providerId).toBe('invalid')
-    }
+    await expect(auth.flows.beginProvider('y'.repeat(200), {})).rejects.toMatchObject(refused)
   })
 
   it('beginProvider rejects non-string providerId (typeof guard)', async () => {
     const auth = buildAuth()
-    try {
-      await auth.flows.beginProvider(42 as unknown as string, {})
-      throw new Error('expected AUTH_PROVIDER_FAILED')
-    } catch (err) {
-      const e = err as { code?: string; meta?: { providerId?: string } }
-      expect(e.code).toBe('AUTH_PROVIDER_FAILED')
-      expect(e.meta?.providerId).toBe('invalid')
-    }
+    // @ts-expect-error not a string
+    await expect(auth.flows.beginProvider(42, {})).rejects.toMatchObject(refused)
   })
 })

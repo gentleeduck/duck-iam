@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { makeSession } from '~/test/store-inputs'
 import { CookieTransport } from '../cookie.transport'
 
 function withCookie(value: string): { headers: Headers } {
@@ -41,6 +42,45 @@ describe('AuthCookieTransport - construction invariants', () => {
         meta: { detail: expect.stringContaining('__Host- prefix requires Secure=true') },
       }),
     )
+  })
+
+  it.each([0, -60, Number.NaN, 90.5, Number.POSITIVE_INFINITY])('rejects maxAgeSec %s', (maxAgeSec) => {
+    expect(() => new CookieTransport({ maxAgeSec })).toThrow(
+      expect.objectContaining({
+        code: 'AUTH_MISCONFIGURED',
+        meta: { detail: '@gentleduck/auth CookieTransport: maxAgeSec must be a positive whole number of seconds' },
+      }),
+    )
+  })
+
+  it.each([1, 90])('issues maxAgeSec %s as the Max-Age of a session that outlives it', (maxAgeSec) => {
+    const session = makeSession({ absoluteExpiresAt: new Date(Date.now() + 3_600_000) })
+    const [cookie] = new CookieTransport({ maxAgeSec }).issue('sid', session, { absolute: false, fresh: true })
+    expect(cookie).toMatchObject({ options: { maxAge: maxAgeSec }, type: 'setCookie' })
+  })
+
+  it('lives to the absolute deadline, not the idle one, so a slid session keeps its cookies', () => {
+    vi.useFakeTimers()
+    const session = makeSession({
+      expiresAt: new Date(Date.now() + 60_000),
+      absoluteExpiresAt: new Date(Date.now() + 3_600_000),
+    })
+    const issued = new CookieTransport().issue('sid', session, { absolute: false, fresh: true, csrfToken: 'c' })
+    vi.useRealTimers()
+    expect(issued.map((i) => i.type === 'setCookie' && i.options.maxAge)).toEqual([3600, 3600])
+  })
+
+  it("rejects sameSite: 'none' without secure", () => {
+    expect(() => new CookieTransport({ name: 'sid', sameSite: 'none', secure: false })).toThrow(
+      expect.objectContaining({
+        code: 'AUTH_MISCONFIGURED',
+        meta: { detail: "@gentleduck/auth CookieTransport: sameSite: 'none' requires secure: true" },
+      }),
+    )
+  })
+
+  it("accepts sameSite: 'none' with secure", () => {
+    expect(new CookieTransport({ name: 'sid', sameSite: 'none', secure: true }).secure).toBe(true)
   })
 })
 
@@ -105,7 +145,7 @@ describe('AuthCookieTransport.extract - SEC: hardened parser', () => {
     expect(t.extract(withCookie('duck-sid=only-one'))).toBe('only-one')
   })
 
-  it('rejects an oversize cookie value (decode-then-authSha256 DoS defense)', () => {
+  it('rejects an oversize cookie value (decode-then-sha256 DoS defense)', () => {
     // Real opaque SIDs are 64 chars; JWTs run a few hundred. 1024 cap
     // is generous.
     const huge = 'x'.repeat(1025)

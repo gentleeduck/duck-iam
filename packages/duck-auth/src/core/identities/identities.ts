@@ -4,10 +4,10 @@ import { isStandingFactor, toPublicCredential } from '../credentials/credentials
 import type { Credential } from '../credentials/credentials.types'
 import { AuthError } from '../errors'
 import type { Events } from '../events'
-import { getProfileString } from '../predicates/predicates'
+import { getProfileString, isRecord } from '../predicates/predicates'
 import type { Sessions } from '../sessions/sessions.types'
 import type { TenantContext } from '../tenant/tenant.types'
-import { DEFAULT_IDENTITIES_CONFIG } from './identities.constants'
+import { canonicalEmail, DEFAULT_IDENTITIES_CONFIG } from './identities.constants'
 import type { Identities } from './identities.types'
 
 export function isSoftDeleted(row: { deletedAt?: Date | number | null }): boolean {
@@ -22,7 +22,20 @@ export class IdentitiesImpl<Profile extends Identities.ProfileMetadataBase = Ide
     private readonly _cfg: Identities.Cfg = DEFAULT_IDENTITIES_CONFIG,
     /** Read by {@link IdentitiesImpl.unlink} alone, to count the ways in that are not links. Absent means none can be. */
     private readonly _credentials?: Credential.Store,
-  ) {}
+  ) {
+    // NaN, which `Number()` makes of an unset variable, lifts the profile cap and dates an erasure unreadably.
+    const { profileMaxBytes, softDeleteGracePeriodMs } = _cfg
+    if (!Number.isFinite(softDeleteGracePeriodMs) || softDeleteGracePeriodMs < 0) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: `identities: softDeleteGracePeriodMs must be a finite number, 0 or more (got ${softDeleteGracePeriodMs})`,
+      })
+    }
+    if (profileMaxBytes !== undefined && !(Number.isFinite(profileMaxBytes) && profileMaxBytes >= 0)) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: `identities: profileMaxBytes must be a finite number, 0 or more (got ${profileMaxBytes})`,
+      })
+    }
+  }
 
   /** Exposed for `FlowsImpl.requestAccountDeletion`, which needs it for `restorableUntil`. */
   get softDeleteGracePeriodMs(): number {
@@ -57,7 +70,6 @@ export class IdentitiesImpl<Profile extends Identities.ProfileMetadataBase = Ide
   /** Creates an identity, with its provider links in the same write. */
   async create(input: {
     profile: Profile
-    tenantId?: string
     providers?: Identities.ProviderLinkInput[]
     emailVerified?: boolean
   }): Promise<Identities.Me<Profile>> {
@@ -71,7 +83,8 @@ export class IdentitiesImpl<Profile extends Identities.ProfileMetadataBase = Ide
     return created
   }
 
-  /** Merges a partial profile onto the row, refusing a concurrent edit. */
+  /** Merges a partial profile onto the row, refusing a concurrent edit. A new address is an unproven one,
+   *  so a patch that moves `email` clears `emailVerified` in the same write. */
   async updateProfile(
     id: string,
     profilePatch: Partial<Profile>,
@@ -79,22 +92,30 @@ export class IdentitiesImpl<Profile extends Identities.ProfileMetadataBase = Ide
   ): Promise<Identities.Me<Profile>> {
     const cur = await orNull(this._store.find({ id }))
     if (!cur) throw new AuthError('AUTH_UNAUTHENTICATED')
-    const nextProfile = { ...(cur.profile ?? {}), ...profilePatch } as Profile
-    this.assertProfileWithinCap(nextProfile)
-    return this._store.update(id, { profile: nextProfile }, expectedVersion)
+    const profile: Profile = { ...cur.profile, ...profilePatch }
+    this.assertProfileWithinCap(profile)
+    const moved = canonicalEmail(profile.email) !== canonicalEmail(cur.profile.email)
+    return this._store.update(id, moved ? { emailVerified: false, profile } : { profile }, expectedVersion)
   }
 
   /**
+   * Marks `email` verified, refusing with `AUTH_INVALID_PARAMETERS` once the identity no longer holds it.
    * A lost version race is retried once, since the caller has already spent their single-use token.
    *
    * SECURITY: the column, never the profile. `updateProfile` merges a caller-supplied patch without
    * filtering keys, so routing verification through it would let the account holder assert it.
    */
-  async markEmailVerified(id: string): Promise<Identities.Me<Profile>> {
+  async markEmailVerified(id: string, email: string): Promise<Identities.Me<Profile>> {
+    const proven = canonicalEmail(email)
     let lastErr: unknown
     for (let attempt = 0; attempt < 2; attempt++) {
       const cur = await orNull(this._store.find({ id }))
       if (!cur) throw new AuthError('AUTH_UNAUTHENTICATED')
+      if (proven === null || proven !== canonicalEmail(cur.profile.email)) {
+        throw new AuthError('AUTH_INVALID_PARAMETERS', {
+          detail: 'identities: the identity no longer holds this address',
+        })
+      }
       if (cur.emailVerified) return cur
       try {
         return await this._store.update(id, { emailVerified: true }, cur.version)
@@ -186,21 +207,25 @@ export class IdentitiesImpl<Profile extends Identities.ProfileMetadataBase = Ide
     return answer(this._store.restore(id))
   }
 
-  /** Irreversible. Answers the row as it was, since nothing can read it now.
-   *  `reason` is the caller's to log: the library does not own the shape of a compliance envelope. */
+  /** Irreversible. Answers the row as it was, since nothing can read it now, and emits `identity.erased`
+   *  stamped with `operatorId` as its actor. */
   erase(id: string, opts: { reason: string; operatorId?: string }): Answer.Me<Identities.Me<Profile>> {
-    // Bound only when there is an actor: `withActor(undefined)` is a fence that clears the scope.
-    return answer(
-      opts.operatorId === undefined ? this._store.erase(id) : withActor(opts.operatorId, () => this._store.erase(id)),
-    )
+    const run = async () => {
+      const row = await this._store.erase(id)
+      await this._events.emit('identity.erased', { identityId: row.id, reason: opts.reason })
+      return row
+    }
+    // Bound only when there is an actor: `withActor` over `undefined` or `''` is a fence that clears the scope.
+    return answer(opts.operatorId ? withActor(opts.operatorId, run) : run())
   }
 
-  /** `skipExisting` passes over an address already present, `merge` folds the new logins into it. */
+  /** `skipExisting` passes over an address already present, `merge` folds the new logins into it, `replace`
+   *  erases it and creates the row fresh. A refusal met after that erase is raised, not counted: run a
+   *  replace inside `withTransaction` for the erase to roll back with it. */
   async bulkCreate(
     rows: Array<{
       profile: Profile
-      tenantId?: string
-      providers?: Identities.ProviderLink[]
+      providers?: Identities.ProviderLinkInput[]
     }>,
     opts: { mode?: 'skipExisting' | 'merge' | 'replace' } = {},
   ): Promise<{ created: number; skipped: number; failed: number }> {
@@ -209,6 +234,7 @@ export class IdentitiesImpl<Profile extends Identities.ProfileMetadataBase = Ide
     let skipped = 0
     let failed = 0
     for (const row of rows) {
+      let erased = false
       try {
         const email = getProfileString(row.profile, 'email')
         const existing = email ? await orNull(this._store.find({ email })) : null
@@ -226,15 +252,20 @@ export class IdentitiesImpl<Profile extends Identities.ProfileMetadataBase = Ide
           continue
         }
         if (existing && mode === 'replace') {
+          // The cap before the erase, so an oversize row costs nothing; the store's refusals can only
+          // come after it.
+          this.assertProfileWithinCap(row.profile)
           await this._store.erase(existing.id)
+          erased = true
         }
         await this.create(row)
         created++
       } catch (err) {
         // The rule `refusable` applies, for the same reason: a refusal this layer decided is a failed
         // row, a driver failure is not. Postgres leaves the transaction aborted once a statement has
-        // failed, so counting one here would make a later COMMIT a silent ROLLBACK.
-        if (!(err instanceof AuthError) || err.cause !== undefined) throw err
+        // failed, so counting one here would make a later COMMIT a silent ROLLBACK. Nor is a row whose
+        // erase already landed: counted, it reads as untouched.
+        if (erased || !(err instanceof AuthError) || err.cause !== undefined) throw err
         failed++
       }
     }
@@ -288,15 +319,15 @@ export class IdentitiesImpl<Profile extends Identities.ProfileMetadataBase = Ide
     return restored
   }
 
-  /** Erases every id in one adapter call, under the same envelope {@link IdentitiesImpl.erase} takes:
-   *  a batch erasure is no less irreversible for being a batch, so it records who ran it the same way. */
+  /** Erases every id in one adapter call, emitting `identity.erased` per row as {@link IdentitiesImpl.erase} does. */
   async eraseMany(ids: string[], opts: { reason: string; operatorId?: string }): Promise<Identities.Me<Profile>[]> {
     if (ids.length === 0) return []
-    // Bound once around the one adapter call. Omitting `operatorId` leaves an outer request-scoped
-    // actor alone, because `withActor(undefined)` is a fence that clears the scope rather than a no-op.
-    return opts.operatorId === undefined
-      ? this._store.eraseMany(ids)
-      : withActor(opts.operatorId, () => this._store.eraseMany(ids))
+    const run = async () => {
+      const rows = await this._store.eraseMany(ids)
+      for (const row of rows) await this._events.emit('identity.erased', { identityId: row.id, reason: opts.reason })
+      return rows
+    }
+    return opts.operatorId ? withActor(opts.operatorId, run) : run()
   }
 
   /** The caller schedules it, under a leader lock in a distributed deployment. Until it runs, a row whose
@@ -310,18 +341,24 @@ export class IdentitiesImpl<Profile extends Identities.ProfileMetadataBase = Ide
   async updateProfileMany(
     rows: { id: string; patch: Partial<Profile>; expectedVersion: number }[],
   ): Promise<Identities.Me<Profile>[]> {
-    const resolved: { id: string; profile: Profile; expectedVersion: number }[] = []
+    const resolved: { id: string; patch: { emailVerified?: false; profile: Profile }; expectedVersion: number }[] = []
     for (const row of rows) {
       const cur = await orNull(this._store.find({ id: row.id }))
       if (!cur) continue
-      const next = { ...cur.profile, ...row.patch }
-      this.assertProfileWithinCap(next)
-      resolved.push({ expectedVersion: row.expectedVersion, id: row.id, profile: next })
+      const profile: Profile = { ...cur.profile, ...row.patch }
+      this.assertProfileWithinCap(profile)
+      // As in `updateProfile`: a moved address is an unproven one.
+      const moved = canonicalEmail(profile.email) !== canonicalEmail(cur.profile.email)
+      resolved.push({
+        expectedVersion: row.expectedVersion,
+        id: row.id,
+        patch: moved ? { emailVerified: false, profile } : { profile },
+      })
     }
 
     const written: Identities.Me<Profile>[] = []
     for (const r of resolved) {
-      const row = await refusable(() => this._store.update(r.id, { profile: r.profile }, r.expectedVersion))
+      const row = await refusable(() => this._store.update(r.id, r.patch, r.expectedVersion))
       if (row) written.push(row)
     }
 
@@ -381,10 +418,7 @@ function assertKey(value: string, max: number, name: string): void {
 }
 
 function sortKeys(_key: string, value: unknown): unknown {
-  const isPlainObject = (v: unknown): v is Record<string, unknown> =>
-    typeof v === 'object' && v !== null && !Array.isArray(v)
-
-  if (isPlainObject(value)) {
+  if (isRecord(value)) {
     const sorted: Record<string, unknown> = {}
     for (const k of Object.keys(value).sort()) {
       sorted[k] = value[k]

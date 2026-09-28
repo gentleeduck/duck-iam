@@ -66,7 +66,7 @@ describe('isSafeCallbackPath', () => {
 
   describe('rejects malformed inputs', () => {
     it.each<[unknown]>([[''], [undefined], [null], [42], [{ path: '/foo' }], [['/foo']], [true]])(
-      'rejects %p (non-string or empty)',
+      'rejects %o (non-string or empty)',
       (value) => {
         expect(isSafeCallbackPath(value)).toBe(false)
       },

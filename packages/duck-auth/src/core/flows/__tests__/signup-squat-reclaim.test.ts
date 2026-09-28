@@ -63,6 +63,17 @@ describe('D1 - a squat is reclaimed', () => {
     ).rejects.toMatchObject({ code: 'AUTH_SIGNUP_TOKEN_INVALID' })
   })
 
+  it("the attacker's session ends too, where the host does not require a verified address", async () => {
+    const squat = await auth.flows.beginSignUp({ email: 'victim@corp.com', required: ['terms-accepted'] })
+    await auth.flows.advanceSignUp({ flowToken: squat.flowToken, stage: 'terms-accepted' })
+    const parked = await auth.flows.completeSignUp({ flowToken: squat.flowToken })
+
+    const real = await auth.flows.beginSignUp({ email: 'victim@corp.com', required: ['terms-accepted'] })
+
+    expect(real.flow.identityId).toBe(parked.session?.identityId)
+    expect(await auth.sessions.getBySid(parked.sid).orNull()).toBeNull()
+  })
+
   it('reclaiming does not pile up rows, tokens or accounts', async () => {
     await auth.flows.beginSignUp({ email: 'victim@corp.com' })
     await auth.flows.beginSignUp({ email: 'victim@corp.com' })
@@ -124,7 +135,7 @@ describe('D1 - an account is not a squat', () => {
   it('a verified address makes the row untouchable even with nothing else on it', async () => {
     const ident = await auth.identities.create({ profile: { email: 'sam@x.com', username: 'sam' } })
     await auth.flows.requestEmailVerification({ identityId: ident.id })
-    const url = (channel.outbox.at(-1)?.vars as { url: string }).url
+    const url = channel.outbox.at(-1)!.vars.url
     await auth.flows.completeEmailVerification({ token: new URL(url).searchParams.get('token') ?? '' })
 
     await expect(auth.flows.beginSignUp({ email: 'sam@x.com' })).rejects.toMatchObject({ code: 'AUTH_EMAIL_TAKEN' })
@@ -174,6 +185,59 @@ describe('D1 - a completed signup stops being reclaimable', () => {
     const ident = await auth.identities.getByEmail('new@x.com')
     expect(ident?.emailVerified).toBe(true)
     await expect(auth.flows.beginSignUp({ email: 'new@x.com' })).rejects.toMatchObject({ code: 'AUTH_EMAIL_TAKEN' })
+  })
+
+  it('a patch cannot move the address a stage verified onto another', async () => {
+    // Prove your own address, patch in someone else's, and finish holding a verified account on it.
+    const { auth } = build()
+    const { flowToken } = await auth.flows.beginSignUp({ email: 'mine@x.com', required: ['email-verified'] })
+    await auth.flows.advanceSignUp({ flowToken, stage: 'email-verified' })
+    await expect(
+      auth.flows.advanceSignUp({ flowToken, stage: 'profile-completed', profilePatch: { email: 'victim@corp.com' } }),
+    ).rejects.toMatchObject({ code: 'AUTH_INVALID_PARAMETERS' })
+    await auth.flows.completeSignUp({ flowToken })
+    await expect(auth.identities.getByEmail('victim@corp.com')).rejects.toMatchObject({
+      code: 'AUTH_IDENTITY_NOT_FOUND',
+    })
+    expect((await auth.identities.getByEmail('mine@x.com')).emailVerified).toBe(true)
+  })
+
+  it('a patch restating the address in another spelling is not a move', async () => {
+    const { auth } = build()
+    const { flowToken } = await auth.flows.beginSignUp({ email: 'mine@x.com', required: ['email-verified'] })
+    await auth.flows.advanceSignUp({ flowToken, stage: 'email-verified', profilePatch: { email: 'Mine@X.com' } })
+    await auth.flows.completeSignUp({ flowToken })
+    expect((await auth.identities.getByEmail('mine@x.com')).emailVerified).toBe(true)
+  })
+
+  it('a patch cannot erase the address either', async () => {
+    const { auth } = build()
+    const { flowToken } = await auth.flows.beginSignUp({ email: 'mine@x.com', required: [] })
+    await expect(
+      auth.flows.advanceSignUp({ flowToken, stage: 'profile-completed', profilePatch: { email: undefined } }),
+    ).rejects.toMatchObject({
+      code: 'AUTH_INVALID_PARAMETERS',
+      meta: { detail: 'signup: the email is fixed when the flow begins' },
+    })
+    await auth.flows.advanceSignUp({ flowToken, stage: 'profile-completed', profilePatch: { nickname: 'm' } })
+    const out = await auth.flows.completeSignUp({ flowToken })
+    expect((await auth.identities.getById(out.session?.identityId ?? '')).profile).toMatchObject({
+      email: 'mine@x.com',
+      nickname: 'm',
+    })
+  })
+
+  it('a staged profile the store would refuse is refused before the token is spent', async () => {
+    const { auth } = build()
+    const { flowToken } = await auth.flows.beginSignUp({ email: 'mine@x.com', required: [] })
+    await auth.flows.advanceSignUp({ flowToken, stage: 'profile-completed', profilePatch: { username: '' } })
+    await expect(auth.flows.completeSignUp({ flowToken })).rejects.toMatchObject({
+      code: 'AUTH_INVALID_PARAMETERS',
+      meta: { detail: 'profile.username must be a non-empty string' },
+    })
+    await auth.flows.advanceSignUp({ flowToken, stage: 'profile-completed', profilePatch: { username: 'mine' } })
+    const out = await auth.flows.completeSignUp({ flowToken })
+    expect((await auth.identities.getById(out.session?.identityId ?? '')).profile.username).toBe('mine')
   })
 
   it('a signup that never proved the address does not claim it was verified', async () => {

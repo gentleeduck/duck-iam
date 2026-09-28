@@ -44,8 +44,7 @@ export function parseIpv6(host: string): number[] | null {
     if (group === '') return []
     const out: number[] = []
     const pieces = group.split(':')
-    for (let i = 0; i < pieces.length; i++) {
-      const piece = pieces[i] as string
+    for (const [i, piece] of pieces.entries()) {
       // A trailing dotted-quad occupies the last two hextets (`::ffff:1.2.3.4`).
       if (i === pieces.length - 1 && piece.includes('.')) {
         const v4 = parseIpv4(piece)

@@ -11,8 +11,6 @@ import type { Idempotency } from './idempotency.types'
  * collide however the host spells its tenant ids.
  */
 export class MemoryIdempotency implements Idempotency.Store {
-  /** Read by `strict()`, which must not go by constructor name: every plain-object store would answer to one. */
-  readonly __isInProcessIdempotency = true as const
   private readonly _entries = new Map<
     string,
     { response: Idempotency.CachedResponse; expiresAt: number; claimedAt: number }
@@ -60,8 +58,8 @@ export class MemoryIdempotency implements Idempotency.Store {
     const existing = this._entries.get(storeKey)
     const now = Date.now()
     if (existing && existing.expiresAt >= now) return false
-    // A non-finite ttlMs sets expiresAt to NaN, and `NaN >= N` is false, so the slot never frees.
-    const safeTtl = Number.isFinite(ttlMs) && ttlMs > 0 ? Math.min(ttlMs, 24 * 60 * 60 * 1000) : 60_000
+    // A NaN ttlMs would never hold the slot, since `NaN >= now` is false, and an Infinity one never free it.
+    const safeTtl = Number.isFinite(ttlMs) && ttlMs > 0 ? ttlMs : 60_000
     this._entries.set(storeKey, {
       response: { status: 0, body: null, createdAt: new Date(now) },
       expiresAt: now + safeTtl,
@@ -72,8 +70,8 @@ export class MemoryIdempotency implements Idempotency.Store {
 
   /** Stores the response, so a replay of the key answers from cache. */
   async put(key: string, response: Idempotency.CachedResponse, ttlMs: number, ctx: TenantContext): Promise<void> {
-    // The same NaN bypass as claim().
-    const safeTtl = Number.isFinite(ttlMs) && ttlMs > 0 ? Math.min(ttlMs, 24 * 60 * 60 * 1000) : 60_000
+    // The same bound as claim().
+    const safeTtl = Number.isFinite(ttlMs) && ttlMs > 0 ? ttlMs : 60_000
     const now = Date.now()
     this._entries.set(this._k(key, ctx), {
       response: { ...response, createdAt: response.createdAt ?? new Date(now) },

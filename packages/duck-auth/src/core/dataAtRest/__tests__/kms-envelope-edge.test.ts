@@ -31,6 +31,24 @@ function makeFakeKms(): Kms.Provider {
   }
 }
 
+/** {@link makeFakeKms}, counting every call made to it. */
+function countedKms(): { kms: Kms.Provider; calls: () => number } {
+  const inner = makeFakeKms()
+  let calls = 0
+  const kms: Kms.Provider = {
+    decryptDataKey: async (wrapped, ctx) => {
+      calls++
+      return inner.decryptDataKey(wrapped, ctx)
+    },
+    generateDataKey: async (ctx) => {
+      calls++
+      return inner.generateDataKey(ctx)
+    },
+    id: inner.id,
+  }
+  return { calls: () => calls, kms }
+}
+
 describe('AuthKmsEnvelopeDataAtRest - edge cases', () => {
   it('roundtrips an empty string', async () => {
     const a = new AuthKmsEnvelopeDataAtRest({ kms: makeFakeKms() })
@@ -92,49 +110,63 @@ describe('AuthKmsEnvelopeDataAtRest - edge cases', () => {
   })
 
   it('zeroes the plaintext DEK after encrypt (memory-disclosure hygiene)', async () => {
-    let captured: Uint8Array | null = null
+    const minted: Uint8Array[] = []
     const observerKms: Kms.Provider = {
       decryptDataKey: async () => new Uint8Array(32),
       generateDataKey: async () => {
         const plaintext = new Uint8Array(randomBytes(32))
-        captured = plaintext
+        minted.push(plaintext)
         return { ciphertext: Buffer.from('x'), keyId: 'k', plaintext }
       },
       id: 'observer',
     }
     const a = new AuthKmsEnvelopeDataAtRest({ kms: observerKms })
     await a.encrypt('hi', { field: 'x', identityId: 'u' })
-    expect(captured).not.toBeNull()
-    expect((captured as unknown as Uint8Array).every((b) => b === 0)).toBe(true)
+    expect(minted).toHaveLength(1)
+    expect(minted.every((dek) => dek.every((b) => b === 0))).toBe(true)
   })
 
   it('zeroes the unwrapped DEK after decrypt failure', async () => {
     const a = new AuthKmsEnvelopeDataAtRest({ kms: makeFakeKms() })
     const ct = await a.encrypt('hi', { field: 'x', identityId: 'u' })
-    let leakedAfter: Uint8Array | null = null
+    const unwrapped: Uint8Array[] = []
+    // A random DEK, not the one the value was sealed under, so the tag fails; and not zeros, or the
+    // assertion below holds whether or not anything zeroed it.
     const watchKms: Kms.Provider = {
       decryptDataKey: async () => {
-        // Return a wrong-size DEK so AES-GCM throws AFTER we get a chance
-        // to observe whether plaintext-zero hygiene applies. We give the
-        // adapter a real 32-byte DEK so encryption succeeds in the
-        // happy path; tamper the BODY here so AES-GCM fails.
-        const dek = new Uint8Array(32)
-        leakedAfter = dek
+        const dek = new Uint8Array(randomBytes(32))
+        unwrapped.push(dek)
         return dek
       },
-      generateDataKey: async () => ({
-        ciphertext: Buffer.from('x'),
-        keyId: 'k',
-        plaintext: new Uint8Array(32),
-      }),
+      generateDataKey: async () => ({ ciphertext: Buffer.from('x'), keyId: 'k', plaintext: new Uint8Array(32) }),
       id: 'watch',
     }
     const b = new AuthKmsEnvelopeDataAtRest({ kms: watchKms })
     await expect(b.decrypt(ct, { field: 'x', identityId: 'u' })).rejects.toMatchObject({
       code: 'AUTH_INVALID_PARAMETERS',
     })
-    expect(leakedAfter).not.toBeNull()
-    expect((leakedAfter as unknown as Uint8Array).every((byte) => byte === 0)).toBe(true)
+    expect(unwrapped).toHaveLength(1)
+    expect(unwrapped.every((dek) => dek.every((b) => b === 0))).toBe(true)
+  })
+
+  it('refuses an empty wrapped DEK, zeroing the plaintext one, and seals under a wrapped one', async () => {
+    const minted: Uint8Array[] = []
+    const kms = (wrapped: Uint8Array): Kms.Provider => ({
+      decryptDataKey: async () => new Uint8Array(32),
+      generateDataKey: async () => {
+        const plaintext = new Uint8Array(randomBytes(32))
+        minted.push(plaintext)
+        return { ciphertext: wrapped, keyId: 'k', plaintext }
+      },
+      id: 'wraps',
+    })
+    await expect(
+      new AuthKmsEnvelopeDataAtRest({ kms: kms(new Uint8Array(0)) }).encrypt('hi', { field: 'x', identityId: 'u' }),
+    ).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
+    expect(minted.every((dek) => dek.every((b) => b === 0))).toBe(true)
+    await expect(
+      new AuthKmsEnvelopeDataAtRest({ kms: kms(Buffer.from('x')) }).encrypt('hi', { field: 'x', identityId: 'u' }),
+    ).resolves.toMatch(/^kms-env\$v1\$k\$eA\$/)
   })
 
   it('KMS generateDataKey throwing surfaces directly (no swallowing)', async () => {
@@ -176,11 +208,12 @@ describe('AuthKmsEnvelopeDataAtRest - GCM parameter sizes', () => {
 
   /** Re-emit a real ciphertext with one component swapped, so everything else stays valid. */
   async function withPart(index: number, value: string) {
-    const kms = makeFakeKms()
+    const { calls, kms } = countedKms()
     const adapter = new AuthKmsEnvelopeDataAtRest({ kms })
     const parts = (await adapter.encrypt('secret@example.com', ctx)).split('$')
     parts[index] = value
-    return { adapter, cipherText: parts.join('$') }
+    const minted = calls()
+    return { adapter, cipherText: parts.join('$'), unwraps: () => calls() - minted }
   }
 
   /**
@@ -192,24 +225,74 @@ describe('AuthKmsEnvelopeDataAtRest - GCM parameter sizes', () => {
     ['a truncated', 4],
     ['an oversize', 32],
   ])('refuses %s auth tag by size, before Node is given the chance to accept it', async (_label, bytes) => {
-    const { adapter, cipherText } = await withPart(5, randomBytes(bytes).toString('base64url'))
+    const { adapter, cipherText, unwraps } = await withPart(5, randomBytes(bytes).toString('base64url'))
     await expect(adapter.decrypt(cipherText, ctx)).rejects.toMatchObject({
       code: 'AUTH_INVALID_PARAMETERS',
       meta: { detail: 'kms-envelope: auth tag must be 16 bytes' },
     })
+    expect(unwraps()).toBe(0)
   })
 
   it.each([4, 8, 16])('refuses a %d-byte IV by size, since GCM is specified at 12', async (bytes) => {
-    const { adapter, cipherText } = await withPart(4, randomBytes(bytes).toString('base64url'))
+    const { adapter, cipherText, unwraps } = await withPart(4, randomBytes(bytes).toString('base64url'))
     await expect(adapter.decrypt(cipherText, ctx)).rejects.toMatchObject({
       code: 'AUTH_INVALID_PARAMETERS',
       meta: { detail: 'kms-envelope: IV must be 12 bytes' },
     })
+    expect(unwraps()).toBe(0)
   })
 
-  it('still roundtrips an untouched ciphertext', async () => {
-    const kms = makeFakeKms()
+  it('refuses a trailing component rather than ignoring it', async () => {
+    const { adapter, cipherText, unwraps } = await withPart(0, 'kms-env')
+    await expect(adapter.decrypt(`${cipherText}$x`, ctx)).rejects.toMatchObject({
+      code: 'AUTH_INVALID_PARAMETERS',
+      meta: { detail: 'kms-envelope: malformed ciphertext' },
+    })
+    expect(unwraps()).toBe(0)
+  })
+
+  it('refuses an empty wrapped DEK without asking KMS to unwrap it', async () => {
+    const { adapter, cipherText, unwraps } = await withPart(3, '')
+    await expect(adapter.decrypt(cipherText, ctx)).rejects.toMatchObject({
+      code: 'AUTH_INVALID_PARAMETERS',
+      meta: { detail: 'kms-envelope: wrapped DEK is empty' },
+    })
+    expect(unwraps()).toBe(0)
+  })
+
+  it('still roundtrips an untouched ciphertext, unwrapping once', async () => {
+    const { adapter, cipherText, unwraps } = await withPart(0, 'kms-env')
+    expect(await adapter.decrypt(cipherText, ctx)).toBe('secret@example.com')
+    expect(unwraps()).toBe(1)
+  })
+})
+
+describe('AuthKmsEnvelopeDataAtRest - input bounds, checked before KMS is called', () => {
+  const ctx = { field: 'note', identityId: 'u1' }
+
+  it.each([[42], [null], [{}], ['x'.repeat(1_048_577)]])('refuses to encrypt %#', async (value) => {
+    const { calls, kms } = countedKms()
     const adapter = new AuthKmsEnvelopeDataAtRest({ kms })
-    expect(await adapter.decrypt(await adapter.encrypt('secret@example.com', ctx), ctx)).toBe('secret@example.com')
+    await expect(Reflect.apply(adapter.encrypt, adapter, [value, ctx])).rejects.toMatchObject({
+      code: 'AUTH_INVALID_PARAMETERS',
+      meta: { detail: 'kms-envelope: plaintext must be a <=1MiB string' },
+    })
+    expect(calls()).toBe(0)
+  })
+
+  it.each([[42], [null], ['x'.repeat(1_048_576 * 4 + 4097)]])('refuses to decrypt %#', async (value) => {
+    const { calls, kms } = countedKms()
+    const adapter = new AuthKmsEnvelopeDataAtRest({ kms })
+    await expect(Reflect.apply(adapter.decrypt, adapter, [value, ctx])).rejects.toMatchObject({
+      code: 'AUTH_INVALID_PARAMETERS',
+      meta: { detail: 'kms-envelope: ciphertext is not a string or oversize' },
+    })
+    expect(calls()).toBe(0)
+  })
+
+  it('reads back the largest plaintext it accepts, at three UTF-8 bytes a character', async () => {
+    const adapter = new AuthKmsEnvelopeDataAtRest({ kms: makeFakeKms() })
+    const largest = '中'.repeat(1_048_576)
+    expect(await adapter.decrypt(await adapter.encrypt(largest, ctx), ctx)).toBe(largest)
   })
 })

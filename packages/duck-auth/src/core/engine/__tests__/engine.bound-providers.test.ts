@@ -21,7 +21,7 @@ function bindableStores() {
   const copy = <T extends object>(store: T): T => Object.assign(Object.create(Object.getPrototypeOf(store)), store)
   const recording = <T extends object>(store: T): T => {
     const bound = copy(store)
-    const create = (bound as { create?: (...a: never[]) => unknown }).create
+    const create: unknown = Reflect.get(bound, 'create')
     if (typeof create === 'function') {
       Object.assign(bound, {
         create: (...args: never[]) => {
@@ -85,7 +85,7 @@ describe('bound facade - provider-owned facets', () => {
   it('bound apiKeys writes through a bound credentials store, not the engine own', async () => {
     const stores = bindableStores()
     const engine = createTest<P>({ stores })
-    const identity = await engine.identities.create({ profile: { email: 'k@x', username: 'k' } as P })
+    const identity = await engine.identities.create({ profile: { email: 'k@x', username: 'k' } })
     const unbound = vi.spyOn(engine.cfg.stores.credentials, 'create')
     stores.reboundCreates.length = 0
 
@@ -99,7 +99,7 @@ describe('bound facade - provider-owned facets', () => {
   it('bound mfa writes through a bound credentials store, not the engine own', async () => {
     const stores = bindableStores()
     const engine = createTest<P>({ stores })
-    const identity = await engine.identities.create({ profile: { email: 'm@x', username: 'm' } as P })
+    const identity = await engine.identities.create({ profile: { email: 'm@x', username: 'm' } })
     const unbound = vi.spyOn(engine.cfg.stores.credentials, 'create')
     stores.reboundCreates.length = 0
 
@@ -112,7 +112,7 @@ describe('bound facade - provider-owned facets', () => {
 
   it('bound mfa buffers its events instead of emitting them', async () => {
     const engine = createTest<P>({ stores: bindableStores() })
-    const identity = await engine.identities.create({ profile: { email: 'e@x', username: 'e' } as P })
+    const identity = await engine.identities.create({ profile: { email: 'e@x', username: 'e' } })
     const emitted: string[] = []
     engine.events.on('mfa.removed', async () => {
       emitted.push('mfa.removed')

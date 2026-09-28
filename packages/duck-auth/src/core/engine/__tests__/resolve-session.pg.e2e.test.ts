@@ -44,7 +44,7 @@ suite('E2E resolveBySid on real Postgres', () => {
   beforeAll(async () => {
     pool = new Pool({ connectionString: URL })
     await applyPgSchema(pool)
-    stores = new DrizzlePgAdapter(URL as string)
+    stores = new DrizzlePgAdapter(URL)
 
     identityId = randomUUID()
     await pool.query(

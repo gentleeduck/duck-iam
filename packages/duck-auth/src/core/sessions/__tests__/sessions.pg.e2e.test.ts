@@ -11,13 +11,13 @@ suite('E2E sessions on real Postgres (shipped schema)', () => {
   let pool: Pool
   let identityId: string
 
-  /** Insert a session row directly — this suite tests the schema and dialect,
-   *  not the drizzle wiring, which sqlite conformance already covers. */
   /** Session ids must be exactly 64 chars — `chk_auth_sessions_id_length`. */
   function sid(): string {
     return createHash('sha256').update(randomUUID()).digest('hex')
   }
 
+  /** Insert a session row directly — this suite tests the schema and dialect,
+   *  not the drizzle wiring, which sqlite conformance already covers. */
   async function insertSession(over: Partial<Record<string, unknown>> = {}): Promise<string> {
     const id = (over.id as string) ?? sid()
     const now = new Date()
@@ -49,7 +49,7 @@ suite('E2E sessions on real Postgres (shipped schema)', () => {
   }
 
   beforeAll(async () => {
-    pool = new Pool({ connectionString: URL as string, max: 10 })
+    pool = new Pool({ connectionString: URL, max: 10 })
     await applyPgSchema(pool)
     identityId = randomUUID()
     await pool.query(
@@ -130,9 +130,7 @@ suite('E2E sessions on real Postgres (shipped schema)', () => {
     })
 
     it('rejects an identity profile without BOTH username and email', async () => {
-      // This is the one that bites: `beginSignUp` builds its profile as
-      // `{ ...initialProfile, email, emailVerified }` — no `username` unless the
-      // caller supplies one. On this schema that INSERT fails.
+      // Why `beginSignUp` fills `username` from the email when the caller gives none.
       const id = randomUUID()
       await expect(
         pool.query(

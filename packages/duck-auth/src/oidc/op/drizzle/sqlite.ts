@@ -5,6 +5,7 @@ import type { BaseSQLiteDatabase } from 'drizzle-orm/sqlite-core'
 import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
 import type { OidcOP } from '../types'
 
+/** Registered OIDC clients. */
 export const authOidcClientsTable = sqliteTable('oidc_clients', {
   clientId: text('client_id').primaryKey(),
   clientSecretHash: text('client_secret_hash'),
@@ -19,6 +20,7 @@ export const authOidcClientsTable = sqliteTable('oidc_clients', {
   createdAt: integer('created_at').notNull(),
 })
 
+/** Pending authorization codes. */
 export const authOidcCodesTable = sqliteTable(
   'oidc_codes',
   {
@@ -37,6 +39,7 @@ export const authOidcCodesTable = sqliteTable(
   (t) => [index('oidc_codes_exp').on(t.exp)],
 )
 
+/** Issued access tokens, by hash. */
 export const authOidcAccessTokensTable = sqliteTable(
   'oidc_access_tokens',
   {
@@ -50,6 +53,7 @@ export const authOidcAccessTokensTable = sqliteTable(
   (t) => [index('oidc_at_exp').on(t.exp)],
 )
 
+/** Issued refresh tokens, by hash. */
 export const authOidcRefreshTokensTable = sqliteTable(
   'oidc_refresh_tokens',
   {
@@ -65,6 +69,7 @@ export const authOidcRefreshTokensTable = sqliteTable(
   (t) => [index('oidc_rt_family').on(t.familyId), index('oidc_rt_exp').on(t.exp)],
 )
 
+/** Granted scopes per subject and client. */
 export const authOidcConsentsTable = sqliteTable(
   'oidc_consents',
   {
@@ -173,8 +178,10 @@ function rowToConsent(row: typeof authOidcConsentsTable.$inferSelect): OidcOP.Co
   }
 }
 
+/** Any drizzle database of this dialect. */
 type AnySQLiteDatabase = BaseSQLiteDatabase<'sync' | 'async', unknown, any>
 
+/** The OP's five stores over drizzle SQLite. */
 export function authCreateDrizzleSqliteOidcOpStores(db: AnySQLiteDatabase): {
   clients: OidcOP.ClientStore
   codes: OidcOP.CodeStore
@@ -332,6 +339,7 @@ export function authCreateDrizzleSqliteOidcOpStores(db: AnySQLiteDatabase): {
   }
 }
 
+/** Deletes expired codes and tokens; answers how many rows went. */
 export async function authGcDrizzleSqliteOidcOp(db: AnySQLiteDatabase, now: number = Date.now()): Promise<number> {
   const codes = await db
     .delete(authOidcCodesTable)

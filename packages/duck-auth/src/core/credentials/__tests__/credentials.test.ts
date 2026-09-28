@@ -18,7 +18,8 @@ describe('isCredentialExpired', () => {
   })
 
   it('fails closed on a corrupt expiry', () => {
-    expect(isCredentialExpired({ expiresAt: 'soon' as never }, NOW)).toBe(true)
+    // @ts-expect-error not a Date
+    expect(isCredentialExpired({ expiresAt: 'soon' }, NOW)).toBe(true)
     expect(isCredentialExpired({ expiresAt: new Date(Number.NaN) }, NOW)).toBe(true)
   })
 })
@@ -39,7 +40,8 @@ describe('isRevoked', () => {
   })
 
   it('is false for undefined, matching the null sentinel', () => {
-    expect(isRevoked({ revokedAt: undefined as never })).toBe(false)
+    // @ts-expect-error neither a Date nor null
+    expect(isRevoked({ revokedAt: undefined })).toBe(false)
   })
 })
 
