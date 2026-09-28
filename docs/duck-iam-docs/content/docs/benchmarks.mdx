@@ -1,6 +1,6 @@
 ---
 title: Benchmarks
-description: Measured performance for @gentleduck/iam: the methodology, the hardware, and where a warm check actually spends its time
+description: Measured performance for @gentleduck/iam, with the methodology, the hardware, and where a warm check actually spends its time
 section: Benchmarks
 ---
 Two different things get measured here and they are constantly confused: the raw rule matcher, and `engine.can()`, the entry point a real request goes through. The matcher is roughly 7 percent of a warm check. Every table below states which of the two it measures.

@@ -1,6 +1,6 @@
 ---
 title: Express
-description: The Express middleware, per-route guard, and admin router: signatures, extraction defaults, and error mapping for Express 4 and 5
+description: The Express middleware, per-route guard, and admin router, with signatures, extraction defaults, and error mapping for Express 4 and 5
 section: Integrations
 ---
 `@gentleduck/iam/server/express` exposes two request gates and one admin router. It declares no runtime dependency on Express: every function is typed against a minimal `req` / `res` / `next` shape, so it works with Express 4, Express 5, and any router that implements `.get`, `.put`, `.post`, and `.delete`. The shared extraction and audit behaviour lives in [generic helpers](/duck-iam/integrations/server/generic); this page documents only what Express adds.
