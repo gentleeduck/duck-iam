@@ -1,0 +1,7 @@
+node_modules
+.next
+next-env.d.ts
+tsconfig.tsbuildinfo
+# `next dev` writes these for coding agents
+AGENTS.md
+CLAUDE.md
