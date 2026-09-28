@@ -1,0 +1,44 @@
+---
+title: Koa
+description: Mounting the auth routes on Koa with @koa/router, guarding your own routes, and binding the actor
+section: Server
+---
+```ts
+import {
+  koaActorContext,
+  koaCsrf,
+  koaProviderBegin,
+  koaProviderCallback,
+  koaSession,
+  koaSignIn,
+  koaSignOut,
+} from '@gentleduck/auth/server/koa'
+import { bodyParser } from '@koa/bodyparser'
+import Router from '@koa/router'
+import Koa from 'koa'
+
+const app = new Koa({ proxy: true })
+const router = new Router()
+
+router.post('/auth/signin', koaSignIn(auth))
+router.post('/auth/signout', koaSignOut(auth))
+router.get('/auth/session', koaSession(auth))
+router.post('/auth/providers/:id/begin', koaProviderBegin(auth))
+router.get('/auth/providers/:id/callback', koaProviderCallback(auth))
+router.post('/auth/providers/:id/callback', koaProviderCallback(auth))
+
+app.use(bodyParser({ enableTypes: ['json', 'form'] }))
+app.use(router.routes())
+```
+
+- The handlers read `ctx.request.body`, so a body parser goes first. `form` is for Apple, which posts its callback as a form.
+- `proxy: true` makes `ctx.request.ip` read the forwarded address, and so what the session records. Leave it off unless a proxy you control sets that header.
+- The callback answers the session cookies and an empty 200. To land the browser on a page, write the callback yourself, as on the [OAuth page](/duck-auth/providers/oauth#the-routes).
+
+## Your own routes
+
+```ts
+router.use('/api', koaCsrf(auth), koaActorContext(auth))
+```
+
+`koaActorContext` throws a refusal to Koa, which answers it at the error's `status`. `koaCaller(ctx)` is the IP and User-Agent to pass to a flow you call yourself, and `koaApplyIntents(intents, ctx)` writes its answer onto the context.

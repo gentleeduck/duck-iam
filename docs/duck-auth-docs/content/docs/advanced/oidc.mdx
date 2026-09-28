@@ -1,0 +1,30 @@
+---
+title: OIDC discovery
+description: Publishing a discovery document and JWKS so other services can verify the tokens a JwtTransport signs, and reading another issuer's document
+section: Advanced
+---
+A discovery document and a JWKS let another service verify the tokens your [JWT transport](/duck-auth/core/transports/jwt) signs without calling you. For a full OpenID provider, with `/authorize` and `/token`, see [OIDC provider](/duck-auth/advanced/oidc-op).
+
+```ts
+import { authBuildOidcDiscovery } from '@gentleduck/auth/oidc'
+
+const discovery = authBuildOidcDiscovery({ issuer: 'https://auth.example.com', signingAlgs: ['ES256'] })
+
+app.get('/.well-known/openid-configuration', (_req, res) => res.json(discovery))
+app.get('/.well-known/jwks.json', (_req, res) => res.json(jwt.jwks()))
+```
+
+- `issuer` must be `https` unless `allowHttp: true`; a trailing slash is dropped.
+- `signingAlgs` defaults to `['HS256']`; set it to your transport's algorithm. HS256 secrets never appear in the JWKS, so only an asymmetric key can be verified elsewhere.
+- The OAuth endpoints it advertises sit under `prefix` (default `/auth`), and `jwks_uri` under `jwksPath` (default `/.well-known/jwks.json`). `extraClaims` adds fields but cannot replace these.
+- Build the JWKS per request, so a key added by `rotateSignKey` appears. `authBuildOidcRoutes({ config, transport })` answers both documents at once, with the JWKS as of that call.
+
+## Reading another issuer
+
+```ts
+import { authFetchOidcDiscovery } from '@gentleduck/auth/oidc'
+
+const doc = await authFetchOidcDiscovery('https://accounts.example.com')
+```
+
+It fetches `/.well-known/openid-configuration` under the issuer, refuses `http` unless `allowHttp: true`, and caches the answer for an hour. `bypassCache: true` refetches, and `authFlushOidcDiscoveryCache()` empties the cache.

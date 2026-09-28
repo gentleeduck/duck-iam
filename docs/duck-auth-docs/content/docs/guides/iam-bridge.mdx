@@ -1,0 +1,76 @@
+---
+title: Bridging to duck-iam
+description: The identity id as the duck-iam subject, the session's AAL and tenant as its environment and scope, and a default role on sign-up
+section: Guides
+---
+duck-auth answers who the caller is; [duck-iam](/duck-iam/introduction) decides what they may do. The session carries what the check needs:
+
+| duck-iam | From the session |
+| --- | --- |
+| Subject id | `session.identityId` |
+| Environment | `{ aal: session.aal }`, and anything else a rule reads |
+| Scope | `session.tenantId`, when your tenants are duck-iam scopes |
+
+## Checking a route
+
+```ts
+import { toHeaders } from '@gentleduck/auth/server/express'
+
+app.delete('/api/posts/:id', async (req, res) => {
+  const resolved = await auth.resolveSession({ headers: toHeaders(req.headers) }).orNull()
+  const identityId = resolved?.session.identityId
+  if (!resolved || !identityId) return res.status(401).end()
+
+  const post = await getPost(req.params.id)
+  const allowed = await iam.can(
+    identityId,
+    'delete',
+    { type: 'post', id: post.id, attributes: { ownerId: post.ownerId } },
+    { aal: resolved.session.aal },
+    resolved.session.tenantId ?? undefined,
+  )
+  if (!allowed) return res.status(403).end()
+
+  await deletePost(post.id)
+  res.status(204).end()
+})
+```
+
+duck-iam's [Express guard](/duck-iam/integrations/server/express) runs the same check as middleware: its `getUserId`, `getEnvironment` and `getScope` read what your own middleware resolved.
+
+## Requiring a second factor
+
+A rule reads the AAL from the environment. Write it so a check without one is denied:
+
+```ts
+import { definePolicy } from '@gentleduck/iam/core'
+
+const stepUp = definePolicy('step-up')
+  .algorithm('first-match')
+  .rule('delete-at-aal2', (r) => r.allow().on('delete').of('*').when((w) => w.env('aal', 'gte', 2)))
+  .rule('delete-otherwise', (r) => r.deny().on('delete').of('*'))
+  .rule('the-rest', (r) => r.allow().on('*').of('*'))
+  .build()
+```
+
+A deny when `aal` is below 2 reads the same but fails open: a check that leaves out the environment has no `aal`, so the rule never matches. Roles still decide the rest; `the-rest` only stops this policy from denying it.
+
+When a delete is denied at AAL 1, [`checkStepUp`](/duck-auth/guides/mfa#asking-for-the-second-factor) names the factors to ask for, and the client retries once the session is stepped up.
+
+## A role on sign-up
+
+```ts
+auth.events.on('signup.completed', async ({ identity }) => {
+  await iam.admin.assignRole(identity.id, 'viewer')
+})
+```
+
+`signup.completed` fires for every identity created, and creation waits for the listener. A listener that throws is logged, not raised, so the identity then exists without the role.
+
+## Tenants as scopes
+
+```ts
+await iam.admin.assignRole(identityId, 'admin', 'acme')
+```
+
+The grant applies only to a check scoped to `acme`, so an admin in one tenant is not one in another. A session signed in without a tenant has `tenantId: null` and reaches only unscoped grants; see [multi-tenancy](/duck-auth/advanced/multi-tenancy).

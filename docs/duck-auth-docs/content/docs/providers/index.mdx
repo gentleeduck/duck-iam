@@ -1,0 +1,72 @@
+---
+title: Providers
+description: The shipped sign-in providers and facets, how a provider plugs into a sign-in, and writing your own
+section: Providers
+---
+A provider is one way to prove who someone is. Register the ones you use in `providers`, and each is reachable by its id through `auth.flows.signIn`.
+
+```ts
+import { passwords } from '@gentleduck/auth/providers/passwords'
+import { google } from '@gentleduck/auth/providers/oauth/google'
+import { mfaProvider } from '@gentleduck/auth/providers/mfa'
+
+const auth = createAuth({
+  // ...
+  providers: [passwords(), google(googleOptions), mfaProvider()],
+})
+```
+
+A falsy entry is skipped, so `process.env.GOOGLE_CLIENT_ID && google({ ... })` registers it only when configured.
+
+## What ships
+
+| Provider | Import | Id | Facet |
+| --- | --- | --- | --- |
+| [Password](/duck-auth/providers/password) | `providers/passwords` | `password` | `auth.passwords` |
+| [Magic link](/duck-auth/providers/magic-link) | `providers/magic-link` | `magic-link` | |
+| [OAuth](/duck-auth/providers/oauth): Google, GitHub, Microsoft, Apple, LinkedIn, Discord | `providers/oauth/<name>` | `oauth:<name>` | |
+| [Passkey](/duck-auth/providers/passkey) | `providers/passkey` | `passkey` | `auth.passkeys` |
+| [API key](/duck-auth/providers/api-key) | `providers/api-key` | `api-key` | `auth.apiKeys` |
+| [SAML](/duck-auth/providers/saml) | `providers/saml` | `saml` | |
+| [MFA](/duck-auth/guides/mfa) | `providers/mfa` | | `auth.mfa` |
+
+Every import is under `@gentleduck/auth/`. MFA signs nobody in; it adds TOTP, backup codes and WebAuthn as second factors for [step-up](/duck-auth/core/flows#step-up). Using a facet whose provider is not registered throws `AUTH_PROVIDER_NOT_REGISTERED`.
+
+## How a sign-in runs
+
+A provider has two steps:
+
+- `begin` starts a flow that needs one: OAuth answers a redirect, magic link sends the email. Call it with `auth.flows.beginProvider(id, input)`. Password and API key have nothing to begin.
+- `complete` checks the proof. Through `auth.flows.signIn({ providerId, input })`, a success opens the session and answers the transport's intents.
+
+Each answers intents, such as `redirect`, `setCookie` or `json`, which the [server adapters](/duck-auth/server) turn into a response.
+
+## Writing your own
+
+A provider is `{ id, kind, begin, complete }`. `complete` answers a `startSession` intent naming the identity, the factors presented and the AAL:
+
+```ts
+import { AuthError, orNull, type Provider } from '@gentleduck/auth/core'
+
+const ldap: Provider.Me<unknown, { username: string; password: string }> = {
+  id: 'ldap',
+  kind: 'ldap',
+  async begin() {
+    return []
+  },
+  async complete(ctx, { username, password }) {
+    const limited = await ctx.limiter.consume(`signin:ldap:${username}`)
+    if (!limited.ok) {
+      throw new AuthError('AUTH_RATE_LIMITED', { retryAfter: Math.ceil((limited.resetAt.getTime() - Date.now()) / 1000) })
+    }
+    if (!(await directory.bind(username, password))) throw new AuthError('AUTH_INVALID_CREDENTIALS')
+    const identity = await orNull(ctx.stores.identities.find({ email: `${username}@corp.example` }))
+    if (!identity) throw new AuthError('AUTH_INVALID_CREDENTIALS')
+    return [{ type: 'startSession', identityId: identity.id, factors: [{ method: 'password', completedAt: new Date() }], aal: 1 }]
+  },
+}
+
+createAuth({ /* ... */ providers: [ldap] })
+```
+
+`ctx` carries the stores, the tenant, the limiter, the event bus and crypto helpers. Rate-limit whatever an attacker can guess, and throw the same error for a wrong secret and an unknown account. A provider answering `requireMfa` instead refuses the sign-in with `AUTH_STEP_UP_REQUIRED`.

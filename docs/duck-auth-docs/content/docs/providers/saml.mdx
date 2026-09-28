@@ -1,0 +1,96 @@
+---
+title: SAML
+description: Enterprise SSO over SAML 2.0 with node-saml, binding each response to its request, replay protection, and provisioning accounts
+section: Providers
+---
+The provider wraps a `@node-saml/node-saml` client you build, so every SAML setting is node-saml's. duck-auth adds the request binding, replay protection, rate limits and the session.
+
+```ts
+import { saml } from '@gentleduck/auth/providers/saml'
+import { SAML } from '@node-saml/node-saml'
+
+const callbackUrl = 'https://app.example.com/auth/providers/saml/callback'
+const client = new SAML({
+  entryPoint: 'https://idp.example.com/sso/saml',
+  issuer: 'https://app.example.com',
+  callbackUrl,
+  idpCert: process.env.SAML_IDP_CERT ?? '',
+})
+
+const auth = createAuth({
+  // ...
+  providers: [
+    (engine) =>
+      saml({
+        client,
+        callbackUrl,
+        verifyRelayState: async ({ relayState }) => (await redis.getdel(`saml:relay:${relayState}`)) === '1',
+        replayStore: { consume: async (id) => (await redis.set(`saml:assertion:${id}`, '1', 'EX', 3600, 'NX')) === 'OK' },
+        async onSignIn({ profile }) {
+          const linked = await engine.identities.getByProviderSub('saml', profile.nameID).orNull()
+          if (linked) return { identityId: linked.id }
+          const created = await engine.identities.create({
+            profile: { email: profile.email ?? profile.nameID, username: `saml:${profile.nameID}` },
+            providers: [{ providerId: 'saml', providerSub: profile.nameID }],
+          })
+          return { identityId: created.id }
+        },
+      }),
+  ],
+})
+```
+
+Give the IdP your metadata from `buildSpMetadata({ client, metadata: { entityId: 'https://app.example.com', acsUrl: callbackUrl } })`.
+
+## The routes
+
+`begin` redirects to the IdP with a relay state you issued; the IdP posts the response back to the callback.
+
+```ts
+import { randomUUID } from 'node:crypto'
+
+app.get('/auth/providers/saml/begin', async (_req, res) => {
+  const relayState = randomUUID()
+  await redis.set(`saml:relay:${relayState}`, '1', 'EX', 600)
+  applyIntents(await auth.flows.beginProvider('saml', { relayState, host: 'app.example.com' }), res)
+})
+
+app.post('/auth/providers/saml/callback', express.urlencoded({ extended: false }), async (req, res) => {
+  const { intents } = await auth.flows.signIn({
+    providerId: 'saml',
+    input: { SAMLResponse: req.body.SAMLResponse, relayState: req.body.RelayState },
+    ...expressCaller(req),
+  })
+  applyIntents([...intents, { type: 'redirect', url: '/' }], res)
+})
+```
+
+The callback is a cross-site form post from the IdP, so keep it out of your CSRF guard: the relay state is its proof.
+
+## What is checked
+
+- **The request.** `verifyRelayState` must accept the relay state, or the response is refused: otherwise an assertion an attacker obtained for their own account, posted into your browser, signs you in as them. For IdP-initiated sign-in, which has no request, pass `allowUnsolicited: true` instead.
+- **Replay.** `replayStore.consume` must answer `true` for an assertion id only once. Without a store, pass `allowReplay: true`, which lets a captured post sign in again until the assertion expires.
+- **The signature.** node-saml checks it. A client configured to want neither a signed assertion nor a signed response is refused at construction.
+- **The subject.** The nameID must be in `allowedNameIdFormats`, by default only the email format, since a transient nameID changes every sign-in. Under the email format, an asserted `email` must equal the nameID.
+
+Every refusal throws `AUTH_PROVIDER_FAILED` with the same detail; the real reason is emitted as `signin.failed`.
+
+The session is AAL 2 only when the IdP's `AuthnContextClassRef` is one of `mfaAuthnContexts`, such as a smartcard or a one-time code. A password at the IdP is AAL 1.
+
+## Options
+
+| Option | Default | Effect |
+| --- | --- | --- |
+| `client` | required | The node-saml `SAML` instance. |
+| `callbackUrl` | required | The ACS URL; must match the client's. |
+| `onSignIn` | required | Answers the identity for a validated profile, creating it on first sign-in. |
+| `verifyRelayState` | none | Required unless `allowUnsolicited`. |
+| `replayStore` | none | Required unless `allowReplay`. |
+| `providerId` | `'saml'` | Register one provider per IdP under different ids, such as `'saml:acme'`. |
+| `allowedNameIdFormats` | email | The nameID formats accepted. |
+| `mfaAuthnContexts` | `SAML_MFA_AUTHN_CONTEXTS` | The contexts that earn AAL 2. |
+| `allowedAttributes` | all | The attributes `onSignIn` sees. |
+| `limiterKey` | per tenant | The limiter bucket for each phase. |
+
+For single logout, `samlSloController({ client })` checks the logout messages both ways: `beginSp` and `completeSp` for a logout you start, `completeIdp` for one the IdP sends, answering the nameID whose sessions you end.

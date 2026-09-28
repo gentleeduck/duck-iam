@@ -1,0 +1,54 @@
+---
+title: Multi-tenancy
+description: Which records carry a tenant, signing in and resolving sessions under one, and the routes a multi-tenant app writes itself
+section: Advanced
+---
+One engine serves every tenant. Identities are global: one person, one row, one email across all of them. What carries a tenant is what they hold in it:
+
+- **Credentials.** A password, TOTP secret, passkey or API key belongs to the tenant it was created under.
+- **Sessions.** A session records the tenant it was signed in to.
+
+## Signing in to a tenant
+
+```ts
+await auth.passwords.set(ada.id, password, auth.cfg.stores.credentials, { tenantId: 'acme' })
+
+const { sid, session } = await auth.flows.signIn({ providerId: 'password', input: { email, password }, tenantId: 'acme' })
+// session.tenantId === 'acme'
+```
+
+A sign-in under `globex` does not find acme's password and answers `AUTH_INVALID_CREDENTIALS`.
+
+## Resolving under a tenant
+
+```ts
+const resolved = await auth.resolveSession(req, { expectedTenantId: 'acme' }).orNull()
+```
+
+A session from another tenant resolves as absent. The [CSRF guards](/duck-auth/server#your-own-routes) take the same option: `csrfGuard(auth, req, { expectedTenantId })`, `expressCsrf(auth, { expectedTenantId })`.
+
+## Leaving the tenant out
+
+A call without a tenant is unscoped, not scoped to "no tenant":
+
+- A sign-in without `tenantId` finds a credential in any tenant, and its session records none.
+- A resolve without `expectedTenantId` accepts a session from any tenant.
+- `auth.sessions.listForIdentity(id)` lists the person's sessions in every tenant. Pass `{ tenantId }` to list one.
+
+So the mounted [server routes](/duck-auth/server), which pass no tenant, serve a single-tenant app. A multi-tenant app writes its sign-in route and its guards itself, with the tenant from the host or path; [Fetch runtimes](/duck-auth/server/generic) has a sign-in route to start from.
+
+## The ambient tenant
+
+`withTenant(tenantId, fn)` binds a tenant for everything `fn` awaits, `currentTenant()` reads it, and `resolveTenant(explicit)` answers the explicit one when given and the bound one otherwise. They are for your own code. No engine call reads the bound tenant, so each still needs its `tenantId` passed.
+
+```ts
+import { resolveTenant, withTenant } from '@gentleduck/auth/core'
+
+app.use((req, _res, next) => withTenant(req.hostname.split('.')[0], next))
+
+// In a handler below it:
+const { tenantId } = resolveTenant()
+await auth.flows.signIn({ providerId: 'password', input, tenantId })
+```
+
+Organisations inside a tenant, with members and roles, are the [orgs facet](/duck-auth/core/orgs).

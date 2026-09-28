@@ -1,0 +1,142 @@
+---
+title: OAuth
+description: Sign-in through Google, GitHub, Microsoft, Apple, LinkedIn and Discord, the two routes it needs, creating and linking accounts, and adding any other OAuth 2.0 IdP
+section: Providers
+---
+Each shipped provider is a preset over one OAuth 2.0 implementation: PKCE, a signed `state` bound to the browser that began the flow by a pre-auth cookie, and a callback that works once.
+
+| Provider | Import | Default scopes | Email counted as verified |
+| --- | --- | --- | --- |
+| [Google](/duck-auth/providers/oauth/google) | `providers/oauth/google` | `openid email profile` | When Google says so. |
+| [GitHub](/duck-auth/providers/oauth/github) | `providers/oauth/github` | `read:user user:email` | The primary verified address only. |
+| [Microsoft](/duck-auth/providers/oauth/microsoft) | `providers/oauth/microsoft` | `openid profile email User.Read` | Never. |
+| [Apple](/duck-auth/providers/oauth/apple) | `providers/oauth/apple` | `name email` | When the id_token says so. |
+| [LinkedIn](/duck-auth/providers/oauth/linkedin) | `providers/oauth/linkedin` | `openid profile email` | When LinkedIn says so. |
+| [Discord](/duck-auth/providers/oauth/discord) | `providers/oauth/discord` | `identify email` | When Discord says so. |
+
+## Setup
+
+```ts
+import { redisDPoPNonceStore } from '@gentleduck/auth/adapters/redis'
+import { google } from '@gentleduck/auth/providers/oauth/google'
+
+const auth = createAuth({
+  baseUrl: 'https://app.example.com',
+  // ...
+  providers: [
+    google({
+      clientId: process.env.GOOGLE_CLIENT_ID ?? '',
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? '',
+      redirectUri: 'https://app.example.com/auth/providers/oauth:google/callback',
+      stateSigningSecret: process.env.OAUTH_STATE_SECRET ?? '',
+      nonceStore: redisDPoPNonceStore({ redis, prefix: 'auth:oauth:nonce' }),
+      profileToIdentityProfile: (p) => (p.email ? { email: p.email, username: `google:${p.sub}`, name: p.name } : null),
+    }),
+  ],
+})
+```
+
+Every provider takes these, plus its own extras:
+
+| Option | Notes |
+| --- | --- |
+| `clientId`, `clientSecret` | From the IdP's console. Apple takes a key instead of a secret. |
+| `redirectUri` | Must match what the IdP has registered, exactly. |
+| `stateSigningSecret` | Signs the `state`. Empty throws; `strict()` refuses one under 32 bytes in production. |
+| `nonceStore` | Burns each `state` on use, so a callback URL recovered from history or a log cannot sign in again. Required unless you pass `allowStateReplay: true`, which production refuses. `memoryDPoPNonceStore()` works for one process. |
+| `profileToIdentityProfile` | Builds the profile for a first-time user. Without it, or when it answers `null`, a first sign-in is refused. |
+| `onFederationConflict` | See [Linking](#linking-to-an-existing-account). Default `'reject'`. |
+| `onSignIn` | Replaces the lookup below entirely. |
+| `stateCookie` | The pre-auth cookie, `__Host-duck-oauth` by default. On plain-http development, pass `{ name: 'duck-oauth', secure: false }`. |
+| `scopes` | Replaces the default scopes. |
+
+## The routes
+
+A flow is two requests: `begin`, which sets the pre-auth cookie and redirects to the IdP, and the callback the IdP sends the browser back to. With Express:
+
+```ts
+import { applyIntents, expressCaller, mountProviderBegin } from '@gentleduck/auth/server/express'
+import { oauthCallback } from '@gentleduck/auth/server/generic'
+import express from 'express'
+
+app.post('/auth/providers/:id/begin', express.json(), mountProviderBegin(auth))
+
+const callback: express.RequestHandler = async (req, res) => {
+  const request = { body: req.body, cookie: req.headers.cookie, method: req.method, url: req.url }
+  const intents = await oauthCallback(auth, req.params.id, request, expressCaller(req))
+  applyIntents([...intents, { type: 'redirect', url: '/' }], res)
+}
+app.get('/auth/providers/:id/callback', callback)
+app.post('/auth/providers/:id/callback', express.urlencoded({ extended: false }), callback)
+```
+
+- In the browser, `client.beginProvider('oauth:google')` posts to `begin` and follows the IdP URL it answers.
+- The callback answers the session cookies and nothing else, so where the browser lands is yours: add the redirect, and on a thrown `AuthError`, redirect to your sign-in page with its code.
+- The POST route is only for Apple, which posts its callback as a form.
+
+The other [server adapters](/duck-auth/server) have the same pieces.
+
+## Who signs in
+
+On a callback, the provider finds the identity:
+
+1. One already linked to this provider account signs in.
+2. Otherwise, one owning the profile's email is a conflict, settled by `onFederationConflict`.
+3. Otherwise, `profileToIdentityProfile` creates one, linked to the provider account.
+
+A created identity starts with `emailVerified: false`: the IdP's claim is not a proof duck-auth made.
+
+## Linking to an existing account
+
+An existing account whose email matches is not linked by default. Linking on the IdP's word alone hands an account to anyone who can make an IdP assert its address.
+
+| `onFederationConflict` | Links when |
+| --- | --- |
+| `'reject'` (default) | Never; the sign-in throws `AUTH_PROVIDER_FAILED`. |
+| `'link-if-verified'` | The IdP marks the address verified and the existing identity proved it too. |
+| `(conflict) => 'link' \| 'reject'` | Your function says `'link'`; anything else refuses. |
+
+A signed-in user can link a provider deliberately with [`auth.flows.linkProvider`](/duck-auth/core/flows#linking-a-provider).
+
+## Any other IdP
+
+`oProvider` and `OAuthClient` from `@gentleduck/auth/providers/oauth/core` are what the six presets are built from:
+
+```ts
+import { getUserinfoString, OAuthClient, oProvider } from '@gentleduck/auth/providers/oauth/core'
+
+const gitlab = oProvider({
+  providerId: 'gitlab',
+  client: new OAuthClient({
+    clientId: process.env.GITLAB_CLIENT_ID ?? '',
+    clientSecret: process.env.GITLAB_CLIENT_SECRET ?? '',
+    endpoints: {
+      authorizationEndpoint: 'https://gitlab.com/oauth/authorize',
+      tokenEndpoint: 'https://gitlab.com/oauth/token',
+      userinfoEndpoint: 'https://gitlab.com/oauth/userinfo',
+    },
+    scopes: ['openid', 'email'],
+  }),
+  redirectUri: 'https://app.example.com/auth/providers/oauth:gitlab/callback',
+  stateSigningSecret: process.env.OAUTH_STATE_SECRET ?? '',
+  nonceStore,
+  async fetchProfile(tokens, client) {
+    const info = await client.userinfo(tokens.access_token)
+    const sub = getUserinfoString(info, 'sub')
+    if (!sub) throw new Error('gitlab userinfo carried no sub')
+    return { sub, email: getUserinfoString(info, 'email') }
+  },
+})
+```
+
+`fetchProfile` answers `{ sub, email?, emailVerified?, name?, avatarUrl? }`. Set `emailVerified` only on a literal `true` from the IdP, since `'link-if-verified'` trusts it.
+
+## Errors
+
+| Code | Cause |
+| --- | --- |
+| `AUTH_OAUTH_STATE_MISMATCH` | The `state` does not verify, is over ten minutes old, or reached a browser without the pre-auth cookie. |
+| `AUTH_OAUTH_NONCE_REPLAY` | The callback was already used. |
+| `AUTH_PROVIDER_FAILED` | The IdP refused the code, the profile had no subject, a conflict was refused, or `profileToIdentityProfile` answered `null`. |
+
+When a sign-in is refused after the code was exchanged, the tokens are revoked at the IdP where it supports revocation.

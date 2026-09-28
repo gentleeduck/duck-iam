@@ -1,0 +1,30 @@
+---
+title: Microsoft
+description: Sign in with Microsoft Entra ID and personal Microsoft accounts, whose email is never treated as verified
+section: Providers
+---
+1. Register an application in the [Microsoft Entra admin center](https://entra.microsoft.com/).
+2. Under **Authentication**, add a **Web** redirect URI: `https://app.example.com/auth/providers/oauth:microsoft/callback`.
+3. Under **Certificates & secrets**, create a client secret, and note the **Application (client) ID**.
+
+```ts
+import { microsoft } from '@gentleduck/auth/providers/oauth/microsoft'
+
+microsoft({
+  clientId: process.env.MICROSOFT_CLIENT_ID ?? '',
+  clientSecret: process.env.MICROSOFT_CLIENT_SECRET ?? '',
+  tenant: process.env.MICROSOFT_TENANT_ID, // default 'common'
+  redirectUri: 'https://app.example.com/auth/providers/oauth:microsoft/callback',
+  stateSigningSecret: process.env.OAUTH_STATE_SECRET ?? '',
+  nonceStore,
+  profileToIdentityProfile: (p) => (p.email ? { email: p.email, username: `microsoft:${p.sub}`, name: p.name } : null),
+})
+```
+
+The provider id is `oauth:microsoft`, and the default scopes are `openid profile email User.Read`.
+
+`tenant` picks who may sign in: `'common'` for any organization and personal accounts, `'organizations'`, `'consumers'`, or your directory's id to admit only your own.
+
+The `email` Entra returns is set by each tenant's administrators and Microsoft documents it as unverified, so it is never marked verified. Under `'common'` anyone can create a tenant claiming any address. `'link-if-verified'` therefore never links a Microsoft sign-in to an existing account; link deliberately instead.
+
+The routes, the options every provider shares and account linking are on the [OAuth](/duck-auth/providers/oauth) page.

@@ -1,0 +1,29 @@
+---
+title: Discord
+description: Sign in with Discord, keyed on the account's snowflake id
+section: Providers
+---
+1. Create an application in the [Discord Developer Portal](https://discord.com/developers/applications).
+2. Under **OAuth2**, add `https://app.example.com/auth/providers/oauth:discord/callback` as a redirect.
+3. Copy the client id and secret.
+
+```ts
+import { discord } from '@gentleduck/auth/providers/oauth/discord'
+
+discord({
+  clientId: process.env.DISCORD_CLIENT_ID ?? '',
+  clientSecret: process.env.DISCORD_CLIENT_SECRET ?? '',
+  redirectUri: 'https://app.example.com/auth/providers/oauth:discord/callback',
+  stateSigningSecret: process.env.OAUTH_STATE_SECRET ?? '',
+  nonceStore,
+  profileToIdentityProfile: (p) => (p.email ? { email: p.email, username: `discord:${p.sub}`, name: p.name } : null),
+})
+```
+
+The provider id is `oauth:discord`, and the default scopes are `identify email`.
+
+- `sub` is the account's id, which survives a username change.
+- `name` is the display name, else the username. `avatarUrl` is built from the avatar hash on Discord's CDN.
+- `emailVerified` is set only when Discord answers `verified: true`.
+
+The routes, the options every provider shares and account linking are on the [OAuth](/duck-auth/providers/oauth) page.

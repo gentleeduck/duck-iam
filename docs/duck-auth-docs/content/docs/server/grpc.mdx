@@ -1,0 +1,35 @@
+---
+title: gRPC
+description: Authenticating @grpc/grpc-js unary calls from their metadata, and service-to-service tokens
+section: Server
+---
+`withGrpc` wraps a unary handler. It reads the token from the call's `authorization` metadata, resolves the session through the engine's transport, and puts it on the call:
+
+```ts
+import { withGrpc } from '@gentleduck/auth/server/grpc'
+
+server.addService(GreeterService, {
+  sayHello: withGrpc<HelloRequest, HelloReply>(auth, (call, callback) => {
+    callback(null, { message: `Hello, ${call.identity?.profile.email}` })
+  }),
+})
+```
+
+- A call with no session is answered `UNAUTHENTICATED` without running the handler. `{ required: false }` runs it with `call.session` unset.
+- An `AuthError` is answered with its code as the message, at the gRPC status its HTTP status maps to: 401 `UNAUTHENTICATED`, 403 `PERMISSION_DENIED`, 429 `RESOURCE_EXHAUSTED`. `httpStatusToGrpc` is that mapping.
+- `headerName` reads another metadata key. A `cookie` entry is read too, for grpc-web bridges that forward one.
+- The handler runs inside the actor scope. Pass `getCaller` to also run hijack and anomaly checks; `grpcCaller(call)` answers the User-Agent, and a peer address is yours to add.
+
+## Service-to-service
+
+The engine's transport decides what the token is, so a gRPC service usually runs on the [JWT transport](/duck-auth/core/transports/jwt). A calling service trades an API key for a token through [client credentials](/duck-auth/providers/api-key#client-credentials), built on the engine's own transport so the engine can verify what it signs, and sends it:
+
+```ts
+import { Metadata } from '@grpc/grpc-js'
+
+const metadata = new Metadata()
+metadata.add('authorization', `Bearer ${accessToken}`)
+client.sayHello({ name: 'Ada' }, metadata, (err, reply) => {})
+```
+
+TLS, and mutual TLS, are configured on the gRPC server; `withGrpc` does not look at them.

@@ -1,0 +1,29 @@
+---
+title: GitHub
+description: Sign in with GitHub, reading the account's primary verified address rather than its public one
+section: Providers
+---
+1. Create an OAuth App under **Settings > Developer settings > OAuth Apps**.
+2. Set **Authorization callback URL** to `https://app.example.com/auth/providers/oauth:github/callback`.
+3. Copy the client id and generate a client secret.
+
+```ts
+import { github } from '@gentleduck/auth/providers/oauth/github'
+
+github({
+  clientId: process.env.GITHUB_CLIENT_ID ?? '',
+  clientSecret: process.env.GITHUB_CLIENT_SECRET ?? '',
+  redirectUri: 'https://app.example.com/auth/providers/oauth:github/callback',
+  stateSigningSecret: process.env.OAUTH_STATE_SECRET ?? '',
+  nonceStore,
+  profileToIdentityProfile: (p) => (p.email ? { email: p.email, username: `github:${p.sub}`, name: p.name } : null),
+})
+```
+
+The provider id is `oauth:github`, and the default scopes are `read:user user:email`.
+
+- `sub` is the numeric account id as a string, which survives a username change.
+- `email` is the primary verified address from `/user/emails`, marked verified. When the token cannot read it, the provider falls back to the public profile address, unverified, which many accounts leave empty.
+- Without `user:email` in `scopes`, no address is ever marked verified.
+
+The routes, the options every provider shares and account linking are on the [OAuth](/duck-auth/providers/oauth) page.

@@ -1,0 +1,73 @@
+---
+title: Webhooks
+description: Forwarding engine events to your own endpoints, signed, retried and dead-lettered, and verifying them on the receiving side
+section: Advanced
+---
+```ts
+import { AuthWebhookDeliverer } from '@gentleduck/auth/core'
+
+const webhooks = new AuthWebhookDeliverer({
+  endpoints: [
+    {
+      url: 'https://hooks.example.com/auth',
+      secret: process.env.WEBHOOK_SECRET ?? '',
+      events: ['signin.success', 'session.revoked', 'mfa.enrolled'],
+    },
+  ],
+  deadLetter: { put: async (entry) => saveFailedDelivery(entry) },
+})
+
+const detach = webhooks.attach(auth.events)
+```
+
+`attach` subscribes the deliverer to the events its endpoints name, and returns the call that detaches it. An emit does not wait for the delivery, so a slow receiver never slows a sign-in. On shutdown, `await webhooks.drain()` settles what is still in flight.
+
+## Endpoints
+
+| Field | Default | |
+| --- | --- | --- |
+| `url` | required | HTTPS. Loopback, private, link-local and cloud-metadata hosts are refused at construction, and `allowInsecure: true` on the deliverer permits `http` for development only. |
+| `secret` | required | Signs each request. |
+| `events` | `'*'` | The [event names](/duck-auth/core/events) this endpoint receives. A name the engine never emits is refused. |
+| `signatureHeader` | `X-Duck-Signature` | Where the signature goes. |
+| `id` | the URL without its query | Names the endpoint in results and dead letters. |
+
+The guard reads the host as written. Pass `resolveHost` to also check the addresses a name resolves to before each attempt; in Node, `(await lookup(host, { all: true })).map((a) => a.address)` from `node:dns/promises`.
+
+## What is sent
+
+A `POST` with the JSON body `{ deliveryId, event, payload, timestamp }`, where `timestamp` is when the event happened. Keys that carry a secret are removed from `payload` at any depth before it is signed; `redact` replaces that function. A body over 1 MiB is not sent.
+
+| Header | |
+| --- | --- |
+| `X-Duck-Signature` | `authSha256=` and the hex HMAC-SHA256 of `` `${X-Duck-Timestamp}.${body}` `` |
+| `X-Duck-Timestamp` | When this attempt was sent, in milliseconds. |
+| `X-Duck-Delivery-Id` | The same on every attempt of one delivery. |
+
+## Retries
+
+A 2xx is delivered. A 408, a 429, any 5xx, a timeout (`timeoutMs`, 5 seconds) or a network failure is retried, up to `maxAttempts` (5) with exponential backoff from `backoffMs` (500 ms), jittered. Any other 4xx is not retried. A delivery that runs out goes to `deadLetter.put` with the endpoint, event, redacted payload, attempts and last error.
+
+`webhooks.deliverOne(event, payload)` delivers one event by hand, for a replay, and answers per endpoint whether it landed.
+
+## Receiving
+
+Verify against the raw body, before parsing it:
+
+```ts
+import { authVerifyWebhookSignature } from '@gentleduck/auth/core'
+
+app.post('/hooks/auth', express.text({ type: 'application/json' }), (req, res) => {
+  const valid = authVerifyWebhookSignature(process.env.WEBHOOK_SECRET ?? '', req.body, req.get('x-duck-signature') ?? '', {
+    timestamp: Number(req.get('x-duck-timestamp')),
+  })
+  if (!valid) return res.status(401).end()
+  handle(JSON.parse(req.body))
+  res.status(204).end()
+})
+```
+
+- The check is constant-time, and refuses a timestamp more than `toleranceMs` (5 minutes) from now.
+- Without `timestamp` it checks a signature over the bare body, which these requests never carry.
+- A retry arrives with the same `X-Duck-Delivery-Id`. Record it to act once per delivery; the tolerance only bounds how late a replay can come.
+- `authSignWebhookBody(secret, body, timestamp)` produces the header value, for testing a receiver.

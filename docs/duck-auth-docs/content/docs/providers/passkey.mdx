@@ -1,0 +1,96 @@
+---
+title: Passkey
+description: Signing in with a passkey, registering one, the challenge store, and when a passkey counts as two factors
+section: Providers
+---
+Passkeys need the `@simplewebauthn/server` peer, loaded on first use.
+
+```ts
+import { orNull } from '@gentleduck/auth/core'
+import { type Passkey, passkey, redisPasskeyChallengeStore } from '@gentleduck/auth/providers/passkey'
+
+const passkeyOptions: Passkey.Options = {
+  rpName: 'Example',
+  rpID: 'example.com',
+  expectedOrigins: 'https://app.example.com',
+  findIdentityByEmail: (email) => orNull(stores.identities.find({ email })),
+  challengeStore: redisPasskeyChallengeStore({ redis }),
+}
+
+const auth = createAuth({
+  // ...
+  providers: [passkey(passkeyOptions)],
+})
+```
+
+`rpID` is the domain a passkey is bound to, which every origin in `expectedOrigins` must be on. A passkey made for one `rpID` never works on another.
+
+## Registering a passkey
+
+Registration is two calls from a signed-in session, with the browser in between. Keep the options in one object: registration and sign-in must agree on the relying party.
+
+```ts
+import { beginPasskeyRegistration, completePasskeyRegistration } from '@gentleduck/auth/providers/passkey'
+
+const optionsJSON = await beginPasskeyRegistration(passkeyOptions, {
+  identityId: identity.id,
+  userName: identity.profile.email,
+  sessionId: session.id,
+  credentialStore: auth.cfg.stores.credentials,
+  tenant: {},
+})
+// Browser: const response = await startRegistration({ optionsJSON }) from @simplewebauthn/browser
+await completePasskeyRegistration(passkeyOptions, {
+  identityId: identity.id,
+  sessionId: session.id,
+  response,
+  credentialStore: auth.cfg.stores.credentials,
+  tenant: {},
+})
+```
+
+The browser refuses to register an authenticator the account already has. Registration offers Ed25519, ES256 and RS256 only, and refuses a credential id another account holds.
+
+## Signing in
+
+```ts
+import { type PublicKeyCredentialRequestOptionsJSON, startAuthentication } from '@simplewebauthn/browser'
+
+const sessionId = crypto.randomUUID()
+const begun = await client.beginProvider('passkey', { sessionId })
+if (begun.ok) {
+  const response = await startAuthentication({ optionsJSON: begun.data as PublicKeyCredentialRequestOptionsJSON })
+  await client.signIn({ providerId: 'passkey', input: { response, sessionId } })
+}
+```
+
+`sessionId` is any id the two calls share; the challenge is kept under it. Pass `email` to both to narrow the browser's picker to that account's passkeys; without one, the browser offers every passkey it has for the site.
+
+- The session is AAL 2 when the authenticator verified the user with a PIN or biometric, and AAL 1 when it only saw them present.
+- A signature counter that goes backwards means a cloned authenticator: the sign-in is refused and `suspicious` is emitted.
+- Every refusal at `signIn` throws `AUTH_PASSKEY_MISMATCH`: an unknown, expired or revoked passkey, a spent or missing challenge, a failed signature.
+
+## Managing passkeys
+
+```ts
+const store = auth.cfg.stores.credentials
+await auth.passkeys.list(identityId, store)
+await auth.passkeys.revoke(identityId, credentialId, store)
+await auth.passkeys.revokeAll(identityId, store)
+```
+
+`revoke` refuses a credential that is not a passkey of that identity. A revoked authenticator can be registered again.
+
+## Options
+
+| Option | Default | Effect |
+| --- | --- | --- |
+| `rpName` | required | Shown in the browser's prompt. |
+| `rpID` | required | The domain passkeys are bound to. |
+| `expectedOrigins` | required | The origins a response may come from. |
+| `findIdentityByEmail` | required | Finds the account for an `email` hint. |
+| `challengeStore` | in memory | Where challenges wait. One process only: `strict()` refuses it in production, so use `redisPasskeyChallengeStore({ redis })`. |
+| `challengeTtlMs` | 5 minutes | How long a ceremony may take. |
+| `userVerification` | `'preferred'` | `'required'` refuses an authenticator that did not verify the user. |
+| `attestationType` | `'none'` | `'direct'` asks the authenticator to prove its make; the fips preset requires it. |
+| `limiterKeyPrefix` | `'passkey:begin:'` | The limiter bucket for `begin`, per email or per `sessionId`. |
