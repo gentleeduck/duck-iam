@@ -29,7 +29,7 @@ import { fastifyCsrf, fastifyWithActor, registerFastify } from '~/server/fastify
 import { GRPC_STATUS, withGrpc } from '~/server/grpc'
 import { honoActorContext } from '~/server/hono'
 import { koaActorContext } from '~/server/koa'
-import { nestActorContext } from '~/server/nestjs'
+import { NestExceptionFilter, nestActorContext } from '~/server/nestjs'
 
 type Profile = { username: string; email: string }
 
@@ -144,6 +144,7 @@ describe('Nest, with nestActorContext applied to every route', () => {
   let origin = ''
   beforeAll(async () => {
     app = await NestFactory.create(AppModule, { logger: false })
+    app.useGlobalFilters(new NestExceptionFilter())
     await app.listen(0, '127.0.0.1')
     origin = await app.getUrl()
   })
