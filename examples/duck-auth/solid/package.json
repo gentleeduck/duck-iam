@@ -1,0 +1,22 @@
+{
+  "name": "@examples/duck-auth-solid",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@examples/duck-auth-ui": "workspace:*",
+    "@gentleduck/auth": "workspace:*",
+    "solid-js": "^1.9.13"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.0",
+    "tailwindcss": "^4.3.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.0.12",
+    "vite-plugin-solid": "^2.11.14"
+  }
+}
