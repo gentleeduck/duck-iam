@@ -1,15 +1,7 @@
 /** The parsers every dialect reads its JSON columns through. */
 
 import { describe, expect, it } from 'vitest'
-import {
-  fromJsonColumn,
-  isFactor,
-  isProviderLink,
-  parseActingAs,
-  parseFactors,
-  parseProviders,
-  storedDate,
-} from '../drizzle.stored-json'
+import { fromJsonColumn, isFactor, isProviderLink, parseActingAs, parseFactors, parseProviders, storedDate } from '..'
 
 /** What an unreadable date becomes: the epoch, never `Invalid Date`. */
 const EPOCH = new Date(0)
@@ -115,7 +107,7 @@ describe('parseFactors', () => {
     expect(parseFactors('password')).toEqual([])
   })
 
-  it('drops a method no switch handles, which would otherwise inflate eligibleAal', () => {
+  it('drops a method no switch handles', () => {
     expect(parseFactors([{ method: 'password' }, { method: 'carrier-pigeon' }])).toEqual([
       { completedAt: EPOCH, method: 'password' },
     ])

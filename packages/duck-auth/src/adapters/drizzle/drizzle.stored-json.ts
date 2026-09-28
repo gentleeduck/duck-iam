@@ -3,22 +3,12 @@
 
 import { AuthError } from '~/core/errors'
 import type { Identities } from '~/core/identities/identities.types'
+import { storedDate } from '~/core/predicates'
 import { isFactorMethod, type Sessions } from '~/core/sessions/sessions.types'
-
-/** ISO string, epoch number or `Date` in, a usable `Date` or `null` out. Unparseable is `null`, not the
- *  `Invalid Date` that `new Date(value)` gives, which every guard accepts and every comparison rejects. */
-export function storedDate(value: unknown): Date | null {
-  if (value instanceof Date) return Number.isFinite(value.getTime()) ? value : null
-  if (typeof value === 'string') {
-    const parsed = new Date(value)
-    return Number.isFinite(parsed.getTime()) ? parsed : null
-  }
-  if (typeof value === 'number' && Number.isFinite(value)) return new Date(value)
-  return null
-}
 
 /** What the guards below narrow to: the row's own shape, with the date fields still as JSON left them. */
 type StoredProviderLink = { addedAt?: unknown; providerId: string; providerSub: string }
+/** A stored factor, before its `completedAt` is revived. */
 type StoredFactor = { completedAt?: unknown; method: Sessions.FactorMethod }
 
 /** A link is the pair a lookup matches on, so one missing either half can never match and is dropped. */
@@ -28,8 +18,7 @@ export function isProviderLink(value: unknown): value is StoredProviderLink {
   return 'providerSub' in value && typeof value.providerSub === 'string'
 }
 
-/** WARN: a method outside the union is dropped, because `eligibleAal` counts distinct methods, and one
- *  no `switch` handles is worse than one that is absent. */
+/** WARN: a method outside the union is dropped; one no `switch` handles is worse than one that is absent. */
 export function isFactor(value: unknown): value is StoredFactor {
   if (typeof value !== 'object' || value === null) return false
   if (!('method' in value)) return false

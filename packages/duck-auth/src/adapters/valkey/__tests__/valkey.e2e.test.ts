@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { RedisSessionImpl } from '~/core/sessions/sessions.redis'
 import { dropPrefix, e2ePrefix, redisUrl } from '~/test/e2e-env'
 import { runSessionStoreCompliance } from '~/test/store-compliance'
-import { type ValkeyClient, valkeyAdapter } from '../index'
+import { valkeyAdapter } from '../index'
 
 const URL = redisUrl()
 const suite = URL ? describe : describe.skip
@@ -15,11 +15,11 @@ suite('E2E valkeyAdapter (real server)', () => {
   let client: ReturnType<typeof valkeyAdapter>
 
   beforeAll(async () => {
-    raw = new Redis(URL as string, { lazyConnect: true, maxRetriesPerRequest: 2 })
+    raw = new Redis(URL, { lazyConnect: true, maxRetriesPerRequest: 2 })
     await raw.connect()
     prefix = e2ePrefix()
     // ioredis IS the variadic shape this adapter translates into.
-    client = valkeyAdapter(raw as unknown as ValkeyClient.Me)
+    client = valkeyAdapter(raw)
   })
 
   afterAll(async () => {

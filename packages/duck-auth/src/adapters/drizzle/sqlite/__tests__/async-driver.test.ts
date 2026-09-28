@@ -3,61 +3,33 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { BaseSQLiteDatabase } from 'drizzle-orm/sqlite-core'
+import Database from 'better-sqlite3'
+import { drizzle } from 'drizzle-orm/better-sqlite3'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { SQLITE_DDL as DDL } from '~/test/sqlite-schema'
 import { DrizzleSqliteAdapter } from '../sqlite'
 
-const IS_BUN = typeof (globalThis as { Bun?: unknown }).Bun !== 'undefined'
-
-type Conn = {
-  exec(sql: string): void
-  prepare(sql: string): { get(...args: unknown[]): unknown }
-}
-
-/** What the adapter itself accepts: any drizzle sqlite handle, either result kind. */
-type AnyDb = BaseSQLiteDatabase<'sync' | 'async', unknown, Record<string, unknown>>
-
 describe('DrizzleSqlite over an async driver', () => {
   let dir: string
-  let connA: Conn
-  let connB: Conn
+  let connA: Database.Database
+  let connB: Database.Database
   let adapter: DrizzleSqliteAdapter<Record<string, unknown>, { email: string; username: string }>
 
   beforeAll(async () => {
     dir = mkdtempSync(join(tmpdir(), 'duck-auth-async-sqlite-'))
     const file = join(dir, 'auth.db')
 
-    // Each branch wraps its own driver, because the two `drizzle` overload sets do not form a callable union.
-    const open: (path: string) => Promise<{ conn: Conn; db: AnyDb }> = IS_BUN
-      ? async (path) => {
-          const { Database } = (await import('bun:sqlite' as string)) as { Database: new (p: string) => Conn }
-          const { drizzle } = await import('drizzle-orm/bun-sqlite')
-          const conn = new Database(path)
-          // biome-ignore lint/suspicious/noExplicitAny: bun:sqlite Database is structurally the drizzle client.
-          return { conn, db: drizzle(conn as any) }
-        }
-      : async (path) => {
-          const { default: Database } = await import('better-sqlite3')
-          const { drizzle } = await import('drizzle-orm/better-sqlite3')
-          const conn = new Database(path) as unknown as Conn
-          // biome-ignore lint/suspicious/noExplicitAny: better-sqlite3 Database is structurally the drizzle client.
-          return { conn, db: drizzle(conn as any) }
-        }
-
     // WAL is what lets B hold a write open while A still reads; without it A would block instead.
-    const a = await open(file)
-    connA = a.conn
+    connA = new Database(file)
     connA.exec('pragma journal_mode = wal')
     connA.exec(DDL)
     connA.exec('pragma foreign_keys = on')
 
-    const b = await open(file)
-    connB = b.conn
+    connB = new Database(file)
     connB.exec('pragma foreign_keys = on')
 
-    const dbA = a.db
-    const dbB = b.db
+    const dbA = drizzle(connA)
+    const dbB = drizzle(connB)
 
     // The adapter's handle, answering `async` so `_atomic` takes the driver's own transaction, and handing
     // that transaction a handle on the other connection — the split a sync driver does not have.
@@ -86,7 +58,11 @@ describe('DrizzleSqlite over an async driver', () => {
     adapter = new DrizzleSqliteAdapter(handle)
   })
 
-  afterAll(() => rmSync(dir, { recursive: true, force: true }))
+  afterAll(() => {
+    connA.close()
+    connB.close()
+    rmSync(dir, { recursive: true, force: true })
+  })
 
   it('the fixture reproduces the hazard: the adapter handle is blind to an open transaction', () => {
     connB.exec('begin immediate')
@@ -94,14 +70,14 @@ describe('DrizzleSqlite over an async driver', () => {
       `INSERT INTO auth_identities (id, profile, version, email_verified, created_at, updated_at)
        VALUES ('blind-probe', '{"email":"p@x.local","username":"p"}', 1, 0, 0, 0)`,
     )
-    const seenByB = connB.prepare(`select count(*) as n from auth_identities where id = 'blind-probe'`).get()
-    const seenByA = connA.prepare(`select count(*) as n from auth_identities where id = 'blind-probe'`).get()
+    const seenByB = connB.prepare(`select count(*) from auth_identities where id = 'blind-probe'`).pluck().get()
+    const seenByA = connA.prepare(`select count(*) from auth_identities where id = 'blind-probe'`).pluck().get()
     connB.exec('rollback')
 
-    expect((seenByB as { n: number }).n).toBe(1)
+    expect(seenByB).toBe(1)
     // If this ever reads 1 the two handles have stopped being separate connections, and every other
     // assertion in this file goes quietly toothless.
-    expect((seenByA as { n: number }).n).toBe(0)
+    expect(seenByA).toBe(0)
   })
 
   it('link answers with the login it just wrote, which only the transaction can see', async () => {

@@ -8,25 +8,24 @@ import { DrizzleSqliteAdapter } from '~/adapters/drizzle/sqlite/sqlite'
 import { MemoryAdapter } from '~/adapters/memory/memory'
 import type { AuthError } from '~/core/errors'
 
-/** Enough of a drizzle handle to reach the end of a constructor; nothing here runs a query. */
-const HANDLE = { run: () => undefined, select: () => undefined }
-
 const ADAPTERS: readonly (readonly [file: string, store: AdapterStore<AuthError.Code>])[] = [
   ['memory/memory.ts', new MemoryAdapter()],
-  ['drizzle/pg/pg.ts', new DrizzlePgAdapter(HANDLE as never)],
-  ['drizzle/mysql/mysql.ts', new DrizzleMysqlAdapter(HANDLE as never)],
-  ['drizzle/sqlite/sqlite.ts', new DrizzleSqliteAdapter(HANDLE as never)],
+  // Both pools connect on first query, and nothing here runs one.
+  ['drizzle/pg/pg.ts', new DrizzlePgAdapter('postgres://127.0.0.1:1/none')],
+  ['drizzle/mysql/mysql.ts', new DrizzleMysqlAdapter('mysql://127.0.0.1:1/none')],
+  ['drizzle/sqlite/sqlite.ts', new DrizzleSqliteAdapter(':memory:')],
 ]
 
 /** Read off the instance, not restated here: a store wired to the wrong map would otherwise pass. */
 function declared(store: AdapterStore<AuthError.Code>): ReadonlySet<string> {
-  const map = Reflect.get(store, 'toError')
-  return (map as { codes: ReadonlySet<string> }).codes
+  const codes = Reflect.get(Reflect.get(store, 'toError'), 'codes')
+  if (!(codes instanceof Set)) throw new Error('toError.codes is not a Set')
+  return codes
 }
 
 function raised(file: string): readonly string[] {
   const source = readFileSync(join(__dirname, '..', file), 'utf8')
-  return [...new Set([...source.matchAll(/new AuthError\('(AUTH_[A-Z_]+)'/g)].map(([, code]) => code as string))].sort()
+  return [...new Set([...source.matchAll(/new AuthError\('(AUTH_[A-Z_]+)'/g)].flatMap(([, code]) => code ?? []))].sort()
 }
 
 describe('every adapter raises only what its map declares', () => {

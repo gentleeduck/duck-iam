@@ -28,13 +28,14 @@ const linkFields = {
 
 /** Driver-agnostic handle, and the narrowing a transaction hands its callback. */
 type Db<TSchema extends Record<string, unknown>> = BaseSQLiteDatabase<'sync' | 'async', unknown, TSchema>
+/** The handle a write needs: the database, or a transaction on it. */
 type Writer = Pick<Db<Record<string, unknown>>, 'select' | 'insert' | 'update' | 'delete'>
 
 /** The row contract: every column of each table, `updated_at` included. */
 const credentialColumns = getTableColumns(authCredentials)
 const sessionColumns = getTableColumns(authSessions)
 
-/** One class: the four facets share the handle, the `STORE_RAISES` mapper and the `run` boundary that names
+/** One class: the three stores share the handle, the `STORE_RAISES` mapper and the `run` boundary that names
  *  what threw. Each is declared as its slot in `Adapter.Me`, so the contract states what it answers. */
 export class DrizzleSqliteAdapter<
     TSchema extends Record<string, unknown> = Record<string, unknown>,
@@ -148,6 +149,18 @@ export class DrizzleSqliteAdapter<
       .returning(credentialColumns)
 
     return row ?? null
+  }
+
+  /** Every live row in `reach`, revoked by the current actor and answered as they now stand. */
+  private _revoke(reach: SQL | undefined) {
+    // The DB's own clock, not the app's: `created_at` is `nowMs`-stamped by sqlite, and an app-clock
+    // `revokedAt` can land behind it on a fast create-then-revoke, tripping
+    // chk_auth_credentials_revoked_after_created on a perfectly legitimate write.
+    return this._db
+      .update(authCredentials)
+      .set({ revokedAt: nowMs, updatedBy: actorId(), version: sql`${authCredentials.version} + 1` })
+      .where(and(reach, isNull(authCredentials.revokedAt)))
+      .returning(credentialColumns)
   }
 
   /** A live row and its logins in one join. */
@@ -505,32 +518,25 @@ export class DrizzleSqliteAdapter<
 
     revoke: (id, { tenantId }) =>
       this.run(async () => {
-        // The DB's own clock, not the app's: `created_at` is `nowMs`-stamped by sqlite, and an app-clock
-        // `revokedAt` can land behind it on a fast create-then-revoke, tripping
-        // chk_auth_credentials_revoked_after_created on a perfectly legitimate write.
-        const row = await this._write({ expectedVersion: null, id, tenantId }, { revokedAt: nowMs })
+        const [moved] = await this._revoke(
+          and(eq(authCredentials.id, id), inTenant(authCredentials.tenantId, tenantId)),
+        )
+        const row = moved ?? (await this._credential([eq(authCredentials.id, id)], tenantId))
         if (!row) throw new AuthError('AUTH_CREDENTIAL_NOT_FOUND')
 
         return row
       }),
 
-    /** The familyId is read out of `metadata`, which is where every oauth row carries it. */
-    revokeFamily: (familyId, { tenantId }) =>
-      this.run(async () => {
-        const reach = and(
-          eq(authCredentials.kind, 'oauth'),
-          isNull(authCredentials.revokedAt),
-          sql`${authCredentials.metadata} ->> '$.familyId' = ${familyId}`,
-          inTenant(authCredentials.tenantId, tenantId),
-        )
-        const moved = await this._db
-          .update(authCredentials)
-          .set({ revokedAt: nowMs, updatedBy: actorId(), version: sql`${authCredentials.version} + 1` })
-          .where(reach)
-          .returning({ id: authCredentials.id })
-
-        return moved.length
-      }),
+    revokeByKind: (identityId, kind, { tenantId }) =>
+      this.run(() =>
+        this._revoke(
+          and(
+            eq(authCredentials.identityId, identityId),
+            eq(authCredentials.kind, kind),
+            inTenant(authCredentials.tenantId, tenantId),
+          ),
+        ),
+      ),
 
     /** NOTE: a rotation is a use, so it stamps lastUsedAt. */
     rotate: (id, secret, expectedVersion, { tenantId }) =>
@@ -683,7 +689,7 @@ export class DrizzleSqliteAdapter<
       }),
   }
 
-  /** Rebinds all four stores onto a transaction handle, so one unit of work shares it. */
+  /** Rebinds all three stores onto a transaction handle, so one unit of work shares it. */
   withClient(client: unknown): DrizzleSqliteAdapter<TSchema, Profile> {
     // A handle is `db` or the `tx` a transaction hands its callback, and both answer all three.
     const isHandle = (c: unknown): c is Db<TSchema> =>

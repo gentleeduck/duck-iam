@@ -1,7 +1,7 @@
 /** E2E: RedisLimiter against a REAL Redis. */
 import Redis from 'ioredis'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { type ValkeyClient, valkeyAdapter } from '~/adapters/valkey'
+import { valkeyAdapter } from '~/adapters/valkey'
 import { dropPrefix, e2ePrefix, redisUrl } from '~/test/e2e-env'
 import { RedisLimiter } from '../index'
 
@@ -13,7 +13,7 @@ suite('E2E RedisLimiter (real Redis)', () => {
   let prefix: string
 
   beforeAll(async () => {
-    raw = new Redis(URL as string, { lazyConnect: true, maxRetriesPerRequest: 2 })
+    raw = new Redis(URL, { lazyConnect: true, maxRetriesPerRequest: 2 })
     await raw.connect()
     prefix = e2ePrefix()
   })
@@ -26,7 +26,7 @@ suite('E2E RedisLimiter (real Redis)', () => {
   })
 
   function limiter(windowMs: number, max: number): RedisLimiter {
-    return new RedisLimiter({ max, prefix, redis: valkeyAdapter(raw as unknown as ValkeyClient.Me), windowMs })
+    return new RedisLimiter({ max, prefix, redis: valkeyAdapter(raw), windowMs })
   }
 
   it('counts down to zero and then refuses', async () => {
@@ -79,6 +79,27 @@ suite('E2E RedisLimiter (real Redis)', () => {
     expect((await l.consume(key)).ok).toBe(false)
     await l.reset(key)
     expect((await l.consume(key)).ok).toBe(true)
+  })
+
+  it('a counter left without a TTL gets one back, and resets with the window', async () => {
+    const l = limiter(1000, 3)
+    const key = `immortal-${e2ePrefix()}`
+    await raw.set(`${prefix}:${key}`, '5')
+    expect((await l.consume(key)).ok).toBe(false)
+    const pttl = await raw.pttl(`${prefix}:${key}`)
+    expect(pttl).toBeGreaterThan(0)
+    expect(pttl).toBeLessThanOrEqual(1000)
+    await new Promise((r) => setTimeout(r, 1300))
+    expect((await l.consume(key)).ok).toBe(true)
+  })
+
+  it('resetAt is when the window ends, not a full window from now', async () => {
+    const l = limiter(60_000, 1)
+    const key = `reset-at-${e2ePrefix()}`
+    await raw.set(`${prefix}:${key}`, '1', 'PX', 5000)
+    const refused = await l.consume(key)
+    expect(refused.ok).toBe(false)
+    expect(refused.resetAt.getTime() - Date.now()).toBeLessThanOrEqual(5000)
   })
 
   it('separate keys hold separate budgets', async () => {

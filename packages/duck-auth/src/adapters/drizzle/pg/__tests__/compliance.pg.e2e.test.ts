@@ -36,7 +36,8 @@ suite('DrizzlePg compliance matrix (real Postgres)', () => {
   beforeAll(async () => {
     // Owned database: this suite truncates between cases, and the other pg suites
     // run in parallel workers against the shared one.
-    const own = (await isolatedDatabaseUrl('pg_compliance')) as string
+    const own = await isolatedDatabaseUrl('pg_compliance')
+    if (!own) throw new Error('DATABASE_URL is unset')
     pool = new Pool({ connectionString: own })
     await applyPgSchema(pool)
     handle = drizzle(pool)
@@ -72,7 +73,7 @@ suite('DrizzlePg compliance matrix (real Postgres)', () => {
     () => handle,
   )
   runSessionStoreCompliance(() => stores.sessions, { identityId: OWNER, otherIdentityId: OTHER, sessionId })
-  runCredentialStoreCompliance(() => stores.credentials, { identityId: OWNER })
+  runCredentialStoreCompliance(() => stores.credentials, { identityId: OWNER, otherIdentityId: OTHER })
 
   describe('optimistic locking under a real transaction', () => {
     it('refuses the second of two updates that started from the same version', async () => {
@@ -108,7 +109,7 @@ suite('DrizzlePg compliance matrix (real Postgres)', () => {
 
       expect(settled.filter((r) => r.status === 'fulfilled')).toHaveLength(1)
       for (const r of settled.filter((x) => x.status === 'rejected')) {
-        expect((r as PromiseRejectedResult).reason).toMatchObject({ code: 'AUTH_STALE_WRITE' })
+        expect(r).toMatchObject({ reason: { code: 'AUTH_STALE_WRITE' } })
       }
       const final = await stores.identities.find({ id: created.id })
       expect(final?.version).toBe(created.version + 1)
@@ -186,10 +187,9 @@ suite('DrizzlePg compliance matrix (real Postgres)', () => {
       const profile = {
         email: 'json@x.com',
         username: 'json',
-        // biome-ignore lint/suspicious/noExplicitAny: deliberately wider than Profile
         nested: { list: [1, 2, { deep: true }], unicode: 'naïve 🦆', when: '2026-01-01T00:00:00.000Z' },
-      } as unknown as Profile
-      const created = await stores.identities.create(identityInput<Profile>({ profile }))
+      }
+      const created = await stores.identities.create(identityInput({ profile }))
       const read = await stores.identities.find({ id: created.id })
       expect(read?.profile).toEqual(profile)
     })
@@ -318,8 +318,8 @@ suite('DrizzlePg compliance matrix (real Postgres)', () => {
         stores.sessions.create(
           sessionInput({
             absoluteExpiresAt: new Date(now.getTime() + 600_000),
-            // biome-ignore lint/suspicious/noExplicitAny: violating the typed shape on purpose
-            aal: 9 as any,
+            // @ts-expect-error not an aal
+            aal: 9,
             createdAt: now,
             expiresAt: new Date(now.getTime() + 60_000),
             factors: [],
@@ -388,8 +388,8 @@ suite('DrizzlePg compliance matrix (real Postgres)', () => {
             fresh: true,
             id: sessionId('bad-kind'),
             identityId: OWNER,
-            // biome-ignore lint/suspicious/noExplicitAny: violating the typed shape on purpose
-            kind: 'web' as any,
+            // @ts-expect-error not a kind
+            kind: 'web',
             rotatedAt: now,
           }),
         ),
@@ -399,8 +399,8 @@ suite('DrizzlePg compliance matrix (real Postgres)', () => {
     it('refuses a profile missing the required keys', async () => {
       // `chk_auth_identities_profile_shape` requires username + email to exist.
       await expect(
-        // biome-ignore lint/suspicious/noExplicitAny: violating the typed shape on purpose
-        stores.identities.create(identityInput<Profile>({ profile: { nickname: 'nope' } as any })),
+        // @ts-expect-error no username or email
+        stores.identities.create(identityInput<Profile>({ profile: { nickname: 'nope' } })),
       ).rejects.toMatchObject({ code: 'AUTH_INVALID_PARAMETERS' })
     })
   })
@@ -491,7 +491,8 @@ suite('the exported tables hand back the types they declare (real Postgres)', ()
   const ID = authUuidV7()
 
   beforeAll(async () => {
-    const own = (await isolatedDatabaseUrl('pg_table_types')) as string
+    const own = await isolatedDatabaseUrl('pg_table_types')
+    if (!own) throw new Error('DATABASE_URL is unset')
     pool = new Pool({ connectionString: own })
     await applyPgSchema(pool)
     db = drizzle(pool)

@@ -141,6 +141,18 @@ export class DrizzlePgAdapter<
     return row ?? null
   }
 
+  /** Every live row in `reach`, revoked by the current actor and answered as they now stand. */
+  private _revoke(reach: SQL | undefined): Promise<Pg.CredentialRow[]> {
+    // The DB's own clock, not the app's: `created_at` is `defaultNow()`-stamped by Postgres, and an
+    // app-clock `revokedAt` can land a fraction of a millisecond behind it on a fast create-then-revoke,
+    // tripping chk_auth_credentials_revoked_after_created on a perfectly legitimate write.
+    return this._db
+      .update(authCredentials)
+      .set({ revokedAt: sql`now()`, updatedBy: actorId(), version: sql`${authCredentials.version} + 1` })
+      .where(and(reach, isNull(authCredentials.revokedAt)))
+      .returning(credentialColumns)
+  }
+
   readonly identities: Identities.Store<Profile> = {
     /** One statement either way, so there is no transaction to hold open and a refused login takes the
      *  identity down with it. */
@@ -521,32 +533,25 @@ export class DrizzlePgAdapter<
 
     revoke: (id, { tenantId }) =>
       this.run(async () => {
-        // The DB's own clock, not the app's: `created_at` is `defaultNow()`-stamped by Postgres, and an
-        // app-clock `revokedAt` can land a fraction of a millisecond behind it on a fast create-then-revoke,
-        // tripping chk_auth_credentials_revoked_after_created on a perfectly legitimate write.
-        const row = await this._write({ expectedVersion: null, id, tenantId }, { revokedAt: sql`now()` })
+        const [moved] = await this._revoke(
+          and(eq(authCredentials.id, id), inTenant(authCredentials.tenantId, tenantId)),
+        )
+        const row = moved ?? (await this._credential([eq(authCredentials.id, id)], tenantId))
         if (!row) throw new AuthError('AUTH_CREDENTIAL_NOT_FOUND')
 
         return row
       }),
 
-    /** The familyId is read out of `metadata`, which is where every oauth row carries it. */
-    revokeFamily: (familyId, { tenantId }) =>
-      this.run(async () => {
-        const reach = and(
-          eq(authCredentials.kind, 'oauth'),
-          isNull(authCredentials.revokedAt),
-          sql`${authCredentials.metadata}->>'familyId' = ${familyId}`,
-          inTenant(authCredentials.tenantId, tenantId),
-        )
-        const moved = await this._db
-          .update(authCredentials)
-          .set({ revokedAt: sql`now()`, updatedBy: actorId(), version: sql`${authCredentials.version} + 1` })
-          .where(reach)
-          .returning({ id: authCredentials.id })
-
-        return moved.length
-      }),
+    revokeByKind: (identityId, kind, { tenantId }) =>
+      this.run(() =>
+        this._revoke(
+          and(
+            eq(authCredentials.identityId, identityId),
+            eq(authCredentials.kind, kind),
+            inTenant(authCredentials.tenantId, tenantId),
+          ),
+        ),
+      ),
 
     /** NOTE: a rotation is a use, so it stamps lastUsedAt. */
     rotate: (id, secret, expectedVersion, { tenantId }) =>
@@ -701,7 +706,7 @@ export class DrizzlePgAdapter<
       }),
   }
 
-  /** Rebinds all four stores onto a transaction handle, so one unit of work shares it. */
+  /** Rebinds all three stores onto a transaction handle, so one unit of work shares it. */
   withClient(client: unknown): DrizzlePgAdapter<TSchema, Profile> {
     const isHandle = (c: unknown): c is NodePgDatabase<TSchema> =>
       typeof c === 'object' && c !== null && 'select' in c && 'insert' in c && 'transaction' in c

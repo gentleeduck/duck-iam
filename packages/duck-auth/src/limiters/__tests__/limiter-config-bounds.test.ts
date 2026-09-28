@@ -28,12 +28,12 @@ function refusal(make: () => Limiter.Me): string {
 describe.each(limiters)('$name config bounds', ({ make }) => {
   // `2 ** 53` is `MAX_SAFE_INTEGER + 1` and finite, so it is the only case the ceiling alone catches:
   // both infinities are already refused by the finiteness test, and without it that clause proves nothing.
-  it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, 0, -1, 2 ** 53])('refuses max %p', (max) => {
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, 0, -1, 2 ** 53])('refuses max %o', (max) => {
     expect(refusal(() => make({ max }))).toContain('max')
   })
 
   it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, 0, -1, 1e16])(
-    'refuses windowMs %p',
+    'refuses windowMs %o',
     (windowMs) => {
       expect(refusal(() => make({ windowMs }))).toContain('windowMs')
     },

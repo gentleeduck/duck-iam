@@ -19,9 +19,8 @@ describe('memory.credentials.patchMetadata - concurrency & convergence', () => {
       Array.from({ length: 100 }, (_, i) => adapter.credentials.patchMetadata(c.id, { [`k${i}`]: i }, {})),
     )
     const row = await adapter.credentials.findById(c.id, {})
-    const meta = row?.metadata as Record<string, unknown>
-    expect(meta.counter).toBe(0)
-    for (let i = 0; i < 100; i++) expect(meta[`k${i}`]).toBe(i)
+    const patched = Object.fromEntries(Array.from({ length: 100 }, (_, i) => [`k${i}`, i]))
+    expect(row?.metadata).toEqual({ counter: 0, ...patched })
     expect(row?.version).toBeGreaterThan(100)
   })
 
@@ -35,7 +34,7 @@ describe('memory.credentials.patchMetadata - concurrency & convergence', () => {
       await adapter.credentials.patchMetadata(c.id, { counter: i }, {})
     }
     const row = await adapter.credentials.findById(c.id, {})
-    expect((row?.metadata as { counter: number }).counter).toBe(25)
+    expect(row?.metadata).toEqual({ counter: 25 })
     expect(row?.version).toBe(c.version + 25)
   })
 
@@ -52,11 +51,7 @@ describe('memory.credentials.patchMetadata - concurrency & convergence', () => {
     )
     await adapter.credentials.patchMetadata(c.id, { counter: 2 }, {})
     const row = await adapter.credentials.findById(c.id, {})
-    const m = row?.metadata as Record<string, unknown>
-    expect(m.aaguid).toBe('abc')
-    expect(m.backedUp).toBe(false)
-    expect(m.deviceType).toBe('singleDevice')
-    expect(m.counter).toBe(2)
+    expect(row?.metadata).toEqual({ aaguid: 'abc', backedUp: false, counter: 2, deviceType: 'singleDevice' })
   })
 
   it('patch on a revoked credential still succeeds (revoke is informational, not a lock)', async () => {
@@ -68,8 +63,8 @@ describe('memory.credentials.patchMetadata - concurrency & convergence', () => {
     await adapter.credentials.revoke(c.id, {})
     await adapter.credentials.patchMetadata(c.id, { counter: 5 }, {})
     const row = await adapter.credentials.findById(c.id, {})
-    expect((row?.metadata as { counter: number }).counter).toBe(5)
-    expect(row?.revokedAt).toBeDefined()
+    expect(row?.metadata).toEqual({ counter: 5 })
+    expect(row?.revokedAt).toBeInstanceOf(Date)
   })
 
   it('patch on a missing id throws AUTH_CREDENTIAL_NOT_FOUND', async () => {

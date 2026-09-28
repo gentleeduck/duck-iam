@@ -9,9 +9,19 @@ import type { Limiter } from '../limiters.types'
 /** Past this `now + windowMs` stops being a representable `Date`, and a window this long is a ban. */
 const WINDOW_MAX_MS = 8_640_000_000_000
 
+/** Increments, restores the TTL whenever the key has none, and answers `[count, remaining ms]`. */
+const INCR_WITH_TTL = `local n = redis.call('INCRBY', KEYS[1], ARGV[1])
+local ttl = redis.call('PTTL', KEYS[1])
+if ttl < 0 then
+  redis.call('PEXPIRE', KEYS[1], ARGV[2])
+  ttl = tonumber(ARGV[2])
+end
+return {n, ttl}`
+
 export namespace RedisLimiter {
+  /** The Redis client, window size and limit. */
   export type Cfg<TRedis extends RedisLike.Client = RedisLike.Client> = {
-    /** RedisLike client (ioredis, @upstash/redis, or FakeRedis). */
+    /** An `@upstash/redis`-shaped client or `FakeRedis`; wrap ioredis and iovalkey with `valkeyAdapter`. */
     redis: TRedis
     /** Max consumed weight per window. Default 10. */
     max?: number
@@ -23,15 +33,11 @@ export namespace RedisLimiter {
 }
 
 /**
- * Fixed-window counter over `INCR + EXPIRE` on the first hit of each window, which is accurate
- * against a single Redis primary. Clustered Redis needs a Lua script for cross-shard accuracy.
+ * Fixed-window counter: the key's TTL is the window, and `resetAt` is when it runs out.
  *
- * WARN: `resetAt` is `now + windowMs` on every call, not the key's remaining TTL, so a refusal fourteen
- * minutes into a fifteen-minute window reports a full window left and the `Retry-After` built from it
- * over-states the wait. The budget itself resets correctly - that is the store's TTL - so this misleads
- * a client rather than locking it out, and `MemoryLimiter` reports the true window end. Reading
- * the real one means a `pttl` on `RedisLike.Client`, which every implementer would have to grow, so it
- * is left to a deliberate change rather than added here.
+ * WARN: a client without `eval` gets `INCRBY` then `EXPIRE` as two commands. An `EXPIRE` lost between
+ * them leaves a counter that never resets, locking its key out for good, and `resetAt` there is a full
+ * window from now rather than the window's end.
  */
 export class RedisLimiter<TRedis extends RedisLike.Client = RedisLike.Client> implements Limiter.Me {
   private readonly _redis: TRedis
@@ -44,12 +50,8 @@ export class RedisLimiter<TRedis extends RedisLike.Client = RedisLike.Client> im
     this._max = cfg.max ?? 10
     this._windowMs = cfg.windowMs ?? 15 * 60 * 1000
     this._prefix = cfg.prefix ?? 'auth:rl'
-    // SECURITY: `consume` bounds the `weight` a caller passes and the `key` it names, and these two -
-    // the numbers that decide whether it limits at all - arrived unchecked. `max` non-finite makes
-    // `count > NaN` false on every call, so the limiter answers `ok` to an unbounded number of attempts
-    // and the brute-force defence `strict()` insists on is simply off. A `windowMs` that is not a
-    // positive number never elapses, so the first budget spent is the last: `resetAt` reads
-    // `Invalid Date` and the key is locked out until the process restarts.
+    // SECURITY: a NaN `max` makes `count > max` always false, and a `windowMs` that is not a positive number
+    // never elapses.
     if (!Number.isFinite(this._max) || this._max < 1 || this._max > Number.MAX_SAFE_INTEGER) {
       throw new AuthError('AUTH_MISCONFIGURED', {
         detail: `redisLimiter: max must be a number between 1 and ${Number.MAX_SAFE_INTEGER} (got ${this._max})`,
@@ -68,7 +70,7 @@ export class RedisLimiter<TRedis extends RedisLike.Client = RedisLike.Client> im
   }
 
   /**
-   * One INCRBY establishes the new count, then EXPIRE sets the TTL on the first hit of the window.
+   * Adds `weight` to the key's count for this window.
    *
    * PERF: one command whatever the weight. Looping `weight` INCRs instead makes `consume(key, 1e6)`
    * a caller-controlled flood of a million sequential commands, and leaves the count atomic only
@@ -83,7 +85,15 @@ export class RedisLimiter<TRedis extends RedisLike.Client = RedisLike.Client> im
     const k = this._k(key)
     const ttlSec = Math.max(1, Math.ceil(this._windowMs / 1000))
     let count = 0
-    if (this._redis.incrby) {
+    let ttlMs = this._windowMs
+    if (this._redis.eval) {
+      const out = await this._redis.eval(INCR_WITH_TTL, [k], [w, this._windowMs])
+      if (!Array.isArray(out) || !Number.isSafeInteger(out[0]) || !Number.isSafeInteger(out[1])) {
+        throw new AuthError('AUTH_MISCONFIGURED', { detail: 'redisLimiter: eval did not answer [count, ttl]' })
+      }
+      count = out[0]
+      ttlMs = out[1]
+    } else if (this._redis.incrby) {
       count = await this._redis.incrby(k, w)
       if (count === w) await this._redis.expire(k, ttlSec)
     } else {
@@ -93,7 +103,7 @@ export class RedisLimiter<TRedis extends RedisLike.Client = RedisLike.Client> im
         if (count > this._max) break
       }
     }
-    const resetAt = new Date(Date.now() + this._windowMs)
+    const resetAt = new Date(Date.now() + ttlMs)
     if (count > this._max) {
       return { ok: false, remaining: 0, resetAt }
     }

@@ -1,7 +1,9 @@
 /** Store-contract compliance matrix for the Drizzle SQLite adapter. */
 
 import { createHash } from 'node:crypto'
-import { beforeAll, describe } from 'vitest'
+import Database from 'better-sqlite3'
+import { drizzle } from 'drizzle-orm/better-sqlite3'
+import { describe } from 'vitest'
 import type { Adapter } from '~/adapters/adapter'
 import { SQLITE_DDL as DDL } from '~/test/sqlite-schema'
 import {
@@ -11,8 +13,6 @@ import {
   runSessionStoreCompliance,
 } from '~/test/store-compliance'
 import { DrizzleSqliteAdapter } from '../sqlite'
-
-const IS_BUN = typeof (globalThis as { Bun?: unknown }).Bun !== 'undefined'
 
 /** `chk_auth_sessions_id_length` demands exactly 64 chars, as every real sid is. */
 const sessionId = (label: string) => createHash('sha256').update(label).digest('hex')
@@ -39,46 +39,18 @@ function seedOwners(exec: (sql: string) => void): void {
 }
 
 describe('DrizzleSqlite compliance matrix', () => {
-  // Fresh in-memory DB (+ tables) per store instance the compliance kit requests.
-  let make: () => Adapter.Me<{ username: string; email: string }>
   // The handle `make` last built, so the rebind check has one `withClient` accepts.
   let handle: unknown
 
-  beforeAll(async () => {
-    // Runs on BOTH runtimes: this suite used to be skipped under vitest, which
-    // meant the sqlite adapter was never verified by the project's own `bun run test`.
-    //   Bun  -> bun:sqlite     via drizzle-orm/bun-sqlite
-    //   Node -> node:sqlite    via drizzle-orm/better-sqlite3 (same prepare/exec
-    //           shape, so the driver adapter accepts it structurally)
-    if (IS_BUN) {
-      const { Database } = (await import('bun:sqlite' as string)) as {
-        Database: new (path: string) => { exec(sql: string): void }
-      }
-      const { drizzle } = await import('drizzle-orm/bun-sqlite')
-      make = () => {
-        const sqlite = new Database(':memory:')
-        sqlite.exec(DDL)
-        seedOwners((q) => sqlite.exec(q))
-        // biome-ignore lint/suspicious/noExplicitAny: bun:sqlite Database is structurally the drizzle client.
-        const db = drizzle(sqlite as any)
-        handle = db
-        return new DrizzleSqliteAdapter(db)
-      }
-      return
-    }
-
-    const { default: Database } = await import('better-sqlite3')
-    const { drizzle } = await import('drizzle-orm/better-sqlite3')
-    make = () => {
-      const sqlite = new Database(':memory:')
-      sqlite.exec(DDL)
-      seedOwners((q) => sqlite.exec(q))
-      // biome-ignore lint/suspicious/noExplicitAny: better-sqlite3 Database is structurally the drizzle client.
-      const db = drizzle(sqlite as any)
-      handle = db
-      return new DrizzleSqliteAdapter(db)
-    }
-  })
+  /** A fresh in-memory database, tables and owners included, per store the kit asks for. */
+  const make = (): Adapter.Me<{ username: string; email: string }> => {
+    const sqlite = new Database(':memory:')
+    sqlite.exec(DDL)
+    seedOwners((q) => sqlite.exec(q))
+    const db = drizzle(sqlite)
+    handle = db
+    return new DrizzleSqliteAdapter(db)
+  }
 
   runIdentityStoreCompliance(() => make().identities)
   runAdapterRebindCompliance(
@@ -86,5 +58,5 @@ describe('DrizzleSqlite compliance matrix', () => {
     () => handle,
   )
   runSessionStoreCompliance(() => make().sessions, { identityId: OWNER, otherIdentityId: OTHER, sessionId })
-  runCredentialStoreCompliance(() => make().credentials, { identityId: OWNER })
+  runCredentialStoreCompliance(() => make().credentials, { identityId: OWNER, otherIdentityId: OTHER })
 })

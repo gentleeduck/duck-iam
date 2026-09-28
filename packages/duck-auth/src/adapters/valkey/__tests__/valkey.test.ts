@@ -8,6 +8,7 @@ import { valkeySessionImpl } from '~/core/sessions/sessions.valkey'
 import { valkeyDPoPNonceStore } from '~/core/transport/dpop-nonce.valkey'
 import { FakeValkey, FakeValkeySubscriber } from '~/test/fake-valkey'
 import { runSessionStoreCompliance } from '~/test/store-compliance'
+import { makeIdentity } from '~/test/store-inputs'
 
 describe('valkeyAdapter translation', () => {
   /**
@@ -85,7 +86,7 @@ describe('valkeyEvents', () => {
     listener.on('signup.completed', handler)
     // `on` subscribes lazily off the call, as the redis suite next door also waits for.
     await new Promise((resolve) => setTimeout(resolve, 10))
-    await emitter.emit('signup.completed', { identity: { id: 'u1' } as never })
+    await emitter.emit('signup.completed', { identity: makeIdentity({ id: 'u1' }) })
     await new Promise((resolve) => setTimeout(resolve, 10))
 
     expect(handler).toHaveBeenCalledOnce()
@@ -99,7 +100,7 @@ describe('valkeyEvents', () => {
 
     listener.on('signup.completed', handler)
     await new Promise((resolve) => setTimeout(resolve, 10))
-    await emitter.emit('lockout', { identityId: 'u1' } as never)
+    await emitter.emit('lockout', { identityId: 'u1', until: 0 })
     await new Promise((resolve) => setTimeout(resolve, 10))
 
     expect(handler).not.toHaveBeenCalled()
