@@ -23,9 +23,10 @@ export function readInt(body: unknown, key: string, min: number): number | undef
 
 // Neither duck-auth nor Postgres (`users.email` is just `text ... unique`) checks that an email
 // looks like one, so `readString` alone lets `signUp` create a real identity + company + user row
-// from a value like `"not-an-email"`. Not RFC 5322 — just enough shape (one `@`, a label on each
-// side, no whitespace) to reject garbage before it becomes a durable row.
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+// from a value like `"not-an-email"`. Not RFC 5322 — just enough shape (one `@`, dot-separated
+// labels after it, no whitespace) to reject garbage before it becomes a durable row.
+// SECURITY: labels exclude `.`, so each dot has one place to match and the test stays linear.
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/
 
 export function readEmail(body: unknown, key: string): string | undefined {
   const value = fieldOf(body, key)
