@@ -1,5 +1,6 @@
-import { authWithStorybook } from '@gentleduck/auth/client/react/storybook'
 import type { Meta, StoryObj } from '@storybook/react'
+import { useEffect, useState } from 'react'
+import { live } from './live'
 import { SessionBadge } from './session-badge'
 
 const meta: Meta<typeof SessionBadge> = {
@@ -9,29 +10,19 @@ const meta: Meta<typeof SessionBadge> = {
 export default meta
 type Story = StoryObj<typeof SessionBadge>
 
-export const Guest: Story = { decorators: [authWithStorybook({})] }
+export const Loading: Story = { args: { label: null, loading: true } }
 
-export const Authed: Story = {
-  decorators: [
-    authWithStorybook({
-      identity: { id: 'identity-7', profile: { email: 'duck@example.com', username: 'duck' } },
-      session: { aal: 2, factors: [{ method: 'passkey', completedAt: new Date() }], id: 'sess-7' },
-    }),
-  ],
-}
+export const Guest: Story = { args: { label: null } }
 
-export const FormattedIdentity: Story = {
-  args: { formatIdentity: (i) => (i.profile as { email?: string })?.email ?? i.id },
-  decorators: [
-    authWithStorybook({
-      identity: { id: 'identity-9', profile: { email: 'duck@example.com', username: 'duck' } },
-      session: { aal: 2, factors: [{ method: 'passkey', completedAt: new Date() }], id: 'sess-9' },
-    }),
-  ],
-}
+export const Authed: Story = { args: { label: 'duck@example.com' } }
 
 /** Live backend — reflects whatever session the duck-auth-demo server has. */
 export const Live: Story = {
-  args: { formatIdentity: (i) => (i.profile as { email?: string })?.email ?? i.id },
-  decorators: [authWithStorybook({ live: true })],
+  render: function LiveBadge() {
+    const [label, setLabel] = useState<string | null | undefined>(undefined)
+    useEffect(() => {
+      live.session().then(setLabel)
+    }, [])
+    return <SessionBadge label={label ?? null} loading={label === undefined} />
+  },
 }

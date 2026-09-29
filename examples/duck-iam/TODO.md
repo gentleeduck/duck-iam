@@ -153,16 +153,16 @@ UI in the Next.js app; Express/Hono/NestJS stay API-only, curl-documented.
       (`DEMO_PASSWORD`, exported from `seed.ts`).
 - [x] `shared/drizzle/` regenerated from scratch (old single migration deleted, `duckiam_examples`
       dropped/recreated) — 12 tables total: the 4 auth tables, 4 iam tables, 4 domain tables.
-- [x] **Express** — `src/auth.ts` (`buildAuth(db)`), `src/routes/auth.ts` (`mountSignIn`/
-      `mountSignOut`/`mountSession` unguarded, `router.use(expressCsrf(auth))` then app-owned
-      `/signup`), `src/session.ts` rewritten off `resolveIdentityId` + `toHeaders`. Every mutating
+- [x] **Express** — `src/auth.ts` (`buildAuth(db)`), `src/routes/auth.ts`
+      (`router.use(expressCsrf(auth))`, then the app's own signin/signout/session over
+      `shared/src/routes.ts` and `/signup`), `src/session.ts` rewritten off `resolveIdentityId` + `toHeaders`. Every mutating
       domain router (`companies`/`users`/`products`/`orders`) takes `auth` and runs
       `router.use(expressCsrf(auth))` as its first line.
-- [x] **Hono** — same shape via `honoSignIn`/`honoSignOut`/`honoSession`/`honoCsrf`, CSRF applied
+- [x] **Hono** — same shape via `shared/src/routes.ts` + `executeIntents`, CSRF applied
       as `router.use((c, next) => honoCsrf(auth)(toHonoAdapterCtx(c), next))`.
 - [x] **NestJS** — split-controller idiom copied from `examples/duck-auth/nest`:
-      `AuthController` (`@Controller('auth')`, unguarded: signin/signout/session) +
-      `SignupController` (same path, class-level `@UseGuards(CsrfGuard)`, signup only), both
+      `AuthController` (`@Controller('auth')`: signin/signout/session over `shared/src/routes.ts`) +
+      `SignupController` (same path, signup only), both class-level `@UseGuards(CsrfGuard)`, both
       registered in a new `@Global() AuthModule` (`DUCK_AUTH_TOKEN` provider, `NestExceptionFilter`
       as `APP_FILTER`). Old `session/session.controller.ts` + `session.module.ts` deleted;
       `SessionMiddleware` now injects `DUCK_AUTH_TOKEN` and calls
@@ -176,11 +176,10 @@ UI in the Next.js app; Express/Hono/NestJS stay API-only, curl-documented.
       `api/session/route.ts`; added `api/auth/{signin,signout,session,signup}/route.ts`.
       `src/session.ts` rewritten off `resolveIdentityId(auth, req.headers)` (already a Fetch
       `Headers`, no conversion needed). Every domain route handler wrapped in `route(...)`.
-- [x] **Next.js client** — `app/provider.tsx` (`<Provider baseUrl="/api/auth">`, no
-      `@gentleduck/registry-ui`/`@examples/duck-auth-ui` — confirmed the hooks work standalone),
-      wrapped into `app/layout.tsx`. `dashboard/login-form.tsx` rewritten to plain-markup sign-in/
-      sign-up forms (`useSignIn()`, `useAuthClient().signUp()`) plus the seeded-user quick-fill
-      buttons. `dashboard/page.tsx` uses `useSession()`/`useSignOut()`; `subject`/`scope` (→
+- [x] **Next.js client** — no auth client library: `dashboard/api.ts` carries `session`/`signIn`/
+      `signUp`/`signOut` as plain `fetch` calls to `/api/auth/*`. `dashboard/login-form.tsx` is
+      plain-markup sign-in/sign-up forms plus the seeded-user quick-fill buttons, and reports back
+      through `onSignedIn`. `dashboard/page.tsx` holds the session status itself; `subject`/`scope` (→
       `userId`/`companyId`) are read off the same `/api/me/permissions` call `usePermissions`
       already makes, rather than a second fetch. `dashboard/api.ts`'s `request()` dropped the
       `token` param, added `credentials: 'include'`, and reads the `duck-csrf` cookie itself to

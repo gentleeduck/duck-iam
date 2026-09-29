@@ -39,7 +39,7 @@ describe('the packages the source loads', () => {
   it('are found, so a parse that matched nothing cannot read as a clean sweep', () => {
     expect(lazy).toContain('@simplewebauthn/server')
     expect(lazy).toContain('pg')
-    expect(loaded).toContain('react')
+    expect(loaded).toContain('@nestjs/common')
   })
 
   it('are each a dependency or a peer', () => {

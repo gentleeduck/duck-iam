@@ -1,8 +1,9 @@
 import type { AppAuth } from '@examples/duck-iam-shared/auth'
 import type { AppEngine } from '@examples/duck-iam-shared/iam'
+import { currentSession, signIn, signOut } from '@examples/duck-iam-shared/routes'
 import { signUp } from '@examples/duck-iam-shared/signup'
-import { readBodyJson } from '@gentleduck/auth/server/generic'
-import { honoCsrf, honoSession, honoSignIn, honoSignOut, toHonoAdapterCtx } from '@gentleduck/auth/server/hono'
+import { executeIntents, jsonResponse, readBodyJson } from '@gentleduck/auth/server/generic'
+import { honoCaller, honoCsrf, toHonoAdapterCtx } from '@gentleduck/auth/server/hono'
 import { type Context, Hono } from 'hono'
 import { getConnInfo } from 'hono/bun'
 import { db } from '../db'
@@ -13,13 +14,16 @@ const withIp = (c: Context) => ({ ...toHonoAdapterCtx(c), ip: getConnInfo(c).rem
 export function authRouter(auth: AppAuth, engine: AppEngine) {
   const router = new Hono()
 
-  // duck-auth's own handlers guard their CSRF themselves.
-  router.post('/signin', (c) => honoSignIn(auth)(withIp(c)))
-  router.post('/signout', (c) => honoSignOut(auth)(withIp(c)))
-  router.get('/session', (c) => honoSession(auth)(withIp(c)))
-
-  // Everything below is this app's own, so it takes the guard.
   router.use((c, next) => honoCsrf(auth)(toHonoAdapterCtx(c), next))
+
+  router.post('/signin', async (c) => {
+    const body = await readBodyJson(c.req.raw)
+    return executeIntents(await signIn(auth, c.req.raw.headers, body, honoCaller(withIp(c))))
+  })
+
+  router.post('/signout', async (c) => executeIntents(await signOut(auth, c.req.raw.headers)))
+
+  router.get('/session', async (c) => jsonResponse(200, await currentSession(auth, c.req.raw.headers)))
 
   router.post('/signup', async (c) => {
     const body = await readBodyJson(c.req.raw)

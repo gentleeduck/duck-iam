@@ -63,7 +63,6 @@ function expressReq(sid: string, caller: { ip?: string; userAgent?: string }): E
     headers: { ...cookieHeader(sid), ...(caller.userAgent && { 'user-agent': caller.userAgent }) },
     ...(caller.ip && { ip: caller.ip }),
     method: 'POST',
-    url: '/me',
   }
 }
 
@@ -364,7 +363,6 @@ describe('every adapter can read its own fingerprint', () => {
           headers: { ...cookieHeader(koaSid), 'user-agent': drifted },
           ip: SIGNED_IN.ip,
           method: 'POST',
-          url: '/me',
         }),
         async () => {},
       ),
@@ -426,7 +424,6 @@ describe('every adapter can read its own fingerprint', () => {
           headers: { ...cookieHeader(fastifySid), 'user-agent': drifted },
           ip: SIGNED_IN.ip,
           method: 'POST',
-          url: '/me',
         },
         fastifyReply,
       ),

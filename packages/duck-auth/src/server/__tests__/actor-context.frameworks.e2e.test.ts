@@ -25,7 +25,7 @@ import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
 import { elysiaWithActor } from '~/server/elysia'
 import { expressActorContext } from '~/server/express'
-import { fastifyCsrf, fastifyWithActor, registerFastify } from '~/server/fastify'
+import { fastifyCsrf, fastifyWithActor } from '~/server/fastify'
 import { GRPC_STATUS, withGrpc } from '~/server/grpc'
 import { honoActorContext } from '~/server/hono'
 import { koaActorContext } from '~/server/koa'
@@ -334,8 +334,7 @@ describe('Koa, with koaActorContext above the routes and no error handler of its
 
 describe('Fastify, with fastifyWithActor around a route and no error handler of its own', () => {
   const app = Fastify()
-  // The whole adapter as documented, each piece typed as Fastify types it, which it has to accept.
-  registerFastify(app, auth)
+  // The adapter as documented, each piece typed as Fastify types it, which it has to accept.
   app.addHook('preHandler', fastifyCsrf(auth))
   app.get(
     '/me',

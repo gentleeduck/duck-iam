@@ -3,28 +3,34 @@
  * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 
-import { useBeginProvider } from '@gentleduck/auth/client/react'
 import { cn } from '@gentleduck/libs/cn'
 import { Button } from '@gentleduck/registry-ui/button'
+import { useState } from 'react'
 
 /**
- * `<ProvidersList />` — vertical stack of OAuth/SSO provider Buttons,
- * each wired to `useBeginProvider`. The provider list is config-only
- * (label + id + optional icon), so consumers can plug Google +
- * GitHub + Microsoft + Apple without writing duplicate handlers.
+ * `<ProvidersList />` — vertical stack of OAuth/SSO provider Buttons, each handing its provider to the caller's
+ * `onSelect`. The provider list is config-only (label + id + optional icon), so consumers can plug Google +
+ * GitHub + Microsoft + Apple behind one begin route.
  *
  * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export function ProvidersList(props: ProvidersList.IProps): React.JSX.Element {
-  const { className, providers } = props
-  const begin = useBeginProvider()
+  const { className, onSelect, providers } = props
+  const [loading, setLoading] = useState(false)
   return (
     <div className={cn('flex w-full max-w-sm flex-col gap-2', className)}>
       {providers.map((p) => (
         <Button
-          disabled={begin.loading}
+          disabled={loading}
           key={p.id}
-          onClick={() => begin.mutate({ id: p.id, input: p.input })}
+          onClick={async () => {
+            setLoading(true)
+            try {
+              await onSelect(p)
+            } finally {
+              setLoading(false)
+            }
+          }}
           variant="outline">
           {p.icon ? <span aria-hidden>{p.icon}</span> : null}
           {p.label}
@@ -49,5 +55,6 @@ export namespace ProvidersList {
   export interface IProps {
     className?: string
     providers: IProvider[]
+    onSelect(provider: IProvider): Promise<void>
   }
 }

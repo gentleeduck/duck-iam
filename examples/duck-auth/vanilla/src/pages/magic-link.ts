@@ -1,5 +1,5 @@
 import * as ui from '@examples/duck-auth-ui/recipes'
-import { client } from '../api'
+import { api } from '../api'
 import { createSubmit } from '../form'
 import { h } from '../h'
 import { AuthLayout } from '../layout'
@@ -7,7 +7,7 @@ import { AuthLayout } from '../layout'
 export function MagicLink(): HTMLElement {
   const token = new URLSearchParams(location.search).get('token') ?? ''
   const submit = createSubmit(async () => {
-    const res = await client.signIn({ providerId: 'magic-link', input: { token } })
+    const res = await api.signIn('magic-link', { token })
     if (!res.ok) return res
     location.assign('/')
     return null

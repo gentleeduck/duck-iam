@@ -1,13 +1,11 @@
 'use client'
 
-import { useSignOut } from '@gentleduck/auth/client/react'
 import { Button } from '@gentleduck/registry-ui/button'
 import { api } from '@/api'
 import { AuthLayout } from '@/components/auth-layout'
 import { Field, Notice, useSubmit } from '@/components/form'
 
 export default function MfaPage() {
-  const signOut = useSignOut()
   const submit = useSubmit(async (form) => {
     const res = await api.verifyMfa(String(form.get('code')).trim())
     if (!res.ok) return res
@@ -20,7 +18,7 @@ export default function MfaPage() {
       title="Two-factor check"
       description="Enter the code from your authenticator app, or one of your backup codes."
       footer={
-        <Button variant="link" size="sm" onClick={() => signOut.mutate().then(() => location.assign('/sign-in'))}>
+        <Button variant="link" size="sm" onClick={() => api.signOut().then(() => location.assign('/sign-in'))}>
           Use another account
         </Button>
       }>

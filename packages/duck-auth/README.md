@@ -46,7 +46,6 @@ Install only what you wire:
 | `ioredis` or `@upstash/redis` | Redis-backed session / idempotency / limiter / events / DPoP-nonce stores |
 | `@node-saml/node-saml` | SAML 2.0 SP |
 | `@nestjs/common` | NestJS adapter |
-| `react`, `vue` or `solid-js` | The matching client binding |
 
 ## Quick start
 
@@ -302,33 +301,65 @@ missing row - leaves that row out of the answer and does not throw.
 
 ## Server adapters
 
+duck-auth ships no routes and no client. Your app writes its own routes over `auth.flows.*` and calls them
+with its own `fetch`. Each adapter carries only the glue: a CSRF guard, the caller's address and user agent,
+an intents writer, the actor context and the error mapping.
+
 ```typescript
-// Express
-import { mountSignIn, mountSignOut, mountProviderBegin, mountProviderCallback } from '@gentleduck/auth/server/express'
-app.post('/auth/signin', mountSignIn(auth))
-// Where the IdP returns the browser: a redirect, or Apple's form post
-app.get('/auth/providers/:id/callback', mountProviderCallback(auth))
-app.post('/auth/providers/:id/callback', express.urlencoded({ extended: false }), mountProviderCallback(auth))
+import { AuthError } from '@gentleduck/auth/core'
+import { applyIntents, expressCaller, expressCsrf, toHeaders } from '@gentleduck/auth/server/express'
+import { errorToHttp } from '@gentleduck/auth/server/generic'
 
-// Hono resolves no caller address; pass one for the session row and the hijack checks
-import { mountHono } from '@gentleduck/auth/server/hono'
-import { getConnInfo } from 'hono/bun'
-mountHono<Context>(app, auth, { prefix: '/auth', ip: (c) => getConnInfo(c).remote.address })
+app.use('/auth', expressCsrf(auth))
 
-// Next.js App Router
-import { nextSignIn, nextSignOut } from '@gentleduck/auth/server/next'
-export const POST = nextSignIn(auth)
+app.post('/auth/signin', async (req, res) => {
+  const { providerId, input } = req.body ?? {}
+  if (typeof providerId !== 'string') throw new AuthError('AUTH_INVALID_PARAMETERS')
+  const headers = toHeaders(req.headers)
+  const { intents } = await auth.flows.signIn({
+    input,
+    providerId,
+    ...expressCaller(req),
+    previousSid: auth.transport.extract({ headers }) ?? undefined,
+  })
+  applyIntents(intents, res)
+})
 
-// Fastify, Koa, NestJS, Elysia, gRPC
-import { fastifySignIn } from '@gentleduck/auth/server/fastify'
-import { koaSignIn }     from '@gentleduck/auth/server/koa'
-import { nestSignIn }    from '@gentleduck/auth/server/nestjs'
-import { elysiaSignIn }  from '@gentleduck/auth/server/elysia'
-import { withGrpc } from '@gentleduck/auth/server/grpc'
+app.post('/auth/signout', async (req, res) => {
+  const sid = auth.transport.extract({ headers: toHeaders(req.headers) })
+  applyIntents(sid ? (await auth.flows.signOut(sid)).intents : auth.transport.revoke(), res)
+})
 
-// Generic Web-Fetch executor (Cloudflare Workers, Bun, Deno)
-import { executeIntents, parseSignInBody } from '@gentleduck/auth/server/generic'
+// A refusal throws an AuthError; `errorToHttp` maps it to the status and body
+app.use((err, _req, res, _next) => {
+  const { status, body } = errorToHttp(err)
+  res.status(status).json(body)
+})
 ```
+
+| Framework | Import | Glue |
+|---|---|---|
+| Express | `@gentleduck/auth/server/express` | `expressCsrf`, `expressCaller`, `applyIntents`, `expressActorContext` |
+| Hono | `@gentleduck/auth/server/hono` | `honoCsrf`, `honoCaller`, `honoActorContext` |
+| Fastify | `@gentleduck/auth/server/fastify` | `fastifyCsrf`, `fastifyCaller`, `fastifyWithActor` |
+| Koa | `@gentleduck/auth/server/koa` | `koaCsrf`, `koaCaller`, `koaApplyIntents`, `koaActorContext` |
+| NestJS | `@gentleduck/auth/server/nestjs` | `makeCsrfGuard`, `makeGuard`, `nestCaller`, `NestExceptionFilter`, `CurrentSession` |
+| Elysia | `@gentleduck/auth/server/elysia` | `elysiaCsrf`, `elysiaCaller`, `elysiaWithActor` |
+| Next.js | `@gentleduck/auth/server/next` | `withNextCsrf`, `nextCaller`, `nextWithActor` |
+| gRPC | `@gentleduck/auth/server/grpc` | `withGrpc` |
+| Web Fetch | `@gentleduck/auth/server/generic` | `executeIntents`, `jsonResponse`, `errorResponse`, `errorToHttp`, `readBodyJson` |
+
+What your routes now own:
+
+- **CSRF** on sign-in, sign-out, provider begin and every other mutation.
+- **The OAuth callback stays unguarded.** Apple posts it cross-site by design and the signed state is the
+  proof. Read the query on a GET, the urlencoded body on a POST, and pass `cookieHeader` and `previousSid`.
+- **`csrfHash` out of any session you answer with.** It is server-side state; the browser holds the plaintext.
+- **A step-up before destroying a factor.** Check `auth.flows.checkStepUp(session, { aal: 2 })` before
+  removing TOTP or regenerating backup codes, and rate-limit TOTP verification on `stepup:${identityId}`.
+- **The session's tenant** passed to `auth.mfa.*`, which reads unscoped without one.
+
+`examples/duck-auth` has the full route set for all eight frameworks.
 
 ## Delivery
 
@@ -348,21 +379,6 @@ const auth = createAuth({
   },
   // ...
 })
-```
-
-## Client libraries
-
-```typescript
-// React - <Provider> + useSession / useSignIn / useSignOut
-import { Provider, useSession, useSignIn, useSignOut } from '@gentleduck/auth/client/react'
-
-// Vue, Solid, Svelte - parallel APIs under each framework's own idiom
-import { createAuthVuePlugin, useAuthSession } from '@gentleduck/auth/client/vue'
-import { Provider as SolidProvider, authUseSession } from '@gentleduck/auth/client/solid'
-import { createAuthStore } from '@gentleduck/auth/client/svelte'
-
-// Vanilla - promise-based signIn / signOut / resolveSession
-import { createAuthClient } from '@gentleduck/auth/client/vanilla'
 ```
 
 ## Captcha verifiers
@@ -411,7 +427,6 @@ See [`SECURITY.md`](./SECURITY.md) for the STRIDE / OWASP ASVS mapping of every 
 | Each provider | 1.5 - 8 KB |
 | Each adapter | 2 - 9 KB |
 | Each server middleware | 2 - 4 KB |
-| Each client library | 1.5 - 2.5 KB |
 
 Real deployments importing only what they wire end up at 25 - 60 KB total. The "import everything" worst case (`import * from '@gentleduck/auth'`) is not the intended usage.
 

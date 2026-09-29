@@ -1,6 +1,4 @@
-import { type Account, leaveTo, qrCode, type Session, sessionLine } from '@examples/duck-auth-ui/api'
-import { useSignOut } from '@gentleduck/auth/client/react'
-import type { Envelope } from '@gentleduck/auth/client/vanilla'
+import { type Account, type Envelope, leaveTo, qrCode, type Session, sessionLine } from '@examples/duck-auth-ui/api'
 import { Badge } from '@gentleduck/registry-ui/badge'
 import { Button } from '@gentleduck/registry-ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@gentleduck/registry-ui/card'
@@ -10,7 +8,7 @@ import { Field, Notice, useSubmit } from '../form'
 import { BackendPicker } from '../layout'
 
 export function Dashboard() {
-  const signOut = useSignOut()
+  const [leaving, setLeaving] = useState(false)
   const [account, setAccount] = useState<Account | null>(null)
 
   useEffect(() => {
@@ -32,9 +30,11 @@ export function Dashboard() {
           <Button
             variant="outline"
             size="sm"
-            loading={signOut.loading}
+            loading={leaving}
             onClick={async () => {
-              if ((await signOut.mutate()).ok) location.assign('/sign-in')
+              setLeaving(true)
+              if ((await api.signOut()).ok) return location.assign('/sign-in')
+              setLeaving(false)
             }}>
             Sign out
           </Button>

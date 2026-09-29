@@ -1,7 +1,6 @@
-import { type Account, leaveTo, qrCode, type Session, sessionLine } from '@examples/duck-auth-ui/api'
+import { type Account, type Envelope, leaveTo, qrCode, type Session, sessionLine } from '@examples/duck-auth-ui/api'
 import * as ui from '@examples/duck-auth-ui/recipes'
-import type { Envelope } from '@gentleduck/auth/client/vanilla'
-import { api, client } from '../api'
+import { api } from '../api'
 import { createSubmit, Field, showNotice } from '../form'
 import { h } from '../h'
 import { BackendPicker } from '../layout'
@@ -27,7 +26,7 @@ export function Dashboard(): HTMLElement {
               type: 'button',
               className: ui.button({ variant: 'outline', size: 'sm' }),
               onclick: async () => {
-                if ((await client.signOut()).ok) location.assign('/sign-in')
+                if ((await api.signOut()).ok) location.assign('/sign-in')
               },
             },
             'Sign out',

@@ -1,14 +1,14 @@
 <script lang="ts">
   import { WEAK_PASSWORD } from '@examples/duck-auth-ui/api'
   import * as ui from '@examples/duck-auth-ui/recipes'
-  import { auth } from '../auth'
+  import { api } from '../api'
   import AuthLayout from '../components/AuthLayout.svelte'
   import FormField from '../components/FormField.svelte'
   import FormNotice from '../components/FormNotice.svelte'
   import { createSubmit } from '../submit.svelte'
 
   const submit = createSubmit((form) =>
-    auth.client.signUp({ name: form.get('name'), email: form.get('email'), password: form.get('password') }),
+    api.signUp({ name: form.get('name'), email: form.get('email'), password: form.get('password') }),
   )
 </script>
 

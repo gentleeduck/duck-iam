@@ -1,7 +1,6 @@
 <script lang="ts">
-  import { qrCode } from '@examples/duck-auth-ui/api'
+  import { type Envelope, qrCode } from '@examples/duck-auth-ui/api'
   import * as ui from '@examples/duck-auth-ui/recipes'
-  import type { Envelope } from '@gentleduck/auth/client/vanilla'
   import { api } from '../api'
   import { createSubmit } from '../submit.svelte'
   import FormField from './FormField.svelte'

@@ -1,10 +1,7 @@
 import type { Actor } from '~/core/actor'
 import type { Anomaly } from '~/core/anomaly/anomaly.types'
-import type { AuthEngine } from '~/core/engine'
 import { AuthError } from '~/core/errors'
 import type { Hijack } from '~/core/hijack/hijack.types'
-import { isRecord } from '~/core/predicates'
-import { canonicalProviderId } from '~/core/provider/provider.constants'
 import type { Provider } from '~/core/provider/provider.types'
 import { SESSION_COLUMN_CAPS } from '~/core/sessions/sessions.constants'
 import type { Sessions } from '~/core/sessions/sessions.types'
@@ -63,32 +60,6 @@ export function executeIntents(intents: Provider.Intent[], baseStatus = 200): Re
   return new Response(body, { status, headers })
 }
 
-/** Validate the HTTP sign-in body shape. */
-export function parseSignInBody(raw: unknown): { providerId: string; input: unknown } | null {
-  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null
-  if (!('providerId' in raw)) return null
-  if (!isValidProviderId(raw.providerId)) return null
-  const input = 'input' in raw ? raw.input : {}
-  return { providerId: raw.providerId, input: input ?? {} }
-}
-
-/** Validate the HTTP provider-begin body; `null`/`undefined` normalize to `{}`. */
-export function parseProviderBeginBody(raw: unknown): object | null {
-  if (raw === undefined || raw === null) return {}
-  if (typeof raw !== 'object' || Array.isArray(raw)) return null
-  return raw
-}
-
-/** The begin route's answer to a script, which cannot follow a redirect to the IdP: a request accepting
- *  JSON gets `{ url }` to navigate to, with the same cookies. An unsafe URL stays a redirect for the
- *  executor to refuse. */
-export function redirectForScript(intents: Provider.Intent[], headers: Headers): Provider.Intent[] {
-  if (!headers.get('accept')?.includes('application/json')) return intents
-  return intents.map((i) =>
-    i.type === 'redirect' && isSafeRedirectUrl(i.url) ? { body: { url: i.url }, status: 200, type: 'json' } : i,
-  )
-}
-
 /** Express's body-parser default, so a body refused on one adapter is refused on all of them. */
 const MAX_BODY_BYTES = 100 * 1024
 
@@ -125,64 +96,6 @@ export async function readBodyJson(req: Request): Promise<unknown> {
   } catch {
     return null
   }
-}
-
-/** Whether a string is a well-formed provider id, by the rule the engine registers ids under. */
-export function isValidProviderId(value: unknown): value is string {
-  return canonicalProviderId(value) !== null
-}
-
-/** Extract a non-empty bounded string field from a JSON body. */
-export function parseBodyStringField(raw: unknown, field: string, maxLength = 256): string | null {
-  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null
-  if (!(field in raw)) return null
-  const value: unknown = Reflect.get(raw, field)
-  if (typeof value !== 'string' || value.length === 0) return null
-  if (value.length > maxLength) return null
-  return value
-}
-
-/**
- * Sign in from an OAuth callback: the query on a redirect, the urlencoded body on a POST, which is how Apple
- * answers. `body` is the framework's parsed form, or the raw text where it parses none.
- *
- * SECURITY: never CSRF-guarded. A form post is the IdP's page submitting cross-site, so an origin check refuses
- * every real one; the signed `state` and the pre-auth cookie bound into it are the proof. Only an `oauth`
- * provider is driven, so this unguarded route signs nobody in through any other.
- */
-export async function oauthCallback(
-  auth: AuthEngine,
-  id: unknown,
-  req: { method: string; url: string; body?: unknown; cookie?: unknown },
-  caller: CallerFingerprint,
-): Promise<Provider.Intent[]> {
-  if (!isValidProviderId(id) || !auth.providers.has(id) || auth.providers.get(id).kind !== 'oauth') {
-    return [{ type: 'error', code: 'AUTH_PROVIDER_FAILED', status: 400 }]
-  }
-  const params =
-    req.method !== 'POST'
-      ? new URL(req.url, 'http://localhost').searchParams
-      : typeof req.body === 'string'
-        ? new URLSearchParams(req.body)
-        : new URLSearchParams(
-            isRecord(req.body)
-              ? Object.entries(req.body).filter((e): e is [string, string] => typeof e[1] === 'string')
-              : [],
-          )
-  const user = params.get('user')
-  const cookie = typeof req.cookie === 'string' ? req.cookie : ''
-  const { intents } = await auth.flows.signIn({
-    input: {
-      code: params.get('code') ?? '',
-      cookieHeader: cookie,
-      state: params.get('state') ?? '',
-      ...(user !== null && { user }),
-    },
-    providerId: id,
-    ...caller,
-    previousSid: auth.transport.extract({ headers: new Headers({ cookie }) }) ?? undefined,
-  })
-  return intents
 }
 
 /** Validate a redirect URL: http(s) absolute or same-origin path; rejects CTL, protocol-relative, oversize. */

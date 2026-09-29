@@ -4,7 +4,7 @@ Four standalone backends — one per framework — each demonstrating a differen
 `@gentleduck/iam` server adapter (`server/express`, `server/hono`, `server/nest`,
 `server/next`), authenticated for real by `@gentleduck/auth` (`passwords()` + cookie sessions,
 the same shape as `examples/duck-auth`). Next.js additionally carries a real React client
-(`@gentleduck/auth/client/react` + `@gentleduck/iam/client/react`) in its `src/app/dashboard`.
+(its own `fetch` calls + `@gentleduck/iam/client/react`) in its `src/app/dashboard`.
 
 All four point at the **same** shared Postgres database, so the same seeded identities, the
 same rows, and the same IAM decisions are visible from whichever framework you hit.
@@ -108,8 +108,9 @@ These examples used to stub that out with a fake `POST /session { email }` beare
 run real authentication through `@gentleduck/auth`: password credentials, cookie sessions, and
 CSRF-guarded mutations, wired the same way `examples/duck-auth` wires them.
 
-- **`POST /auth/signin`, `POST /auth/signout`, `GET /auth/session`** — duck-auth's own handlers
-  (`mountSignIn`/`nextSignIn`/etc per framework), mounted directly. They guard their own CSRF.
+- **`POST /auth/signin`, `POST /auth/signout`, `GET /auth/session`** — this app's own routes over
+  `auth.flows.*`, written once in `shared/src/routes.ts` and answered per framework with the
+  adapter's intents writer. CSRF-guarded like every other route.
 - **`POST /auth/signup`** — this app's own route, not duck-auth's: it creates the identity, sets
   the password credential, creates a brand-new `companies` row (DuckMarket is multi-tenant, so a
   fresh signup needs somewhere to belong), writes the `users` row, and assigns the new identity
@@ -158,11 +159,11 @@ curl -b cookies.txt -X PATCH http://localhost:3100/companies/company-acme \
 | Express | `@gentleduck/iam/server/express` | `express/` | 3100 |
 | Hono | `@gentleduck/iam/server/hono` | `hono/` | 3200 |
 | NestJS | `@gentleduck/iam/server/nest` | `nest/` | 3300 |
-| Next.js | `@gentleduck/iam/server/next` + `@gentleduck/auth/server/next` (routes) — `@gentleduck/iam/client/react` + `@gentleduck/auth/client/react` (dashboard) | `next/` | 3400 |
+| Next.js | `@gentleduck/iam/server/next` + `@gentleduck/auth/server/next` (routes) — `@gentleduck/iam/client/react` (dashboard) | `next/` | 3400 |
 
 Next.js is the odd one out by design: it's the one framework where API routes and React pages
-already live in one app, so its `src/app/dashboard` page is where both client adapters get
-exercised — real sign-in/sign-up forms (`useSignIn`, `useAuthClient().signUp`) gating a real
+already live in one app, so its `src/app/dashboard` page is where the client adapter gets
+exercised — real sign-in/sign-up forms (plain `fetch` to `/api/auth/*`) gating a real
 `<AccessProvider>` tree, no separate client project for it to belong to. Express, Hono, and
 NestJS stay API-only; exercise their auth routes with curl (see the per-backend CSRF example
 above) or point any HTTP client at them.

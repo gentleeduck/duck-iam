@@ -1,13 +1,12 @@
 import { WEAK_PASSWORD } from '@examples/duck-auth-ui/api'
-import { useSignUp } from '@gentleduck/auth/client/react'
 import { Button } from '@gentleduck/registry-ui/button'
+import { api } from '../api'
 import { Field, Notice, useSubmit } from '../form'
 import { AuthLayout } from '../layout'
 
 export function SignUp() {
-  const signUp = useSignUp()
   const submit = useSubmit((form) =>
-    signUp.mutate({
+    api.signUp({
       name: String(form.get('name')),
       email: String(form.get('email')),
       password: String(form.get('password')),

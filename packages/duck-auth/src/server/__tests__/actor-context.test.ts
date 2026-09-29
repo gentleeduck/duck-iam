@@ -77,7 +77,7 @@ describe('the adapters bind an actor scope around handler execution', () => {
     const { identityId, sid } = await signIn(auth)
 
     let seen: string | null = 'never ran'
-    await expressActorContext(auth)({ headers: cookieHeader(sid), method: 'POST', url: '/me' }, expressRes, () => {
+    await expressActorContext(auth)({ headers: cookieHeader(sid), method: 'POST' }, expressRes, () => {
       seen = actorId()
     })
     expect(seen).toBe(identityId)
@@ -86,7 +86,7 @@ describe('the adapters bind an actor scope around handler execution', () => {
   it('leaves the actor null for an anonymous request', async () => {
     const { auth } = buildAuth()
     let seen: string | null = 'never ran'
-    await expressActorContext(auth)({ headers: {}, method: 'POST', url: '/me' }, expressRes, () => {
+    await expressActorContext(auth)({ headers: {}, method: 'POST' }, expressRes, () => {
       seen = actorId()
     })
     // Not a placeholder and not a throw: no actor was established, and that is
@@ -103,14 +103,10 @@ describe('the adapters bind an actor scope around handler execution', () => {
     const { auth } = buildAuth()
     let ran = false
     let seen: string | null = 'never ran'
-    await expressActorContext(auth)(
-      { headers: cookieHeader('not-a-real-sid'), method: 'POST', url: '/me' },
-      expressRes,
-      () => {
-        ran = true
-        seen = actorId()
-      },
-    )
+    await expressActorContext(auth)({ headers: cookieHeader('not-a-real-sid'), method: 'POST' }, expressRes, () => {
+      ran = true
+      seen = actorId()
+    })
     expect(ran).toBe(true)
     expect(seen).toBeNull()
   })
@@ -120,7 +116,7 @@ describe('the adapters bind an actor scope around handler execution', () => {
     const { identityId, sid } = await signIn(auth)
 
     let seen: string | null = 'never ran'
-    await koaActorContext(auth)(koaCtx({ headers: cookieHeader(sid), method: 'POST', url: '/me' }), async () => {
+    await koaActorContext(auth)(koaCtx({ headers: cookieHeader(sid), method: 'POST' }), async () => {
       // Deliberately after an await: the binding has to survive the boundary.
       await Promise.resolve()
       seen = actorId()
@@ -164,7 +160,7 @@ describe('the adapters bind an actor scope around handler execution', () => {
     let fastifySeen: string | null = 'never ran'
     await fastifyWithActor(auth, async () => {
       fastifySeen = actorId()
-    })({ headers: cookieHeader(sid), method: 'POST', url: '/me' }, fastifyReply)
+    })({ headers: cookieHeader(sid), method: 'POST' }, fastifyReply)
     expect(fastifySeen).toBe(identityId)
 
     const elysiaSeen = await elysiaWithActor(
@@ -266,7 +262,7 @@ describe('impersonation attributes the operator, not the account acted on', () =
 
     let seen: string | null = 'never ran'
     let envelope: string | undefined = 'never ran'
-    await expressActorContext(auth)({ headers: cookieHeader(sid), method: 'POST', url: '/me' }, expressRes, () => {
+    await expressActorContext(auth)({ headers: cookieHeader(sid), method: 'POST' }, expressRes, () => {
       seen = actorId()
       envelope = currentAuditEnvelope()?.actingAs?.realIdentityId
     })
@@ -328,15 +324,15 @@ describe('a session store that fails is raised, never run as nobody', () => {
     ).rejects.toMatchObject(down)
     await expect(nextWithActor(auth, handler)(new Request('https://x/me', { headers }))).rejects.toMatchObject(down)
     await expect(
-      koaActorContext(auth)(koaCtx({ headers, method: 'GET', url: '/me' }), async () => void handler()),
+      koaActorContext(auth)(koaCtx({ headers, method: 'GET' }), async () => void handler()),
     ).rejects.toMatchObject(down)
     await expect(
-      fastifyWithActor(auth, async () => void handler())({ headers, method: 'GET', url: '/me' }, fastifyReply),
+      fastifyWithActor(auth, async () => void handler())({ headers, method: 'GET' }, fastifyReply),
     ).rejects.toMatchObject(down)
     await expect(
       elysiaWithActor(auth, handler)({ request: new Request('https://x/me', { headers }) }),
     ).rejects.toMatchObject(down)
-    await expressActorContext(auth)({ headers, method: 'GET', url: '/me' }, expressRes, (err) => void passed.push(err))
+    await expressActorContext(auth)({ headers, method: 'GET' }, expressRes, (err) => void passed.push(err))
     await nestActorContext(auth)({ headers, identity: null, method: 'GET' }, {}, (err) => {
       passed.push(err)
     })
@@ -371,15 +367,15 @@ describe('a session that outlived its identity is refused, never run as nobody',
       expect(await answer?.json()).toMatchObject({ error: erased, ok: false })
     }
     await expect(
-      koaActorContext(auth)(koaCtx({ headers, method: 'GET', url: '/me' }), async () => void handler()),
+      koaActorContext(auth)(koaCtx({ headers, method: 'GET' }), async () => void handler()),
     ).rejects.toMatchObject(erased)
     await expect(
-      fastifyWithActor(auth, async () => void handler())({ headers, method: 'GET', url: '/me' }, fastifyReply),
+      fastifyWithActor(auth, async () => void handler())({ headers, method: 'GET' }, fastifyReply),
     ).rejects.toMatchObject(erased)
     await expect(
       elysiaWithActor(auth, handler)({ request: new Request('https://x/me', { headers }) }),
     ).rejects.toMatchObject(erased)
-    await expressActorContext(auth)({ headers, method: 'GET', url: '/me' }, expressRes, (err) => void passed.push(err))
+    await expressActorContext(auth)({ headers, method: 'GET' }, expressRes, (err) => void passed.push(err))
     await nestActorContext(auth)({ headers, identity: null, method: 'GET' }, {}, (err) => {
       passed.push(err)
     })

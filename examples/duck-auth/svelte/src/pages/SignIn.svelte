@@ -3,7 +3,6 @@
   import * as ui from '@examples/duck-auth-ui/recipes'
   import { onMount } from 'svelte'
   import { api } from '../api'
-  import { auth } from '../auth'
   import AuthLayout from '../components/AuthLayout.svelte'
   import FormField from '../components/FormField.svelte'
   import FormNotice from '../components/FormNotice.svelte'
@@ -21,13 +20,13 @@
   const submit = createSubmit(async (form) => {
     const email = form.get('email')
     const intent = form.get('intent')
-    if (intent === 'magic-link') return auth.client.beginProvider('magic-link', { email })
+    if (intent === 'magic-link') return api.beginProvider('magic-link', { email })
     if (typeof intent === 'string') {
       // The page is on its way to the IdP once this succeeds, so only a failure has anything to show.
-      const res = await auth.client.beginProvider(intent)
+      const res = await api.beginProvider(intent)
       return res.ok ? null : res
     }
-    const res = await auth.signIn({ providerId: 'password', input: { email, password: form.get('password') } })
+    const res = await api.signIn('password', { email, password: form.get('password') })
     if (!res.ok) return res
     location.assign('/')
     return null

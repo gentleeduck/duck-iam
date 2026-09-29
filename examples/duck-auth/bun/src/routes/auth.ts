@@ -1,26 +1,17 @@
-import { type AppAuth, landing, PAGES } from '@examples/duck-auth-shared/auth'
+import { type AppAuth, PAGES } from '@examples/duck-auth-shared/auth'
 import { readString } from '@examples/duck-auth-shared/body'
+import { beginProvider, currentSession, providerCallback, signIn, signOut } from '@examples/duck-auth-shared/routes'
 import { signUp } from '@examples/duck-auth-shared/signup'
-import {
-  executeIntents,
-  jsonResponse,
-  oauthCallback,
-  parseProviderBeginBody,
-  parseSignInBody,
-  readBodyJson,
-  readBodyText,
-  redirectForScript,
-} from '@gentleduck/auth/server/generic'
+import { executeIntents, jsonResponse, readBodyJson, readBodyText } from '@gentleduck/auth/server/generic'
 import type { BunRequest } from 'bun'
 import { caller, guarded, type Handler } from '../http'
 
 export function authRoutes(auth: AppAuth) {
-  // Where the IdP returns the browser; the cookies land, then the app takes over.
+  // Where the IdP returns the browser. Apple's form post is read as text, the same query string a redirect carries.
   const callback: Handler<BunRequest<'/auth/providers/:id/callback'>> = async (req, server) => {
-    const body = req.method === 'POST' ? ((await readBodyText(req)) ?? '') : undefined
-    const request = { body, cookie: req.headers.get('cookie'), method: req.method, url: req.url }
-    const intents = await landing(oauthCallback(auth, req.params.id, request, caller(req, server)))
-    return executeIntents(intents)
+    const params =
+      req.method === 'POST' ? new URLSearchParams((await readBodyText(req)) ?? '') : new URL(req.url).searchParams
+    return executeIntents(await providerCallback(auth, req.params.id, params, req.headers, caller(req, server)))
   }
 
   return {
@@ -28,41 +19,21 @@ export function authRoutes(auth: AppAuth) {
 
     '/auth/signin': {
       POST: guarded(auth, async (req, server) => {
-        const parsed = parseSignInBody(await readBodyJson(req))
-        // The adapters' own answer to a body that is not a sign-in.
-        if (!parsed) return executeIntents([{ type: 'error', code: 'AUTH_INVALID_CREDENTIALS', status: 400 }])
-        const { intents } = await auth.flows.signIn({
-          ...parsed,
-          ...caller(req, server),
-          previousSid: auth.transport.extract(req) ?? undefined,
-        })
-        return executeIntents(intents)
+        return executeIntents(await signIn(auth, req.headers, await readBodyJson(req), caller(req, server)))
       }),
     },
 
     '/auth/signout': {
-      POST: guarded(auth, async (req) => {
-        const sid = auth.transport.extract(req)
-        return executeIntents(sid ? (await auth.flows.signOut(sid)).intents : auth.transport.revoke())
-      }),
+      POST: guarded(auth, async (req) => executeIntents(await signOut(auth, req.headers))),
     },
 
     '/auth/session': {
-      GET: async (req: Request) => {
-        const resolved = await auth.resolveSession(req).orNull()
-        if (!resolved) return jsonResponse(200, { session: null, identity: null })
-        // `csrfHash` is server-side state; the browser holds the plaintext in its cookie.
-        const { csrfHash: _csrfHash, ...session } = resolved.session
-        return jsonResponse(200, { session, identity: resolved.identity })
-      },
+      GET: async (req: Request) => jsonResponse(200, await currentSession(auth, req.headers)),
     },
 
     '/auth/providers/:id/begin': {
       POST: guarded(auth, async (req: BunRequest<'/auth/providers/:id/begin'>) => {
-        const input = parseProviderBeginBody(await readBodyJson(req))
-        if (input === null) return executeIntents([{ type: 'error', code: 'AUTH_INVALID_CREDENTIALS', status: 400 }])
-        // A script cannot follow the redirect to the IdP, so a JSON caller gets `{ url }` instead.
-        return executeIntents(redirectForScript(await auth.flows.beginProvider(req.params.id, input), req.headers))
+        return executeIntents(await beginProvider(auth, req.params.id, await readBodyJson(req)))
       }),
     },
 

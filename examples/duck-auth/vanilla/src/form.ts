@@ -1,6 +1,5 @@
-import { errorText } from '@examples/duck-auth-ui/api'
+import { type Envelope, errorText } from '@examples/duck-auth-ui/api'
 import * as ui from '@examples/duck-auth-ui/recipes'
-import type { Envelope } from '@gentleduck/auth/client/vanilla'
 import { h } from './h'
 
 /** A form's submit: hands `send` the fields and the button pressed, and shows its answer in `alert`. `null` shows nothing. */

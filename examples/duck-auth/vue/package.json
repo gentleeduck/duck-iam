@@ -9,7 +9,6 @@
   },
   "dependencies": {
     "@examples/duck-auth-ui": "workspace:*",
-    "@gentleduck/auth": "workspace:*",
     "vue": "^3.5.43"
   },
   "devDependencies": {

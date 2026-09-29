@@ -3,30 +3,32 @@
  * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 
-import { useSignOut } from '@gentleduck/auth/client/react'
 import { Button } from '@gentleduck/registry-ui/button'
-import type { ComponentProps } from 'react'
+import { type ComponentProps, useState } from 'react'
 
 /**
- * `<SignOutButton />` — Button that calls `useSignOut`. Inherits the
- * registry-ui Button variant API (`variant`, `size`, etc.) by
- * forwarding any ComponentProps<Button>.
+ * `<SignOutButton />` — Button that awaits the caller's `onSignOut`. Inherits the registry-ui Button variant
+ * API (`variant`, `size`, etc.) by forwarding any ComponentProps<Button>.
  *
  * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export function SignOutButton(props: SignOutButton.IProps): React.JSX.Element {
-  const { onSignedOut, ...buttonProps } = props
-  const signOut = useSignOut()
+  const { onSignOut, ...buttonProps } = props
+  const [loading, setLoading] = useState(false)
   return (
     <Button
-      disabled={signOut.loading}
+      disabled={loading}
       onClick={async () => {
-        await signOut.mutate()
-        onSignedOut?.()
+        setLoading(true)
+        try {
+          await onSignOut()
+        } finally {
+          setLoading(false)
+        }
       }}
       variant="outline"
       {...buttonProps}>
-      {signOut.loading ? 'Signing out…' : 'Sign out'}
+      {loading ? 'Signing out…' : 'Sign out'}
     </Button>
   )
 }
@@ -38,6 +40,6 @@ export function SignOutButton(props: SignOutButton.IProps): React.JSX.Element {
  */
 export namespace SignOutButton {
   export interface IProps extends Omit<ComponentProps<typeof Button>, 'onClick'> {
-    onSignedOut?(): void
+    onSignOut(): Promise<void>
   }
 }

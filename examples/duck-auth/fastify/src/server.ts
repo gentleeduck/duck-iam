@@ -18,7 +18,7 @@ app.addContentTypeParser('application/json', { parseAs: 'string' }, async (_req:
     return null
   }
 })
-// An IdP answering with a form post, such as Apple; `oauthCallback` parses the raw text itself.
+// An IdP answering with a form post, such as Apple; the callback route parses the raw text itself.
 app.addContentTypeParser(
   'application/x-www-form-urlencoded',
   { parseAs: 'string' },

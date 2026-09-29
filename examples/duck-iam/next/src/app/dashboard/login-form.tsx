@@ -1,7 +1,7 @@
 'use client'
 
-import { useAuthClient, useSignIn } from '@gentleduck/auth/client/react'
 import { type FormEvent, useState } from 'react'
+import { api } from './api'
 
 const SEEDED_USERS = [
   'viewer@acme.test',
@@ -21,11 +21,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   AUTH_CSRF: 'Your session expired — refresh the page and try again.',
 }
 
-function errorText(res: { ok: false; error: { code: string } }): string {
-  return ERROR_MESSAGES[res.error.code] ?? res.error.code
-}
-
-export function LoginForm() {
+export function LoginForm({ onSignedIn }: { onSignedIn: () => void }) {
   const [mode, setMode] = useState<'signin' | 'signup'>('signin')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -34,23 +30,21 @@ export function LoginForm() {
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
 
-  const signIn = useSignIn()
-  const client = useAuthClient()
-
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setError(null)
     setPending(true)
     try {
       if (mode === 'signup') {
-        const signedUp = await client.signUp({ email, password, name, companyName })
-        if (!signedUp.ok) {
-          setError(errorText(signedUp))
+        const refused = await api.signUp({ email, password, name, companyName })
+        if (refused) {
+          setError(ERROR_MESSAGES[refused] ?? refused)
           return
         }
       }
-      const signedIn = await signIn.mutate({ providerId: 'password', input: { email, password } })
-      if (!signedIn.ok) setError(errorText(signedIn))
+      const refused = await api.signIn(email, password)
+      if (refused) setError(ERROR_MESSAGES[refused] ?? refused)
+      else onSignedIn()
     } finally {
       setPending(false)
     }

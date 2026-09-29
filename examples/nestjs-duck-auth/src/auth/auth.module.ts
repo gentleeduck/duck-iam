@@ -3,7 +3,7 @@ import { DUCK_AUTH_TOKEN } from '@gentleduck/auth/server/nestjs'
 import { Global, Module, type Provider } from '@nestjs/common'
 import { AuthController } from './auth.controller'
 import { buildAuth } from './auth.engine'
-import { DuckAuthGuard } from './auth.guard'
+import { CsrfGuard, DuckAuthGuard } from './auth.guard'
 import { AuthService } from './auth.service'
 
 export { DUCK_AUTH_TOKEN }
@@ -16,7 +16,7 @@ const engineProvider: Provider = {
 @Global()
 @Module({
   controllers: [AuthController],
-  exports: [DUCK_AUTH_TOKEN, AuthService, DuckAuthGuard],
-  providers: [engineProvider, AuthService, DuckAuthGuard],
+  exports: [DUCK_AUTH_TOKEN, AuthService, CsrfGuard, DuckAuthGuard],
+  providers: [engineProvider, AuthService, CsrfGuard, DuckAuthGuard],
 })
 export class AuthModule {}

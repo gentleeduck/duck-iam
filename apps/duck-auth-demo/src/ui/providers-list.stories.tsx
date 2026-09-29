@@ -1,10 +1,10 @@
-import { authWithStorybook } from '@gentleduck/auth/client/react/storybook'
 import type { Meta, StoryObj } from '@storybook/react'
+import { live } from './live'
 import { ProvidersList } from './providers-list'
 
 const meta: Meta<typeof ProvidersList> = {
+  args: { onSelect: () => new Promise((r) => setTimeout(r, 500)) },
   component: ProvidersList,
-  decorators: [authWithStorybook({})],
   title: 'Auth / ProvidersList',
 }
 export default meta
@@ -28,6 +28,8 @@ export const SingleProvider: Story = {
 
 /** Live backend — clicking magic-link will fire a real begin request. */
 export const Live: Story = {
-  args: { providers: [{ id: 'magic-link', label: 'Email me a magic link' }] },
-  decorators: [authWithStorybook({ live: true })],
+  args: {
+    onSelect: live.begin,
+    providers: [{ id: 'magic-link', input: { email: 'alice@test' }, label: 'Email me a magic link' }],
+  },
 }

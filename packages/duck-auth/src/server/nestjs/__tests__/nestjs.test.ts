@@ -9,9 +9,7 @@ import { AuthError } from '~/core/errors'
 import { isRecord } from '~/core/predicates'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
-import { passwords, ScryptHasher } from '~/providers/passwords'
-import { fastifyReply, nestCtx } from '~/test/adapter-fakes'
-import { identityInput } from '~/test/store-inputs'
+import { nestCtx } from '~/test/adapter-fakes'
 import {
   CurrentIdentity,
   CurrentSession,
@@ -21,129 +19,18 @@ import {
   NestExceptionFilter,
   nestActorContext,
   nestCaller,
-  nestProviderBegin,
-  nestSession,
-  nestSignIn,
-  nestSignOut,
 } from '../index'
 
-function makeReply(): NestAdapter.Response & {
-  _status?: number
-  _headers: Map<string, string[]>
-  _body?: string
-} {
-  const headers = new Map<string, string[]>()
-  const reply: NestAdapter.Response & {
-    _status?: number
-    _headers: Map<string, string[]>
-    _body?: string
-  } = {
-    _headers: headers,
-    status(code) {
-      this._status = code
-      return this
-    },
-    setHeader(name, value) {
-      const k = name.toLowerCase()
-      const existing = headers.get(k) ?? []
-      const arr = Array.isArray(value) ? value : [value]
-      headers.set(k, [...existing, ...arr])
-      return this
-    },
-    send(payload) {
-      this._body = typeof payload === 'string' ? payload : JSON.stringify(payload)
-      return this
-    },
-  }
-  return reply
-}
-
-type MyProfile = {
-  username: string
-  email: string
-}
-
 function buildAuth() {
-  const adapter = new MemoryAdapter<MyProfile>()
-  const auth = new AuthEngine<MyProfile>({
+  const adapter = new MemoryAdapter<{ username: string; email: string }>()
+  const auth = new AuthEngine<{ username: string; email: string }>({
     baseUrl: 'https://app',
-    transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
-    stores: {
-      identities: adapter.identities,
-      sessions: adapter.sessions,
-      credentials: adapter.credentials,
-    },
     limiter: new MemoryLimiter({ max: 20, windowMs: 60_000 }),
-    providers: [],
+    stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
+    transport: new CookieTransport({ name: 'duck-sid', secure: false }),
   })
-  auth.providers.register(
-    passwords({
-      hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }),
-    }),
-  )
-  return { auth, adapter }
+  return { auth }
 }
-
-describe('NestJS adapter - handlers', () => {
-  let auth: ReturnType<typeof buildAuth>['auth']
-  let adapter: ReturnType<typeof buildAuth>['adapter']
-
-  beforeEach(() => {
-    ;({ auth, adapter } = buildAuth())
-  })
-
-  it('signIn missing providerId -> 400 + AUTH_INVALID_CREDENTIALS', async () => {
-    const reply = makeReply()
-    await nestSignIn(auth)({ body: {}, headers: {}, identity: null, method: 'POST', url: '/AUTH/signin' }, reply)
-    expect(reply._status).toBe(400)
-    expect(reply._body).toContain('AUTH_INVALID_CREDENTIALS')
-  })
-
-  it('signIn happy path sets cookie + 200', async () => {
-    const ident = await adapter.identities.create(
-      identityInput({ profile: { username: 'user', email: 'user@x.com' }, providers: [] }),
-    )
-    await auth.passwords.set(ident.id, 'correcthorsebatterystaple', adapter.credentials)
-    const reply = makeReply()
-    await nestSignIn(auth)(
-      {
-        method: 'POST',
-        url: '/AUTH/signin',
-        headers: {},
-        body: {
-          providerId: 'password',
-          input: { email: 'user@x.com', password: 'correcthorsebatterystaple' },
-        },
-        identity: null,
-      },
-      reply,
-    )
-    expect(reply._status).toBe(200)
-    const cookies = reply._headers.get('set-cookie') ?? []
-    expect(cookies.length).toBeGreaterThan(0)
-    expect(cookies[0]).toContain('duck-sid=')
-  })
-
-  it('session returns null body without cookie', async () => {
-    const reply = makeReply()
-    await nestSession(auth)({ headers: {}, identity: null, method: 'GET' }, reply)
-    expect(JSON.parse(reply._body!)).toEqual({ session: null, identity: null })
-  })
-
-  it('signOut clears cookie even without session', async () => {
-    const reply = makeReply()
-    await nestSignOut(auth)({ headers: {}, identity: null, method: 'POST' }, reply)
-    const cookies = reply._headers.get('set-cookie') ?? []
-    expect(cookies[0]).toMatch(/Max-Age=0/i)
-  })
-
-  it('providerBegin requires :id', async () => {
-    const reply = makeReply()
-    await nestProviderBegin(auth)({ body: {}, headers: {}, identity: null, method: 'POST', params: {} }, reply)
-    expect(reply._status).toBe(400)
-    expect(reply._body).toContain('AUTH_PROVIDER_FAILED')
-  })
-})
 
 describe('NestJS adapter - makeGuard', () => {
   let auth: ReturnType<typeof buildAuth>['auth']
@@ -212,170 +99,6 @@ describe('NestJS adapter - CSRF', () => {
       nestCtx(req('POST', { authorization: 'Bearer tok', 'sec-fetch-site': 'cross-site' })),
     )
     expect(allowed).toBe(true)
-  })
-})
-
-describe('NestJS adapter - route CSRF', () => {
-  it('nestSignIn rejects a cross-site POST before touching the provider', async () => {
-    const { auth } = buildAuth()
-    const reply = makeReply()
-    const req: NestAdapter.Request = {
-      body: {},
-      headers: { 'sec-fetch-site': 'cross-site' },
-      identity: null,
-      method: 'POST',
-    }
-    await expect(nestSignIn(auth)(req, reply)).rejects.toMatchObject({ code: 'AUTH_CSRF' })
-    expect(reply._status).toBe(403)
-  })
-})
-
-describe('NestJS adapter - nestSignIn onAuthenticated', () => {
-  let auth: ReturnType<typeof buildAuth>['auth']
-  let adapter: ReturnType<typeof buildAuth>['adapter']
-
-  beforeEach(() => {
-    ;({ auth, adapter } = buildAuth())
-  })
-
-  async function seedIdentity(): Promise<string> {
-    const ident = await adapter.identities.create(
-      identityInput({ profile: { email: 'user@x.com', username: 'user' }, providers: [] }),
-    )
-    await auth.passwords.set(ident.id, 'correcthorsebatterystaple', adapter.credentials)
-    return ident.id
-  }
-
-  function signInReq(): NestAdapter.Request {
-    return {
-      body: {
-        input: { email: 'user@x.com', password: 'correcthorsebatterystaple' },
-        providerId: 'password',
-      },
-      headers: {},
-      identity: null,
-      method: 'POST',
-      url: '/AUTH/signin',
-    }
-  }
-
-  /** Is the SID the flow just minted still good? */
-  async function sessionAlive(sid: string): Promise<boolean> {
-    const resolved = await auth.resolveSession({ headers: new Headers({ cookie: `duck-sid=${sid}` }) }).orNull()
-    return resolved !== null
-  }
-
-  it('a hook returning nothing leaves the happy path untouched', async () => {
-    await seedIdentity()
-    const reply = makeReply()
-    let sid = ''
-    await nestSignIn(auth, {
-      onAuthenticated: (outcome) => {
-        sid = outcome.sid
-      },
-    })(signInReq(), reply)
-
-    expect(reply._status).toBe(200)
-    expect((reply._headers.get('set-cookie') ?? [])[0]).toContain('duck-sid=')
-    expect(await sessionAlive(sid)).toBe(true)
-  })
-
-  it('the hook sees the identity behind the session it is gating', async () => {
-    const identityId = await seedIdentity()
-    const seen: (string | null | undefined)[] = []
-    await nestSignIn(auth, {
-      onAuthenticated: (outcome) => {
-        seen.push(outcome.session?.identityId)
-      },
-    })(signInReq(), makeReply())
-
-    expect(seen).toEqual([identityId])
-  })
-
-  it('a denial answers with the code and revokes the session it just created', async () => {
-    await seedIdentity()
-    const reply = makeReply()
-    let sid = ''
-    await nestSignIn(auth, {
-      onAuthenticated: (outcome) => {
-        sid = outcome.sid
-        return { code: 'AUTH_NOT_PERMITTED_ON_HOST', detail: 'wrong host', status: 403 }
-      },
-    })(signInReq(), reply)
-
-    expect(reply._status).toBe(403)
-    expect(JSON.parse(reply._body!)).toEqual({
-      error: { code: 'AUTH_NOT_PERMITTED_ON_HOST', detail: 'wrong host', status: 403 },
-      ok: false,
-    })
-    // The one that matters: a 403 with a live session behind it is the bypass.
-    expect(await sessionAlive(sid)).toBe(false)
-  })
-
-  it('a denial clears the cookie instead of leaving it on a dead session', async () => {
-    await seedIdentity()
-    const reply = makeReply()
-    await nestSignIn(auth, {
-      onAuthenticated: () => ({ code: 'AUTH_NOT_PERMITTED_ON_HOST', status: 403 }),
-    })(signInReq(), reply)
-
-    // `transport.revoke()` clears the SID and the CSRF cookie, so there is more than one.
-    const cookies = reply._headers.get('set-cookie') ?? []
-    expect(cookies.length).toBeGreaterThan(0)
-    for (const cookie of cookies) expect(cookie).toMatch(/Max-Age=0/i)
-    // No cookie may carry a value: a denial that ships a SID is the bug.
-    expect(cookies.some((c) => /duck-sid=[^;]/.test(c))).toBe(false)
-  })
-
-  it('a denial the adapter cannot read still denies, at 403', async () => {
-    await seedIdentity()
-    const reply = makeReply()
-    let sid = ''
-    await nestSignIn(auth, {
-      onAuthenticated: (outcome) => {
-        sid = outcome.sid
-        // A consumer bug: a 2xx would render the refusal as a success.
-        return { code: '  ', status: 200 }
-      },
-    })(signInReq(), reply)
-
-    expect(reply._status).toBe(403)
-    expect(reply._body).toContain('AUTH_DENIED')
-    expect(await sessionAlive(sid)).toBe(false)
-  })
-
-  it('a hook that throws does not leave the session behind', async () => {
-    await seedIdentity()
-    const reply = makeReply()
-    let sid = ''
-    await expect(
-      nestSignIn(auth, {
-        onAuthenticated: (outcome) => {
-          sid = outcome.sid
-          throw new Error('lookup exploded')
-        },
-      })(signInReq(), reply),
-    ).rejects.toThrow('lookup exploded')
-
-    expect(reply._status).toBe(500)
-    expect(await sessionAlive(sid)).toBe(false)
-  })
-
-  it('the hook is never consulted when the credentials themselves fail', async () => {
-    const reply = makeReply()
-    let ran = false
-    // No identity seeded: the password provider throws before any session exists, so there is
-    // nothing for the hook to gate - and nothing for it to leak about who does exist.
-    await expect(
-      nestSignIn(auth, {
-        onAuthenticated: () => {
-          ran = true
-        },
-      })(signInReq(), reply),
-    ).rejects.toMatchObject({ code: 'AUTH_INVALID_CREDENTIALS' })
-
-    expect(ran).toBe(false)
-    expect(reply._status).toBe(401)
   })
 })
 
@@ -466,26 +189,18 @@ describe('NestJS adapter - a `req.session` duck-auth did not put there', () => {
   })
 })
 
-describe('NestJS adapter - the response it writes to', () => {
-  it('throws on a reply with no setHeader, which a Fastify one was answered through without a header', async () => {
-    const { auth } = buildAuth()
-    const req: NestAdapter.Request = { headers: {}, identity: null, method: 'GET' }
-    // @ts-expect-error Nest on Fastify hands over a reply with `header`, not `setHeader`
-    await expect(nestSession(auth)(req, fastifyReply)).rejects.toThrow(TypeError)
-
-    const reply = makeReply()
-    await nestSession(auth)(req, reply)
-    expect(reply._headers.get('cache-control')).toEqual(['no-store'])
-  })
-
+describe('NestJS adapter - the exception filter', () => {
   /** What the exception filter wrote to a response whose `headersSent` is `sent`. */
   function filtered(
     sent: boolean,
     err: AuthError = new AuthError('AUTH_UNAUTHENTICATED'),
-  ): { body?: unknown; status?: number } {
-    const seen: { body?: unknown; status?: number } = {}
+  ): { body?: unknown; cache?: string; status?: number } {
+    const seen: { body?: unknown; cache?: string; status?: number } = {}
     const res = {
       headersSent: sent,
+      setHeader: (name: string, value: string) => {
+        if (name === 'cache-control') seen.cache = value
+      },
       status: (status: number) => {
         seen.status = status
         return {
@@ -502,6 +217,7 @@ describe('NestJS adapter - the response it writes to', () => {
   it('the exception filter answers an AuthError, and leaves a response a handler answered alone', () => {
     expect(filtered(false)).toEqual({
       body: { error: { code: 'AUTH_UNAUTHENTICATED', status: 401 }, ok: false },
+      cache: 'no-store',
       status: 401,
     })
     expect(filtered(true)).toEqual({})

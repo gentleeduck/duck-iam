@@ -1,6 +1,6 @@
 import { landedWith } from '@examples/duck-auth-ui/api'
 import * as ui from '@examples/duck-auth-ui/recipes'
-import { api, client } from '../api'
+import { api } from '../api'
 import { createSubmit, Field, showNotice } from '../form'
 import { h } from '../h'
 import { AuthLayout } from '../layout'
@@ -9,13 +9,13 @@ export function SignIn(): HTMLElement {
   const submit = createSubmit(async (form) => {
     const email = form.get('email')
     const intent = form.get('intent')
-    if (intent === 'magic-link') return client.beginProvider('magic-link', { email })
+    if (intent === 'magic-link') return api.beginProvider('magic-link', { email })
     if (typeof intent === 'string') {
       // The page is on its way to the IdP once this succeeds, so only a failure has anything to show.
-      const res = await client.beginProvider(intent)
+      const res = await api.beginProvider(intent)
       return res.ok ? null : res
     }
-    const res = await client.signIn({ providerId: 'password', input: { email, password: form.get('password') } })
+    const res = await api.signIn('password', { email, password: form.get('password') })
     if (!res.ok) return res
     location.assign('/')
     return null

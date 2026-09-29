@@ -9,7 +9,6 @@
   },
   "dependencies": {
     "@examples/duck-auth-ui": "workspace:*",
-    "@gentleduck/auth": "workspace:*",
     "@gentleduck/registry-ui": "^0.5.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"

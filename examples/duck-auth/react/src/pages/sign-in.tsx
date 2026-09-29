@@ -1,5 +1,4 @@
 import { landedWith, type Provider } from '@examples/duck-auth-ui/api'
-import { useBeginProvider, useSignIn } from '@gentleduck/auth/client/react'
 import { Button } from '@gentleduck/registry-ui/button'
 import { Separator } from '@gentleduck/registry-ui/separator'
 import { useEffect, useState } from 'react'
@@ -8,8 +7,6 @@ import { Field, Notice, useSubmit } from '../form'
 import { AuthLayout } from '../layout'
 
 export function SignIn() {
-  const signIn = useSignIn()
-  const beginProvider = useBeginProvider()
   const [oauth, setOauth] = useState<Provider[]>([])
   const landed = landedWith(new URLSearchParams(location.search).get('error'))
 
@@ -22,13 +19,13 @@ export function SignIn() {
   const submit = useSubmit(async (form) => {
     const email = form.get('email')
     const intent = form.get('intent')
-    if (intent === 'magic-link') return beginProvider.mutate({ id: 'magic-link', input: { email } })
+    if (intent === 'magic-link') return api.beginProvider('magic-link', { email })
     if (typeof intent === 'string') {
       // The page is on its way to the IdP once this succeeds, so only a failure has anything to show.
-      const res = await beginProvider.mutate({ id: intent })
+      const res = await api.beginProvider(intent)
       return res.ok ? null : res
     }
-    const res = await signIn.mutate({ providerId: 'password', input: { email, password: form.get('password') } })
+    const res = await api.signIn('password', { email, password: form.get('password') })
     if (!res.ok) return res
     location.assign('/')
     return null

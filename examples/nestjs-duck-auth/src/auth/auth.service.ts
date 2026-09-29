@@ -1,14 +1,13 @@
 import type { AuthEngine } from '@gentleduck/auth'
 import { rethrowAuthError, throwAuthError } from '@gentleduck/auth'
 import type { Identities } from '@gentleduck/auth/core'
-import { parseSignInBody } from '@gentleduck/auth/server/generic'
 import { DUCK_AUTH_TOKEN } from '@gentleduck/auth/server/nestjs'
 import type { IamEngine } from '@gentleduck/iam'
 import { IAM_ACCESS_ENGINE_TOKEN } from '@gentleduck/iam/server/nest'
 import { Inject, Injectable } from '@nestjs/common'
 import { authAdapter } from '../db/auth-adapter'
 import type { UserProfile } from './auth.profile'
-import type { SignUpDto } from './dto/sign-in.dto'
+import type { SignInDto, SignUpDto } from './dto/sign-in.dto'
 
 @Injectable()
 export class AuthService {
@@ -30,10 +29,11 @@ export class AuthService {
     }
   }
 
-  parseSignIn(body: unknown) {
-    const parsed = parseSignInBody(body)
-    if (!parsed) throwAuthError('AUTH_INVALID_CREDENTIALS')
-    return parsed
+  parseSignIn(body: unknown): SignInDto {
+    if (typeof body !== 'object' || body === null) throwAuthError('AUTH_INVALID_PARAMETERS')
+    const providerId: unknown = Reflect.get(body, 'providerId')
+    if (typeof providerId !== 'string' || !providerId) throwAuthError('AUTH_INVALID_PARAMETERS')
+    return { input: Reflect.get(body, 'input') ?? {}, providerId }
   }
 
   async resolveIdentity(id: string): Promise<Identities.Me<UserProfile>> {

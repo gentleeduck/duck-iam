@@ -104,7 +104,7 @@ export class CookieTransport implements Transport.ITransport {
   }
 
   /** The companion CSRF cookie's name, which drops the `__Host-` prefix when the transport's own settings
-   *  forbid it. This is what a client passes as `csrfCookieName`. */
+   *  forbid it, and so the name a page reads the token by. */
   get csrfCookieName(): string {
     return this._csrfName
   }

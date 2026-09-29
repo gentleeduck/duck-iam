@@ -8,8 +8,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@examples/duck-auth-ui": "workspace:*",
-    "@gentleduck/auth": "workspace:*"
+    "@examples/duck-auth-ui": "workspace:*"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.0",

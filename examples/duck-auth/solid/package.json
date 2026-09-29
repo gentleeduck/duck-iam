@@ -9,7 +9,6 @@
   },
   "dependencies": {
     "@examples/duck-auth-ui": "workspace:*",
-    "@gentleduck/auth": "workspace:*",
     "solid-js": "^1.9.13"
   },
   "devDependencies": {

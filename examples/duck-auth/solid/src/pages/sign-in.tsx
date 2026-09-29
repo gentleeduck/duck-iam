@@ -1,14 +1,11 @@
 import { landedWith, type Provider } from '@examples/duck-auth-ui/api'
 import * as ui from '@examples/duck-auth-ui/recipes'
-import { authUseClient, authUseSignIn } from '@gentleduck/auth/client/solid'
 import { createSignal, For, onMount, Show } from 'solid-js'
 import { api } from '../api'
 import { createSubmit, Field, Notice } from '../form'
 import { AuthLayout } from '../layout'
 
 export function SignIn() {
-  const client = authUseClient()
-  const signIn = authUseSignIn()
   const [oauth, setOauth] = createSignal<Provider[]>([])
   const landed = landedWith(new URLSearchParams(location.search).get('error'))
 
@@ -20,13 +17,13 @@ export function SignIn() {
   const submit = createSubmit(async (form) => {
     const email = form.get('email')
     const intent = form.get('intent')
-    if (intent === 'magic-link') return client.beginProvider('magic-link', { email })
+    if (intent === 'magic-link') return api.beginProvider('magic-link', { email })
     if (typeof intent === 'string') {
       // The page is on its way to the IdP once this succeeds, so only a failure has anything to show.
-      const res = await client.beginProvider(intent)
+      const res = await api.beginProvider(intent)
       return res.ok ? null : res
     }
-    const res = await signIn.mutate({ providerId: 'password', input: { email, password: form.get('password') } })
+    const res = await api.signIn('password', { email, password: form.get('password') })
     if (!res.ok) return res
     location.assign('/')
     return null

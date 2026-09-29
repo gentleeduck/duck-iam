@@ -1,17 +1,8 @@
-import { type AppAuth, landing, PAGES } from '@examples/duck-auth-shared/auth'
+import { type AppAuth, PAGES } from '@examples/duck-auth-shared/auth'
 import { readString } from '@examples/duck-auth-shared/body'
+import { beginProvider, currentSession, providerCallback, signIn, signOut } from '@examples/duck-auth-shared/routes'
 import { signUp } from '@examples/duck-auth-shared/signup'
-import {
-  applyIntents,
-  expressCaller,
-  expressCsrf,
-  mountProviderBegin,
-  mountSession,
-  mountSignIn,
-  mountSignOut,
-  toHeaders,
-} from '@gentleduck/auth/server/express'
-import { oauthCallback } from '@gentleduck/auth/server/generic'
+import { applyIntents, expressCaller, expressCsrf, toHeaders } from '@gentleduck/auth/server/express'
 import express, { type RequestHandler, Router } from 'express'
 
 export function authRouter(auth: AppAuth) {
@@ -21,23 +12,34 @@ export function authRouter(auth: AppAuth) {
     res.json({ providers: auth.providers.list() })
   })
 
-  // duck-auth's own handlers guard their CSRF themselves.
-  router.post('/signin', mountSignIn(auth))
-  router.post('/signout', mountSignOut(auth))
-  router.get('/session', mountSession(auth))
-  router.post('/providers/:id/begin', mountProviderBegin(auth))
-
-  // Where the IdP returns the browser; the cookies land, then the app takes over.
-  const callback: RequestHandler = async (req, res) => {
-    const request = { body: req.body, cookie: req.headers.cookie, method: req.method, url: req.url }
-    const intents = await landing(oauthCallback(auth, req.params.id, request, expressCaller(req)))
-    applyIntents(intents, res)
+  // Where the IdP returns the browser. Apple's form post is read as text, the same query string a redirect carries.
+  const callback: RequestHandler<{ id: string }> = async (req, res) => {
+    const form = typeof req.body === 'string' ? req.body : ''
+    const params =
+      req.method === 'POST' ? new URLSearchParams(form) : new URL(req.originalUrl, 'http://localhost').searchParams
+    applyIntents(await providerCallback(auth, req.params.id, params, toHeaders(req.headers), expressCaller(req)), res)
   }
   router.get('/providers/:id/callback', callback)
-  router.post('/providers/:id/callback', express.urlencoded({ extended: false }), callback)
+  router.post('/providers/:id/callback', express.text({ type: 'application/x-www-form-urlencoded' }), callback)
 
-  // Everything below is this app's own, so it takes the guard.
+  // Everything below takes the guard.
   router.use(expressCsrf(auth))
+
+  router.post('/signin', async (req, res) => {
+    applyIntents(await signIn(auth, toHeaders(req.headers), req.body, expressCaller(req)), res)
+  })
+
+  router.post('/signout', async (req, res) => {
+    applyIntents(await signOut(auth, toHeaders(req.headers)), res)
+  })
+
+  router.get('/session', async (req, res) => {
+    applyIntents([{ type: 'json', status: 200, body: await currentSession(auth, toHeaders(req.headers)) }], res)
+  })
+
+  router.post('/providers/:id/begin', async (req, res) => {
+    applyIntents(await beginProvider(auth, req.params.id, req.body), res)
+  })
 
   router.post('/signup', async (req, res) => {
     res.status(201).json(await signUp(auth, req.body))

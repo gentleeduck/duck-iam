@@ -12,12 +12,7 @@ import {
   callerContext,
   errorToHttp,
   executeIntents,
-  isValidProviderId,
   nodeHeadersToFetch,
-  oauthCallback,
-  parseProviderBeginBody,
-  parseSignInBody,
-  redirectForScript,
   requestSecurity,
 } from '../generic'
 
@@ -58,103 +53,7 @@ function handleError(err: unknown, ctx: KoaAdapter.Context): void {
   ctx.body = JSON.stringify(body)
 }
 
-/** Koa handler for the sign-in route. CSRF-guarded. */
-export function koaSignIn(auth: AuthEngine): KoaAdapter.Handler {
-  return async (ctx) => {
-    try {
-      const req = toCsrfRequest(ctx)
-      await csrfGuard(auth, req)
-      const parsed = parseSignInBody(ctx.request.body)
-      if (!parsed) {
-        return koaApplyIntents([{ type: 'error', code: 'AUTH_INVALID_CREDENTIALS', status: 400 }], ctx)
-      }
-      const result = await auth.flows.signIn({
-        ...parsed,
-        ...koaCaller(ctx),
-        previousSid: auth.transport.extract(req) ?? undefined,
-      })
-      await koaApplyIntents(result.intents, ctx)
-    } catch (err) {
-      handleError(err, ctx)
-    }
-  }
-}
-
-/** Koa handler for sign-out. CSRF-guarded. */
-export function koaSignOut(auth: AuthEngine): KoaAdapter.Handler {
-  return async (ctx) => {
-    try {
-      await csrfGuard(auth, toCsrfRequest(ctx))
-      const sid = auth.transport.extract({ headers: toFetchHeaders(ctx.request.headers) })
-      if (!sid) {
-        await koaApplyIntents(auth.transport.revoke(), ctx)
-        return
-      }
-      const { intents } = await auth.flows.signOut(sid)
-      await koaApplyIntents(intents, ctx)
-    } catch (err) {
-      handleError(err, ctx)
-    }
-  }
-}
-
-/** Koa handler for the session-introspection route. */
-export function koaSession(auth: AuthEngine): KoaAdapter.Handler {
-  return async (ctx) => {
-    try {
-      const resolved = await auth.resolveSession({ headers: toFetchHeaders(ctx.request.headers) }).orNull()
-      // `csrfHash` is server-side state: the browser holds the plaintext in its cookie and never needs the hash.
-      const { csrfHash: _csrfHash, ...session } = resolved?.session ?? { csrfHash: null }
-      ctx.status = 200
-      ctx.set('cache-control', 'no-store')
-      ctx.set('content-type', 'application/json; charset=utf-8')
-      ctx.body = JSON.stringify(resolved ? { session, identity: resolved.identity } : { session: null, identity: null })
-    } catch (err) {
-      handleError(err, ctx)
-    }
-  }
-}
-
-/** Koa handler for the per-provider begin step. CSRF-guarded. */
-export function koaProviderBegin(auth: AuthEngine): KoaAdapter.Handler {
-  return async (ctx) => {
-    try {
-      const req = toCsrfRequest(ctx)
-      await csrfGuard(auth, req)
-      const id = ctx.params?.id
-      if (!isValidProviderId(id)) {
-        await koaApplyIntents([{ type: 'error', code: 'AUTH_PROVIDER_FAILED', status: 400 }], ctx)
-        return
-      }
-      const body = parseProviderBeginBody(ctx.request.body)
-      if (body === null) {
-        await koaApplyIntents([{ type: 'error', code: 'AUTH_INVALID_CREDENTIALS', status: 400 }], ctx)
-        return
-      }
-      await koaApplyIntents(redirectForScript(await auth.flows.beginProvider(id, body), req.headers), ctx)
-    } catch (err) {
-      handleError(err, ctx)
-    }
-  }
-}
-
-/** Koa handler for the oauth callback, GET and POST. A form post needs a body parser that reads forms, as
- *  `koa-bodyparser` does by default. See {@link oauthCallback}. */
-export function koaProviderCallback(auth: AuthEngine): KoaAdapter.Handler {
-  return async (ctx) => {
-    try {
-      const { body, headers, method, url } = ctx.request
-      await koaApplyIntents(
-        await oauthCallback(auth, ctx.params?.id, { body, cookie: headers.cookie, method, url }, koaCaller(ctx)),
-        ctx,
-      )
-    } catch (err) {
-      handleError(err, ctx)
-    }
-  }
-}
-
-/** The fingerprint Koa resolved, the same pair {@link koaSignIn} stamps at sign-in. */
+/** The fingerprint Koa resolved, for `flows.signIn` to stamp onto the session. */
 export function koaCaller(ctx: KoaAdapter.Context): CallerFingerprint {
   return callerContext({ ip: ctx.request.ip, userAgent: ctx.request.headers['user-agent'] })
 }

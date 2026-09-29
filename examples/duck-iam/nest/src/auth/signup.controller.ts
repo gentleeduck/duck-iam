@@ -8,7 +8,7 @@ import { db } from '../db'
 import type { AppAction, AppResource, AppScope } from '../iam/iam.module'
 import { CsrfGuard } from './csrf.guard'
 
-/** This app's own sign-up route — CSRF-guarded, unlike `AuthController`'s duck-auth-owned handlers. */
+/** This app's own sign-up route, CSRF-guarded like every other. */
 @Controller('auth')
 @UseGuards(CsrfGuard)
 export class SignupController {

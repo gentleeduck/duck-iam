@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { landedWith, type Provider } from '@examples/duck-auth-ui/api'
 import * as ui from '@examples/duck-auth-ui/recipes'
-import { useAuthClient, useAuthSignIn } from '@gentleduck/auth/client/vue'
 import { onMounted, shallowRef } from 'vue'
 import { api } from '../api'
 import AuthLayout from '../components/AuthLayout.vue'
@@ -9,8 +8,6 @@ import FormField from '../components/FormField.vue'
 import FormNotice from '../components/FormNotice.vue'
 import { useSubmit } from '../submit'
 
-const client = useAuthClient()
-const signIn = useAuthSignIn()
 const oauth = shallowRef<Provider[]>([])
 
 onMounted(async () => {
@@ -23,13 +20,13 @@ const landed = landedWith(new URLSearchParams(location.search).get('error'))
 const submit = useSubmit(async (form) => {
   const email = form.get('email')
   const intent = form.get('intent')
-  if (intent === 'magic-link') return client.beginProvider('magic-link', { email })
+  if (intent === 'magic-link') return api.beginProvider('magic-link', { email })
   if (typeof intent === 'string') {
     // The page is on its way to the IdP once this succeeds, so only a failure has anything to show.
-    const res = await client.beginProvider(intent)
+    const res = await api.beginProvider(intent)
     return res.ok ? null : res
   }
-  const res = await signIn.mutate({ providerId: 'password', input: { email, password: form.get('password') } })
+  const res = await api.signIn('password', { email, password: form.get('password') })
   if (!res.ok) return res
   location.assign('/')
   return null

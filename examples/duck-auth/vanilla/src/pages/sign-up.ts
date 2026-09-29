@@ -1,13 +1,13 @@
 import { WEAK_PASSWORD } from '@examples/duck-auth-ui/api'
 import * as ui from '@examples/duck-auth-ui/recipes'
-import { client } from '../api'
+import { api } from '../api'
 import { createSubmit, Field } from '../form'
 import { h } from '../h'
 import { AuthLayout } from '../layout'
 
 export function SignUp(): HTMLElement {
   const submit = createSubmit(
-    (form) => client.signUp({ name: form.get('name'), email: form.get('email'), password: form.get('password') }),
+    (form) => api.signUp({ name: form.get('name'), email: form.get('email'), password: form.get('password') }),
     "Account created. The verification link is in the backend's terminal.",
     WEAK_PASSWORD,
   )

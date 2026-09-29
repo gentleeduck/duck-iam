@@ -5,14 +5,8 @@ import { AuthEngine } from '~/core/engine'
 import type { Provider } from '~/core/provider/provider.types'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
-import { passwords, ScryptHasher } from '~/providers/passwords'
-import { executeIntents, oauthCallback } from '~/server/generic'
-import { applyIntents, expressCaller, expressCsrf, mountSession, mountSignIn, mountSignOut, toHeaders } from '../index'
-
-type MyProfile = {
-  username: string
-  email: string
-}
+import { executeIntents } from '~/server/generic'
+import { applyIntents, expressCaller, expressCsrf, toHeaders } from '../index'
 
 function mockRes() {
   const headers: Record<string, string[]> = {}
@@ -58,24 +52,14 @@ function mockRes() {
 }
 
 function buildAuth() {
-  const adapter = new MemoryAdapter<MyProfile>()
-  const fastHasher = new ScryptHasher({ N: 1 << 10, keylen: 32 })
-  const auth = new AuthEngine<MyProfile>({
+  const adapter = new MemoryAdapter()
+  const auth = new AuthEngine({
     baseUrl: 'https://x',
-    transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
-    stores: {
-      identities: adapter.identities,
-      sessions: adapter.sessions,
-      credentials: adapter.credentials,
-    },
     limiter: new MemoryLimiter({ max: 5, windowMs: 60_000 }),
+    stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
+    transport: new CookieTransport({ name: 'duck-sid', secure: false }),
   })
-  auth.providers.register(
-    passwords({
-      hasher: fastHasher,
-    }),
-  )
-  return { auth, adapter }
+  return { auth }
 }
 
 describe('toHeaders', () => {
@@ -141,149 +125,29 @@ describe('applyIntents', () => {
 })
 
 describe('a stock Express 5 app', () => {
-  it("hands its own RequestHandler's request to the adapter", async () => {
+  it('takes its own request and response through the guard, the caller and applyIntents', async () => {
     const { auth } = buildAuth()
-    const callback: RequestHandler = async (req, res) => {
-      const request = { body: req.body, cookie: req.headers.cookie, method: req.method, url: req.url }
-      applyIntents(await oauthCallback(auth, req.params.id, request, expressCaller(req)), res)
+    const route: RequestHandler = (req, res) => {
+      applyIntents([{ body: expressCaller(req), status: 200, type: 'json' }], res)
     }
-    const server = express().get('/auth/providers/:id/callback', callback).listen(0, '127.0.0.1')
+    const server = express().use(expressCsrf(auth)).post('/orders', route).listen(0, '127.0.0.1')
     await new Promise((resolve) => server.once('listening', resolve))
     const address = server.address()
     if (typeof address !== 'object' || address === null) throw new Error('the server has no port')
+    const post = (site: string) =>
+      fetch(`http://127.0.0.1:${address.port}/orders`, {
+        headers: { 'sec-fetch-site': site, 'user-agent': 'probe/1' },
+        method: 'POST',
+      })
     try {
-      const res = await fetch(`http://127.0.0.1:${address.port}/auth/providers/nope/callback`)
-      expect(res.status).toBe(400)
-      expect(await res.json()).toMatchObject({ error: { code: 'AUTH_PROVIDER_FAILED' }, ok: false })
+      const refused = await post('cross-site')
+      expect(refused.status).toBe(403)
+      expect(await refused.json()).toMatchObject({ error: { code: 'AUTH_CSRF' }, ok: false })
+      const ran = await post('same-origin')
+      expect(await ran.json()).toMatchObject({ userAgent: 'probe/1' })
     } finally {
       server.close()
     }
-  })
-})
-
-describe('mounted handlers - end-to-end', () => {
-  it('mountSignIn happy path: cookie set, 200 body', async () => {
-    const { auth, adapter } = buildAuth()
-    const identity = await auth.identities.create({ profile: { username: 'user', email: 'a@x.com' } })
-    await auth.passwords.set(identity.id, 'correct-pw', adapter.credentials)
-
-    const handler = mountSignIn(auth)
-    const r = mockRes()
-    await handler(
-      {
-        method: 'POST',
-        url: '/AUTH/signin',
-        headers: {},
-        body: { providerId: 'password', input: { email: 'a@x.com', password: 'correct-pw' } },
-      },
-      r.res,
-    )
-    expect(r.status).toBe(200)
-    expect(r.headers['set-cookie']?.[0]).toMatch(/^duck-sid=/)
-  })
-
-  it('mountSignIn missing providerId returns 400', async () => {
-    const { auth } = buildAuth()
-    const handler = mountSignIn(auth)
-    const r = mockRes()
-    await handler({ method: 'POST', url: '/AUTH/signin', headers: {}, body: {} }, r.res)
-    expect(r.status).toBe(400)
-  })
-
-  it('mountSignIn wrong password returns 401 with AUTH_INVALID_CREDENTIALS body', async () => {
-    const { auth, adapter } = buildAuth()
-    const identity = await auth.identities.create({ profile: { username: 'user', email: 'a@x.com' } })
-    await auth.passwords.set(identity.id, 'correct-pw', adapter.credentials)
-    const handler = mountSignIn(auth)
-    const r = mockRes()
-    await handler(
-      {
-        method: 'POST',
-        url: '/AUTH/signin',
-        headers: {},
-        body: { providerId: 'password', input: { email: 'a@x.com', password: 'wrong-pw' } },
-      },
-      r.res,
-    )
-    expect(r.status).toBe(401)
-    expect((r.body as { error: { code: string } }).error.code).toBe('AUTH_INVALID_CREDENTIALS')
-  })
-
-  it('mountSession after signin returns the resolved session shape', async () => {
-    const { auth, adapter } = buildAuth()
-    const identity = await auth.identities.create({ profile: { username: 'user', email: 'a@x.com' } })
-    await auth.passwords.set(identity.id, 'correct-pw', adapter.credentials)
-
-    const signinR = mockRes()
-    await mountSignIn(auth)(
-      {
-        method: 'POST',
-        url: '/AUTH/signin',
-        headers: {},
-        body: { providerId: 'password', input: { email: 'a@x.com', password: 'correct-pw' } },
-      },
-      signinR.res,
-    )
-    const setCookie = signinR.headers['set-cookie']?.[0] ?? ''
-    const sidMatch = setCookie.match(/^duck-sid=([^;]+)/)
-    const sid = sidMatch ? decodeURIComponent(sidMatch[1] ?? '') : ''
-
-    const sessR = mockRes()
-    await mountSession(auth)(
-      {
-        method: 'GET',
-        url: '/AUTH/session',
-        headers: { cookie: `duck-sid=${sid}` },
-      },
-      sessR.res,
-    )
-    expect(sessR.status).toBe(200)
-    const body = sessR.body as { identity: { id: string } | null }
-    expect(body.identity?.id).toBe(identity.id)
-  })
-
-  it('mountSignOut clears cookie + revokes session', async () => {
-    const { auth, adapter } = buildAuth()
-    const identity = await auth.identities.create({ profile: { username: 'user', email: 'a@x.com' } })
-    await auth.passwords.set(identity.id, 'correct-pw', adapter.credentials)
-    const r = mockRes()
-    await mountSignIn(auth)(
-      {
-        method: 'POST',
-        url: '/AUTH/signin',
-        headers: {},
-        body: { providerId: 'password', input: { email: 'a@x.com', password: 'correct-pw' } },
-      },
-      r.res,
-    )
-    const sid = decodeURIComponent((r.headers['set-cookie']?.[0]?.match(/^duck-sid=([^;]+)/)?.[1] ?? '') as string)
-    // `duck-csrf`, not `__Host-duck-csrf`: this transport is `{ secure: false }` for plain http, and
-    // the prefix requires Secure, so the companion drops it rather than being emitted as a cookie a
-    // browser would silently discard. Replay both on signout with the matching x-csrf-token header.
-    const csrfCookieSetHeader = r.headers['set-cookie']?.find((h) => h.startsWith('duck-csrf='))
-    const csrfToken = decodeURIComponent(csrfCookieSetHeader?.match(/^duck-csrf=([^;]+)/)?.[1] ?? '')
-    expect(csrfToken).not.toBe('')
-    const sessionsBefore = await adapter.sessions.listByIdentity(identity.id)
-    expect(sessionsBefore).toHaveLength(1)
-
-    const outR = mockRes()
-    await mountSignOut(auth)(
-      {
-        method: 'POST',
-        url: '/AUTH/signout',
-        headers: {
-          cookie: `duck-sid=${sid}; duck-csrf=${csrfToken}`,
-          'x-csrf-token': csrfToken,
-          'sec-fetch-site': 'same-origin',
-        },
-      },
-      outR.res,
-    )
-    expect(outR.status).toBe(200)
-    expect(outR.headers['set-cookie']?.[0]).toMatch(/^duck-sid=/)
-    expect(outR.headers['set-cookie']?.[0]).toContain('Max-Age=0')
-    const sessionsAfter = await adapter.sessions.listByIdentity(identity.id)
-    expect(sessionsAfter).toHaveLength(0)
   })
 })
 
@@ -292,7 +156,7 @@ describe('expressCsrf', () => {
     const { auth } = buildAuth()
     const rec = mockRes()
     const next = vi.fn()
-    const req = { body: {}, headers, method, url: '/orders' }
+    const req = { headers, method }
     return { next, rec, run: expressCsrf(auth)(req, rec.res, next) }
   }
 

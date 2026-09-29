@@ -422,66 +422,6 @@
         "default": "./dist/server/grpc/index.cjs"
       }
     },
-    "./client/vanilla": {
-      "import": {
-        "types": "./dist/client/vanilla/index.d.ts",
-        "default": "./dist/client/vanilla/index.js"
-      },
-      "require": {
-        "types": "./dist/client/vanilla/index.d.cts",
-        "default": "./dist/client/vanilla/index.cjs"
-      }
-    },
-    "./client/react": {
-      "import": {
-        "types": "./dist/client/react/index.d.ts",
-        "default": "./dist/client/react/index.js"
-      },
-      "require": {
-        "types": "./dist/client/react/index.d.cts",
-        "default": "./dist/client/react/index.cjs"
-      }
-    },
-    "./client/react/storybook": {
-      "import": {
-        "types": "./dist/client/react/storybook/index.d.ts",
-        "default": "./dist/client/react/storybook/index.js"
-      },
-      "require": {
-        "types": "./dist/client/react/storybook/index.d.cts",
-        "default": "./dist/client/react/storybook/index.cjs"
-      }
-    },
-    "./client/vue": {
-      "import": {
-        "types": "./dist/client/vue/index.d.ts",
-        "default": "./dist/client/vue/index.js"
-      },
-      "require": {
-        "types": "./dist/client/vue/index.d.cts",
-        "default": "./dist/client/vue/index.cjs"
-      }
-    },
-    "./client/svelte": {
-      "import": {
-        "types": "./dist/client/svelte/index.d.ts",
-        "default": "./dist/client/svelte/index.js"
-      },
-      "require": {
-        "types": "./dist/client/svelte/index.d.cts",
-        "default": "./dist/client/svelte/index.cjs"
-      }
-    },
-    "./client/solid": {
-      "import": {
-        "types": "./dist/client/solid/index.d.ts",
-        "default": "./dist/client/solid/index.js"
-      },
-      "require": {
-        "types": "./dist/client/solid/index.d.cts",
-        "default": "./dist/client/solid/index.cjs"
-      }
-    },
     "./oidc": {
       "import": {
         "types": "./dist/oidc/index.d.ts",
@@ -579,10 +519,7 @@
     "better-sqlite3": ">=7",
     "drizzle-orm": "^0.45.2",
     "mysql2": ">=2",
-    "pg": ">=8",
-    "react": "^18 || ^19",
-    "solid-js": "^1.9.13",
-    "vue": "^3"
+    "pg": ">=8"
   },
   "peerDependenciesMeta": {
     "@aws-sdk/client-kms": {
@@ -608,15 +545,6 @@
     },
     "pg": {
       "optional": true
-    },
-    "react": {
-      "optional": true
-    },
-    "solid-js": {
-      "optional": true
-    },
-    "vue": {
-      "optional": true
     }
   },
   "devDependencies": {
@@ -634,27 +562,20 @@
     "@types/express": "^5.0.0",
     "@types/koa": "^3.0.3",
     "@types/pg": "^8.21.0",
-    "@types/react": "^19.2.17",
-    "@types/react-dom": "^19.2.3",
     "better-sqlite3": "^13.0.3",
     "elysia": "^1.4.30",
     "express": "^5.2.1",
     "fastify": "^5.12.5",
     "hono": "^4.12.34",
     "ioredis": "^6.0.0",
-    "jsdom": "^30.0.1",
     "koa": "^3.2.1",
     "mysql2": "^3.23.4",
     "pg": "^8.23.0",
-    "react": "^19.2.7",
-    "react-dom": "^19.2.7",
     "reflect-metadata": "^0.2.0",
     "rxjs": "^7.0.0",
-    "solid-js": "^1.9.13",
     "tsdown": "^0.22.3",
     "typescript": "^7.0.2",
-    "vitest": "^5.0.1",
-    "vue": "^3.5.43"
+    "vitest": "^5.0.1"
   },
   "engines": {
     "node": ">=22.0.0"
@@ -688,7 +609,6 @@
     "abac",
     "express",
     "hono",
-    "next",
-    "react"
+    "next"
   ]
 }

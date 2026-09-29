@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { type Account, leaveTo } from '@examples/duck-auth-ui/api'
 import * as ui from '@examples/duck-auth-ui/recipes'
-import { useAuthSignOut } from '@gentleduck/auth/client/vue'
 import { onMounted, shallowRef } from 'vue'
 import { api } from '../api'
 import AccountCard from '../components/AccountCard.vue'
@@ -10,7 +9,7 @@ import SessionsCard from '../components/SessionsCard.vue'
 import TwoFactorCard from '../components/TwoFactorCard.vue'
 
 document.title = 'Dashboard · duck-auth · Vue'
-const signOut = useAuthSignOut()
+const leaving = shallowRef(false)
 const account = shallowRef<Account | null>(null)
 
 onMounted(async () => {
@@ -20,7 +19,9 @@ onMounted(async () => {
 })
 
 async function onSignOut() {
-  if ((await signOut.mutate()).ok) location.assign('/sign-in')
+  leaving.value = true
+  if ((await api.signOut()).ok) return location.assign('/sign-in')
+  leaving.value = false
 }
 </script>
 
@@ -30,7 +31,7 @@ async function onSignOut() {
       <span class="font-semibold">duck-auth</span>
       <div class="flex items-center gap-3">
         <BackendPicker />
-        <button type="button" :class="ui.button({ variant: 'outline', size: 'sm' })" :disabled="signOut.loading.value" @click="onSignOut">
+        <button type="button" :class="ui.button({ variant: 'outline', size: 'sm' })" :disabled="leaving" @click="onSignOut">
           Sign out
         </button>
       </div>

@@ -1,7 +1,5 @@
-import { type Account, leaveTo, qrCode, type Session, sessionLine } from '@examples/duck-auth-ui/api'
+import { type Account, type Envelope, leaveTo, qrCode, type Session, sessionLine } from '@examples/duck-auth-ui/api'
 import * as ui from '@examples/duck-auth-ui/recipes'
-import { authUseSignOut } from '@gentleduck/auth/client/solid'
-import type { Envelope } from '@gentleduck/auth/client/vanilla'
 import { createSignal, For, Match, onMount, Show, Switch } from 'solid-js'
 import { api } from '../api'
 import { createSubmit, Field, Notice } from '../form'
@@ -9,7 +7,7 @@ import { BackendPicker } from '../layout'
 
 export function Dashboard() {
   document.title = 'Dashboard · duck-auth · Solid'
-  const signOut = authUseSignOut()
+  const [leaving, setLeaving] = createSignal(false)
   const [account, setAccount] = createSignal<Account | null>(null)
 
   onMount(async () => {
@@ -29,9 +27,11 @@ export function Dashboard() {
               <button
                 type="button"
                 class={ui.button({ variant: 'outline', size: 'sm' })}
-                disabled={signOut.loading()}
+                disabled={leaving()}
                 onClick={async () => {
-                  if ((await signOut.mutate()).ok) location.assign('/sign-in')
+                  setLeaving(true)
+                  if ((await api.signOut()).ok) return location.assign('/sign-in')
+                  setLeaving(false)
                 }}>
                 Sign out
               </button>

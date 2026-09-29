@@ -1,13 +1,13 @@
 ---
 title: "Function: nestCaller()"
-description: "The fingerprint Nest resolved, the same pair the sign-in handler stamps onto the session.  SECURITY: req.ip and nothing else, the host resolving that against its own proxy trust, while a  forwarded header here would take the value the caller wrote."
+description: "The fingerprint Nest resolved, for flows.signIn to stamp onto the session.  SECURITY: req.ip and nothing else, the host resolving that against its own proxy trust, while a  forwarded header here would take the value the caller wrote."
 ---
 
 > **nestCaller**(`req`: [`Request`](../namespaces/NestAdapter/type-aliases/Request)): [`CallerFingerprint`](../../generic/type-aliases/CallerFingerprint)
 
-Defined in: [packages/duck-auth/src/server/nestjs/index.ts:252](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/nestjs/index.ts#L252)
+Defined in: [packages/duck-auth/src/server/nestjs/index.ts:69](https://github.com/gentleeduck/duck-iam/blob/44bcf8a73771002e33ba3229f37138c9febd726b/packages/duck-auth/src/server/nestjs/index.ts#L69)
 
-The fingerprint Nest resolved, the same pair the sign-in handler stamps onto the session.
+The fingerprint Nest resolved, for `flows.signIn` to stamp onto the session.
  SECURITY: `req.ip` and nothing else, the host resolving that against its own proxy trust, while a
  forwarded header here would take the value the caller wrote.
 

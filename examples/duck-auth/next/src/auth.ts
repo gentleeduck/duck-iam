@@ -6,10 +6,12 @@ import { db } from './db'
 export const auth = buildAuth(db)
 
 /** One of this app's own routes: CSRF-guarded, and a refusal answered with its code rather than Next's 500. */
-export function route(handler: (req: Request) => Promise<Response>): (req: Request) => Promise<Response> {
-  return withNextCsrf(auth, async (req) => {
+export function route<Args extends [Request, ...unknown[]]>(
+  handler: (...args: Args) => Promise<Response>,
+): (...args: Args) => Promise<Response> {
+  return withNextCsrf(auth, async (...args: Args) => {
     try {
-      return await handler(req)
+      return await handler(...args)
     } catch (err) {
       return errorResponse(err)
     }

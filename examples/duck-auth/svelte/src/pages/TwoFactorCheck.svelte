@@ -1,7 +1,6 @@
 <script lang="ts">
   import * as ui from '@examples/duck-auth-ui/recipes'
   import { api } from '../api'
-  import { auth } from '../auth'
   import AuthLayout from '../components/AuthLayout.svelte'
   import FormField from '../components/FormField.svelte'
   import FormNotice from '../components/FormNotice.svelte'
@@ -15,7 +14,7 @@
   })
 
   async function switchAccount() {
-    await auth.signOut()
+    await api.signOut()
     location.assign('/sign-in')
   }
 </script>

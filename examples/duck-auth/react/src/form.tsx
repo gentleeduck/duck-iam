@@ -1,5 +1,4 @@
-import { errorText } from '@examples/duck-auth-ui/api'
-import type { Envelope } from '@gentleduck/auth/client/vanilla'
+import { type Envelope, errorText } from '@examples/duck-auth-ui/api'
 import { Alert, AlertDescription } from '@gentleduck/registry-ui/alert'
 import { Input } from '@gentleduck/registry-ui/input'
 import { Label } from '@gentleduck/registry-ui/label'

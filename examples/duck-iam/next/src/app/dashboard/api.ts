@@ -55,7 +55,28 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T
 }
 
+/** POSTs to one of the auth routes; resolves to duck-auth's refusal code, or `null` once it went through. */
+async function authPost(path: string, body: unknown = {}): Promise<string | null> {
+  const res = await fetch(`/api/auth${path}`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'content-type': 'application/json', ...csrfHeader('POST') },
+    body: JSON.stringify(body),
+  })
+  if (res.ok) return null
+  const payload: unknown = await res.json().catch(() => undefined)
+  const error = payload && typeof payload === 'object' && 'error' in payload ? payload.error : undefined
+  return error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
+    ? error.code
+    : `HTTP_${res.status}`
+}
+
 export const api = {
+  session: () => request<{ session: object | null }>('/auth/session'),
+  signIn: (email: string, password: string) =>
+    authPost('/signin', { providerId: 'password', input: { email, password } }),
+  signUp: (input: { email: string; password: string; name: string; companyName: string }) => authPost('/signup', input),
+  signOut: () => authPost('/signout'),
   permissions: () =>
     request<{ subject: string; scope: string | null; permissions: Record<string, boolean> }>('/me/permissions'),
   company: (id: string) => request<Company>(`/companies/${id}`),

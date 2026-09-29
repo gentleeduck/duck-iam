@@ -1,6 +1,6 @@
-/** E2E: the Nest handlers mounted as the example app mounts them, behind `NestExceptionFilter` on platform-express. */
+/** E2E: an app's own sign-in controller over `flows.signIn`, behind `NestExceptionFilter` on platform-express. */
 import 'reflect-metadata'
-import { Controller, type INestApplication, Module, Post, Req, Res, UseFilters } from '@nestjs/common'
+import { Body, Controller, type INestApplication, Module, Post, Res, UseFilters } from '@nestjs/common'
 import { NestFactory } from '@nestjs/core'
 import { afterAll, beforeAll, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
@@ -8,7 +8,8 @@ import { AuthEngine } from '~/core/engine'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
 import { passwords, ScryptHasher } from '~/providers/passwords'
-import { type NestAdapter, NestExceptionFilter, nestSignIn } from '~/server/nestjs'
+import { applyIntents, type ExpressAdapter } from '~/server/express'
+import { NestExceptionFilter } from '~/server/nestjs'
 
 type Profile = { username: string; email: string }
 
@@ -26,8 +27,9 @@ const auth = new AuthEngine<Profile>({
 @UseFilters(NestExceptionFilter)
 class AuthController {
   @Post('signin')
-  signIn(@Req() req: NestAdapter.Request, @Res() res: NestAdapter.Response) {
-    return nestSignIn(auth)(req, res)
+  async signIn(@Body() body: { input: unknown }, @Res() res: ExpressAdapter.Response) {
+    const { intents } = await auth.flows.signIn({ input: body.input, providerId: 'password' })
+    applyIntents(intents, res)
   }
 }
 
@@ -56,7 +58,7 @@ const signIn = (password: string) =>
     method: 'POST',
   })
 
-it('answers a sign-in with its cookies and no-store, set on the response Express hands the handler', async () => {
+it('answers a sign-in with its cookies and no-store, written onto the response Express hands the controller', async () => {
   const res = await signIn(PASSWORD)
   expect(res.status).toBe(200)
   expect(res.headers.getSetCookie()).toEqual([
@@ -66,7 +68,7 @@ it('answers a sign-in with its cookies and no-store, set on the response Express
   expect(res.headers.get('cache-control')).toBe('no-store')
 })
 
-it('answers a refused sign-in once, and the filter it is rethrown to leaves that answer alone', async () => {
+it('answers a refused sign-in through the filter, at its status and once', async () => {
   const res = await signIn('wrong-password')
   expect(res.status).toBe(401)
   expect(await res.json()).toEqual({ error: { code: 'AUTH_INVALID_CREDENTIALS', status: 401 }, ok: false })

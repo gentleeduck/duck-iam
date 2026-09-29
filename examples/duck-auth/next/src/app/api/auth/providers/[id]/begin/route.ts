@@ -1,6 +1,7 @@
-import { nextProviderBegin } from '@gentleduck/auth/server/next'
-import { auth } from '@/auth'
+import { beginProvider } from '@examples/duck-auth-shared/routes'
+import { executeIntents, readBodyJson } from '@gentleduck/auth/server/generic'
+import { auth, route } from '@/auth'
 
-export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }): Promise<Response> {
-  return nextProviderBegin(auth, (await params).id)(req)
-}
+export const POST = route(async (req: Request, { params }: { params: Promise<{ id: string }> }) =>
+  executeIntents(await beginProvider(auth, (await params).id, await readBodyJson(req))),
+)

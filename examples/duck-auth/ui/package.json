@@ -9,7 +9,6 @@
     "./theme.css": "./src/theme.css"
   },
   "dependencies": {
-    "@gentleduck/auth": "workspace:*",
     "@gentleduck/variants": "^1.0.0",
     "uqr": "^0.1.3"
   },

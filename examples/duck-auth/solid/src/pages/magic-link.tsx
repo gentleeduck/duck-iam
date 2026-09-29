@@ -1,13 +1,12 @@
 import * as ui from '@examples/duck-auth-ui/recipes'
-import { authUseSignIn } from '@gentleduck/auth/client/solid'
+import { api } from '../api'
 import { createSubmit, Notice } from '../form'
 import { AuthLayout } from '../layout'
 
 export function MagicLink() {
-  const signIn = authUseSignIn()
   const token = new URLSearchParams(location.search).get('token') ?? ''
   const submit = createSubmit(async () => {
-    const res = await signIn.mutate({ providerId: 'magic-link', input: { token } })
+    const res = await api.signIn('magic-link', { token })
     if (!res.ok) return res
     location.assign('/')
     return null

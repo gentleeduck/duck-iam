@@ -1,15 +1,14 @@
 <script setup lang="ts">
 import { WEAK_PASSWORD } from '@examples/duck-auth-ui/api'
 import * as ui from '@examples/duck-auth-ui/recipes'
-import { useAuthClient } from '@gentleduck/auth/client/vue'
+import { api } from '../api'
 import AuthLayout from '../components/AuthLayout.vue'
 import FormField from '../components/FormField.vue'
 import FormNotice from '../components/FormNotice.vue'
 import { useSubmit } from '../submit'
 
-const client = useAuthClient()
 const submit = useSubmit((form) =>
-  client.signUp({ name: form.get('name'), email: form.get('email'), password: form.get('password') }),
+  api.signUp({ name: form.get('name'), email: form.get('email'), password: form.get('password') }),
 )
 </script>
 
