@@ -3,13 +3,9 @@ export namespace ExpressAdapter {
   /** Minimal duck-typed Express request subset. */
   export type Request = {
     method: string
-    url: string
     /** Resolved by the framework against its own proxy trust, never read from a header here. */
     ip?: string
     headers: Record<string, string | string[] | undefined>
-    body?: unknown
-    /** Route params, percent-decoded by Express. A wildcard's is an array. */
-    params?: Record<string, string | string[]>
   }
 
   /** Minimal duck-typed Express response subset. */
@@ -21,9 +17,6 @@ export namespace ExpressAdapter {
     redirect(status: number, location: string): void
     end(body?: string): void
   }
-
-  /** Express handler signature `(req, res) => Promise<void>`. */
-  export type Handler = (req: Request, res: Response) => Promise<void>
 
   /** Express middleware. Skipping `next()` halts the chain; `next(err)` refuses with it. */
   export type Middleware = (req: Request, res: Response, next: (err?: unknown) => void) => Promise<void>

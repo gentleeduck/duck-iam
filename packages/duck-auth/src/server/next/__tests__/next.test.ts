@@ -1,145 +1,20 @@
 import { describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
-import { orNull } from '~/core/answer'
 import { AuthEngine } from '~/core/engine'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
-import { passkey } from '~/providers/passkey'
-import { passwords } from '~/providers/passwords'
-import { postRequest, streamedMiB } from '~/test/adapter-fakes'
-import { mountNext, nextSession, nextSignIn, nextSignOut, withNextCsrf } from '../index'
-
-type MyProfile = {
-  username: string
-  email: string
-}
+import { withNextCsrf } from '../index'
 
 function buildAuth() {
-  const adapter = new MemoryAdapter<MyProfile>()
-  const auth = new AuthEngine<MyProfile>({
+  const adapter = new MemoryAdapter()
+  const auth = new AuthEngine({
     baseUrl: 'https://x',
-    transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
-    stores: {
-      identities: adapter.identities,
-      sessions: adapter.sessions,
-      credentials: adapter.credentials,
-    },
     limiter: new MemoryLimiter({ max: 5, windowMs: 60_000 }),
-    providers: [],
+    stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
+    transport: new CookieTransport({ name: 'duck-sid', secure: false }),
   })
-
-  auth.providers.register(passwords())
-
-  auth.providers.register(
-    passkey({
-      findIdentityByEmail: (email) => orNull(adapter.identities.find({ email })),
-      rpID: '',
-      rpName: '',
-      expectedOrigins: '',
-    }),
-  )
-
-  return { auth, adapter }
+  return { auth }
 }
-
-describe('Next.js adapter - handler primitives', () => {
-  it('nextSignIn happy path', async () => {
-    const { auth, adapter } = buildAuth()
-    const identity = await auth.identities.create({ profile: { username: 'user', email: 'a@x.com' } })
-    await auth.passwords.set(identity.id, 'correct-pw', adapter.credentials)
-    const res = await nextSignIn(auth)(
-      new Request('https://x/api/AUTH/signin', {
-        method: 'POST',
-        body: JSON.stringify({ providerId: 'password', input: { email: 'a@x.com', password: 'correct-pw' } }),
-      }),
-    )
-    expect(res.status).toBe(200)
-    expect(res.headers.get('set-cookie')).toMatch(/^duck-sid=/)
-  })
-
-  it('nextSession after signin', async () => {
-    const { auth, adapter } = buildAuth()
-    const identity = await auth.identities.create({ profile: { username: 'user', email: 'a@x.com' } })
-    await auth.passwords.set(identity.id, 'correct-pw', adapter.credentials)
-    const signin = await nextSignIn(auth)(
-      new Request('https://x/api/AUTH/signin', {
-        method: 'POST',
-        body: JSON.stringify({ providerId: 'password', input: { email: 'a@x.com', password: 'correct-pw' } }),
-      }),
-    )
-    const sid = decodeURIComponent((signin.headers.get('set-cookie')?.match(/^duck-sid=([^;]+)/)?.[1] ?? '') as string)
-    const res = await nextSession(auth)(
-      new Request('https://x/api/AUTH/session', { headers: { cookie: `duck-sid=${sid}` } }),
-    )
-    expect(res.status).toBe(200)
-    const body = (await res.json()) as { identity: { id: string } | null }
-    expect(body.identity?.id).toBe(identity.id)
-  })
-
-  it('nextSignOut revokes', async () => {
-    const { auth, adapter } = buildAuth()
-    const identity = await auth.identities.create({ profile: { username: 'user', email: 'a@x.com' } })
-    await auth.passwords.set(identity.id, 'correct-pw', adapter.credentials)
-    const signin = await nextSignIn(auth)(
-      new Request('https://x/api/AUTH/signin', {
-        method: 'POST',
-        body: JSON.stringify({ providerId: 'password', input: { email: 'a@x.com', password: 'correct-pw' } }),
-      }),
-    )
-    // `duck-csrf`, not `__Host-duck-csrf`: this transport is `{ secure: false }` for plain http, and
-    // the prefix requires Secure, so the companion drops it rather than being emitted as a cookie a
-    // browser would silently discard. Replay both on signout with the matching x-csrf-token header.
-    const setCookieJoined = signin.headers.get('set-cookie') ?? ''
-    const sid = decodeURIComponent(setCookieJoined.match(/duck-sid=([^;,]+)/)?.[1] ?? '')
-    const csrfToken = decodeURIComponent(setCookieJoined.match(/duck-csrf=([^;,]+)/)?.[1] ?? '')
-    expect(csrfToken).not.toBe('')
-    const out = await nextSignOut(auth)(
-      new Request('https://x/api/AUTH/signout', {
-        method: 'POST',
-        headers: {
-          cookie: `duck-sid=${sid}; duck-csrf=${csrfToken}`,
-          'x-csrf-token': csrfToken,
-          'sec-fetch-site': 'same-origin',
-        },
-      }),
-    )
-    expect(out.status).toBe(200)
-    expect((await adapter.sessions.listByIdentity(identity.id)).length).toBe(0)
-  })
-})
-
-describe('mountNext - catch-all router', () => {
-  it('routes POST /api/AUTH/signin to nextSignIn', async () => {
-    const { auth, adapter } = buildAuth()
-    const identity = await auth.identities.create({ profile: { username: 'user', email: 'a@x.com' } })
-    await auth.passwords.set(identity.id, 'correct-pw', adapter.credentials)
-    const { POST } = mountNext(auth)
-    const res = await POST(
-      new Request('https://x/api/AUTH/signin', {
-        method: 'POST',
-        body: JSON.stringify({ providerId: 'password', input: { email: 'a@x.com', password: 'correct-pw' } }),
-      }),
-    )
-    expect(res.status).toBe(200)
-    expect(res.headers.get('set-cookie')).toMatch(/^duck-sid=/)
-  })
-
-  it('routes GET /api/AUTH/session', async () => {
-    const { auth } = buildAuth()
-    const { GET } = mountNext(auth)
-    const res = await GET(new Request('https://x/api/AUTH/session'))
-    expect(res.status).toBe(200)
-    const body = (await res.json()) as { identity: null | object }
-    expect(body.identity).toBeNull()
-  })
-
-  it('unknown route returns 404 AUTH_PROVIDER_FAILED', async () => {
-    const { auth } = buildAuth()
-    const { POST } = mountNext(auth)
-    const res = await POST(new Request('https://x/api/AUTH_UNKNOWN', { method: 'POST' }))
-    expect(res.status).toBe(404)
-  })
-})
 
 describe('withNextCsrf', () => {
   async function run(method: string, headers: Record<string, string>) {
@@ -179,27 +54,5 @@ describe('withNextCsrf', () => {
     )
     const res = await wrapped(new Request('https://x/orders/7'), { params: Promise.resolve({ id: '7' }) })
     expect(await res.json()).toEqual({ id: '7' })
-  })
-})
-
-describe('the body cap on every route that reads one', () => {
-  it.each(['/api/auth/signin', '/api/auth/providers/password/begin', '/api/auth/providers/oauth%3Astub/callback'])(
-    'POST %s stops reading a body past 100 KiB',
-    async (path) => {
-      const { auth } = buildAuth()
-      auth.providers.register({ begin: async () => [], complete: async () => [], id: 'oauth:stub', kind: 'oauth' })
-      const { body, pulled } = streamedMiB()
-      await mountNext(auth).POST(postRequest(`https://x${path}`, body))
-      expect(pulled()).toBeLessThanOrEqual(7)
-    },
-  )
-
-  it('signs in with a body padded to just under the cap', async () => {
-    const { auth, adapter } = buildAuth()
-    const identity = await auth.identities.create({ profile: { username: 'user', email: 'a@x.com' } })
-    await auth.passwords.set(identity.id, 'correct-pw', adapter.credentials)
-    const body = JSON.stringify({ providerId: 'password', input: { email: 'a@x.com', password: 'correct-pw' } })
-    const res = await nextSignIn(auth)(postRequest('https://x/api/auth/signin', body.padEnd(100 * 1024)))
-    expect(res.status).toBe(200)
   })
 })

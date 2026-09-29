@@ -65,16 +65,6 @@
       "subpath": "@gentleduck/auth/server/next",
       "gzipped_kb": 5.26,
       "raw_kb": 4.16
-    },
-    {
-      "subpath": "@gentleduck/auth/client/vanilla",
-      "gzipped_kb": 1.02,
-      "raw_kb": 2.3
-    },
-    {
-      "subpath": "@gentleduck/auth/client/react",
-      "gzipped_kb": 2.24,
-      "raw_kb": 3.56
     }
   ],
   "profiles": {
@@ -109,10 +99,6 @@
     "fullKit": {
       "target_kb": 78,
       "gzipped_kb": 75.19
-    },
-    "client/react": {
-      "target_kb": 5,
-      "gzipped_kb": 2.24
     }
   }
 }

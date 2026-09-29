@@ -90,8 +90,6 @@ const subpaths: Array<{ name: string; entry: string }> = [
   { name: 'server/express', entry: 'server/express/index.js' },
   { name: 'server/hono', entry: 'server/hono/index.js' },
   { name: 'server/next', entry: 'server/next/index.js' },
-  { name: 'client/vanilla', entry: 'client/vanilla/index.js' },
-  { name: 'client/react', entry: 'client/react/index.js' },
 ]
 
 const isolated: SubpathSize[] = subpaths.map(({ name, entry }) => {
@@ -139,7 +137,6 @@ const result = {
     'core+cookie+memory': { target_kb: 14, gzipped_kb: 0 },
     'core+cookie+memory+password+drizzle': { target_kb: 30, gzipped_kb: 0 },
     fullKit: { target_kb: 78, gzipped_kb: +(fullKitGzip / 1024).toFixed(2) },
-    'client/react': { target_kb: 5, gzipped_kb: +(bundleSize('client/react/index.js') / 1024).toFixed(2) },
   },
 }
 

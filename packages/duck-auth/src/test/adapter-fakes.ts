@@ -38,10 +38,7 @@ export function honoCtx(raw: Request, ip?: string): HonoAdapter.Context {
     ...(ip && { ip }),
     req: {
       header: (name) => (name === undefined ? Object.fromEntries(raw.headers) : (raw.headers.get(name) ?? undefined)),
-      method: raw.method,
-      param: () => undefined,
       raw,
-      url: raw.url,
     },
   }
 }
