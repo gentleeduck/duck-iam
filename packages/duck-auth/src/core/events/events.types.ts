@@ -164,15 +164,25 @@ export namespace Events {
   export type Handler<K extends EventName> = (payload: EventMap[K]) => void | Promise<void>
   /** Removes the listener it was returned for. */
   export type Unsubscribe = () => void
+  /** Where a handler runs: `origin` on the server that emitted, inside its async context; `fleet` on every server. */
+  export type Delivery = 'origin' | 'fleet'
+  /** How `on()` registers a handler. */
+  export interface OnOptions {
+    /** Default `fleet`. */
+    delivery?: Delivery
+  }
 
   /** What the engine needs from a bus: subscribe and publish. */
   export interface IBus {
-    /** Subscribes `handler` to `event`. */
-    on<K extends EventName>(event: K, handler: Handler<K>): Unsubscribe
+    /** Subscribes `handler` to `event`. A `fleet` handler on another server gets a copy of the payload,
+     *  outside the emitter's request context; an `origin` one gets the emitter's payload and context. */
+    on<K extends EventName>(event: K, handler: Handler<K>, opts?: OnOptions): Unsubscribe
     /** Publishes `payload` to every listener of `event`. */
     emit<K extends EventName>(event: K, payload: EventMap[K]): Promise<void>
-    /** The handlers `event` has in this process. `strict()` skips its `lockout` check on a bus without it. */
+    /** The handlers `event` has in this process, of both kinds. `strict()` skips its `lockout` check without it. */
     listenerCount?<K extends EventName>(event: K): number
+    /** The events with a `fleet` handler in this process. `strict()` reads it off an in-process bus. */
+    fleetEvents?(): EventName[]
   }
 
   /** True when a payload declares `audit`.

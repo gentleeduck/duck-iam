@@ -73,9 +73,11 @@ function stamp<K extends Events.EventName>(event: K, payload: Events.EventMap[K]
 export function withAuditStamping(bus: Events.IBus): Events.IBus {
   const wrapper: Events.IBus = {
     emit: (event, payload) => bus.emit(event, stamp(event, payload)),
-    on: (event, handler) => bus.on(event, handler),
+    on: (event, handler, opts) => bus.on(event, handler, opts),
   }
   const count = bus.listenerCount
   if (count) wrapper.listenerCount = (event) => count.call(bus, event)
+  const fleet = bus.fleetEvents
+  if (fleet) wrapper.fleetEvents = () => fleet.call(bus)
   return wrapper
 }

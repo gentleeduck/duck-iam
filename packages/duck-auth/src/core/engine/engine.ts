@@ -222,7 +222,8 @@ export class AuthEngine<
     return this
   }
 
-  /** Boot-time strict validation; throws `AUTH_MISCONFIGURED` on any production footgun. */
+  /** Boot-time strict validation; throws `AUTH_MISCONFIGURED` on any production footgun. Its event checks see
+   *  only the handlers registered before it runs, so call it after every `on()` and `use()`. */
   strict(opts: { env: 'development' | 'production' | 'test'; compliance?: Partial<Compliance.Wired> }): void {
     assertStrict(this, opts)
   }

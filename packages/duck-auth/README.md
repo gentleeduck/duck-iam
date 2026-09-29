@@ -299,6 +299,29 @@ A **hard** failure - a constraint violation - throws and aborts your transaction
 bad row rolls the whole batch back. A **soft** failure - a lost optimistic-lock race, a
 missing row - leaves that row out of the answer and does not throw.
 
+## Events
+
+Each handler picks where it runs. An `origin` handler runs once, on the server that emitted, inside
+that request's async context. A `fleet` handler, the default, runs on every server; on the others it
+gets a copy of the payload and no request context.
+
+```typescript
+import { redisEvents } from '@gentleduck/auth/adapters/redis'
+
+const auth = createAuth({ events: redisEvents({ redis }) /* ... */ })
+
+// A write that must happen once: origin.
+auth.events.on('session.revoked', (e) => auditLog.write(e), { delivery: 'origin' })
+
+// State every server keeps: fleet.
+auth.events.on('authz.revoked', ({ identityId }) => decisionCache.drop(identityId))
+```
+
+`fleet` handlers need `redisEvents` once there is more than one server, since the in-process default
+runs them on one. `strict({ env: 'production' })` refuses the in-process bus while it holds a `fleet`
+handler, and passes it when every handler is `origin`. It sees only the handlers registered before it
+runs, so call it after every `on()` and `use()`. Webhooks go out as `origin`, once per emit.
+
 ## Server adapters
 
 duck-auth ships no routes and no client. Your app writes its own routes over `auth.flows.*` and calls them

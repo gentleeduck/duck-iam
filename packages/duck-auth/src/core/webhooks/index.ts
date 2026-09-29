@@ -146,12 +146,17 @@ export class WebhookDeliverer {
     const subs: Events.Unsubscribe[] = []
     for (const name of allNames) {
       subs.push(
-        bus.on(name, (payload) => {
-          // Not awaited: `emit` awaits each handler in turn, so awaiting the retry ladder here puts
-          // every backoff and every request timeout on the clock of the sign-in that emitted the
-          // event. A dead consumer would add half a minute to an authentication.
-          this._track(this.deliverOne(name, payload))
-        }),
+        bus.on(
+          name,
+          (payload) => {
+            // Not awaited: `emit` awaits each handler in turn, so awaiting the retry ladder here puts
+            // every backoff and every request timeout on the clock of the sign-in that emitted the
+            // event. A dead consumer would add half a minute to an authentication.
+            this._track(this.deliverOne(name, payload))
+          },
+          // Posted once, by the server that emitted, rather than once per server.
+          { delivery: 'origin' },
+        ),
       )
     }
     const off = () => {

@@ -44,15 +44,17 @@ export function assertStrict<
     }
   }
 
-  // Read off `cfg.events`, not `engine.events`: `withAuditStamping` wraps the bus in a fresh object
-  // literal that carries no brand. An omitted bus is the engine's own `InMemoryEvents` fallback, so both
-  // spellings of the same mistake are named.
-  if (!engine.cfg.events) {
-    errors.push('Event bus required; the in-process fallback drops every event raised on another instance')
-  } else if (Reflect.get(engine.cfg.events, '__isInProcessBus') === true) {
-    errors.push(
-      'AuthInMemoryEvents rejected in production; its handlers are per node, so a lockout, a revocation or a `suspicious` signal raised on one instance is never heard by the others - the `lockout` check below included',
-    )
+  // The brand off `cfg.events`, since the stamping wrapper has none; the handlers off `engine.events`, which
+  // also reaches the fallback an omitted bus gets.
+  if (!engine.cfg.events || Reflect.get(engine.cfg.events, '__isInProcessBus') === true) {
+    const fleet = engine.events.fleetEvents?.()
+    if (!fleet) {
+      errors.push('in-process event bus rejected in production; it cannot list its `fleet` handlers')
+    } else if (fleet.length > 0) {
+      errors.push(
+        `${fleet.map((event) => `\`${event}\``).join(', ')} handlers must run on every server (delivery 'fleet', the default), and the in-process bus runs them on one; pass redisEvents({ redis }) or register them with { delivery: 'origin' }`,
+      )
+    }
   }
 
   // Always-pass, so it is the one verifier that cannot fail: every path it fronts is unprotected and says
