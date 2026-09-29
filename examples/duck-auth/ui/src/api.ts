@@ -1,8 +1,12 @@
-import type { Envelope } from '@gentleduck/auth/client/vanilla'
 import { renderSVG } from 'uqr'
 import { BACKENDS, type Backend } from './backends'
 
 export { BACKENDS, type Backend }
+
+/** A backend's answer: the data on success, its error envelope otherwise. */
+export type Envelope<T> =
+  | { ok: true; code: string; data: T }
+  | { ok: false; error: { code: string; status?: number } & Record<string, unknown> }
 
 export type Provider = { id: string; kind: string }
 
@@ -86,7 +90,7 @@ export function qrCode(uri: string): string {
   return `data:image/svg+xml,${encodeURIComponent(renderSVG(uri, { border: 4 }))}`
 }
 
-/** The routes each backend example mounts beside duck-auth's own, answered as an {@link Envelope}. */
+/** The routes each backend example mounts, answered as an {@link Envelope}. */
 export function createApi(base: string) {
   async function call<T>(method: 'GET' | 'POST', path: string, body?: unknown): Promise<Envelope<T>> {
     const csrf = document.cookie
@@ -112,8 +116,18 @@ export function createApi(base: string) {
   }
 
   return {
-    /** What duck-auth's client binding takes. Plain http, so the CSRF cookie has no `__Host-` prefix. */
-    auth: { baseUrl: `${base}/auth`, csrfCookieName: 'duck-csrf' },
+    signIn: (providerId: string, input: unknown) => call('POST', '/auth/signin', { providerId, input }),
+    signUp: (input: { email: unknown; name: unknown; password: unknown }) => call('POST', '/auth/signup', input),
+    signOut: () => call('POST', '/auth/signout'),
+    /** A redirect flow answers `{ url }` and the page is sent there; the others answer their own body. */
+    beginProvider: async (id: string, input: unknown = {}) => {
+      const res = await call<unknown>('POST', `/auth/providers/${encodeURIComponent(id)}/begin`, input)
+      const data = res.ok ? res.data : null
+      if (typeof data === 'object' && data !== null && 'url' in data && typeof data.url === 'string') {
+        location.assign(data.url)
+      }
+      return res
+    },
     providers: () => call<{ providers: Provider[] }>('GET', '/auth/providers'),
     forgotPassword: (email: string) => call('POST', '/auth/password/forgot', { email }),
     resetPassword: (token: string, password: string) => call('POST', '/auth/password/reset', { token, password }),

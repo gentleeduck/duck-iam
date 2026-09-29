@@ -1,42 +1,43 @@
-import { type AppAuth, landing, PAGES } from '@examples/duck-auth-shared/auth'
+import { type AppAuth, PAGES } from '@examples/duck-auth-shared/auth'
 import { readString } from '@examples/duck-auth-shared/body'
+import { beginProvider, currentSession, providerCallback, signIn, signOut } from '@examples/duck-auth-shared/routes'
 import { signUp } from '@examples/duck-auth-shared/signup'
-import {
-  elysiaCaller,
-  elysiaCsrf,
-  elysiaProviderBegin,
-  elysiaSession,
-  elysiaSignIn,
-  elysiaSignOut,
-} from '@gentleduck/auth/server/elysia'
-import { executeIntents, oauthCallback } from '@gentleduck/auth/server/generic'
+import { elysiaCaller, elysiaCsrf } from '@gentleduck/auth/server/elysia'
+import { executeIntents, jsonResponse, readBodyText } from '@gentleduck/auth/server/generic'
 import { Elysia } from 'elysia'
 import { type WithServer, withIp } from '../ip'
 
 export function authRoutes(auth: AppAuth) {
-  // Where the IdP returns the browser; the cookies land, then the app takes over.
+  // Where the IdP returns the browser. The body is left unparsed so Apple's form post reads as a query string.
   const callback = async (ctx: WithServer & { params: { id: string } }) => {
-    const { request, body, params } = ctx
-    const req = { body, cookie: request.headers.get('cookie'), method: request.method, url: request.url }
-    const intents = await landing(oauthCallback(auth, params.id, req, elysiaCaller(withIp(ctx))))
-    return executeIntents(intents)
+    const { request } = ctx
+    const params =
+      request.method === 'POST'
+        ? new URLSearchParams((await readBodyText(request)) ?? '')
+        : new URL(request.url).searchParams
+    return executeIntents(
+      await providerCallback(auth, ctx.params.id, params, request.headers, elysiaCaller(withIp(ctx))),
+    )
   }
 
   return (
     new Elysia({ prefix: '/auth' })
       .get('/providers', () => ({ providers: auth.providers.list() }))
 
-      // duck-auth's own handlers guard their CSRF themselves.
-      .post('/signin', (ctx) => elysiaSignIn(auth)(withIp(ctx)))
-      .post('/signout', (ctx) => elysiaSignOut(auth)(withIp(ctx)))
-      .get('/session', (ctx) => elysiaSession(auth)(withIp(ctx)))
-      .post('/providers/:id/begin', (ctx) => elysiaProviderBegin(auth)(withIp(ctx)))
-
       .get('/providers/:id/callback', callback)
-      .post('/providers/:id/callback', callback)
+      .post('/providers/:id/callback', callback, { parse: 'none' })
 
-      // Hooks cover only the routes after them: everything below is this app's own, so it takes the guard.
+      // Hooks cover only the routes after them: everything below takes the guard.
       .onBeforeHandle(elysiaCsrf(auth))
+
+      .post('/signin', async (ctx) =>
+        executeIntents(await signIn(auth, ctx.request.headers, ctx.body, elysiaCaller(withIp(ctx)))),
+      )
+      .post('/signout', async ({ request }) => executeIntents(await signOut(auth, request.headers)))
+      .get('/session', async ({ request }) => jsonResponse(200, await currentSession(auth, request.headers)))
+      .post('/providers/:id/begin', async ({ body, params }) =>
+        executeIntents(await beginProvider(auth, params.id, body)),
+      )
 
       .post('/signup', async ({ body, set }) => {
         set.status = 201

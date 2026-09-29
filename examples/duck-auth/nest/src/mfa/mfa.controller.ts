@@ -14,8 +14,8 @@ export class MfaController {
   constructor(@Inject(DUCK_AUTH_TOKEN) private readonly auth: AppAuth) {}
 
   @Post('verify')
-  async verify(@Req() req: NestAdapter.Request, @Res() res: ExpressAdapter.Response) {
-    applyIntents(await stepUp(this.auth, nodeHeadersToFetch(req.headers), req.body, nestCaller(req)), res)
+  async verify(@Req() req: NestAdapter.Request, @Body() body: unknown, @Res() res: ExpressAdapter.Response) {
+    applyIntents(await stepUp(this.auth, nodeHeadersToFetch(req.headers), body, nestCaller(req)), res)
   }
 
   @Post('totp/begin')

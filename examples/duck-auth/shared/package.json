@@ -9,6 +9,7 @@
     "./body": "./src/body.ts",
     "./db": "./src/db.ts",
     "./session": "./src/session.ts",
+    "./routes": "./src/routes.ts",
     "./signup": "./src/signup.ts"
   },
   "scripts": {

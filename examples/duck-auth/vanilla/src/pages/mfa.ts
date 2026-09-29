@@ -1,5 +1,5 @@
 import * as ui from '@examples/duck-auth-ui/recipes'
-import { api, client } from '../api'
+import { api } from '../api'
 import { createSubmit, Field } from '../form'
 import { h } from '../h'
 import { AuthLayout } from '../layout'
@@ -30,7 +30,7 @@ export function Mfa(): HTMLElement {
         {
           type: 'button',
           className: ui.button({ variant: 'link', size: 'sm' }),
-          onclick: () => client.signOut().then(() => location.assign('/sign-in')),
+          onclick: () => api.signOut().then(() => location.assign('/sign-in')),
         },
         'Use another account',
       ),

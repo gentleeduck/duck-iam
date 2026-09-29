@@ -1,13 +1,13 @@
 <script lang="ts">
   import * as ui from '@examples/duck-auth-ui/recipes'
-  import { auth } from '../auth'
+  import { api } from '../api'
   import AuthLayout from '../components/AuthLayout.svelte'
   import FormNotice from '../components/FormNotice.svelte'
   import { createSubmit } from '../submit.svelte'
 
   const token = new URLSearchParams(location.search).get('token') ?? ''
   const submit = createSubmit(async () => {
-    const res = await auth.signIn({ providerId: 'magic-link', input: { token } })
+    const res = await api.signIn('magic-link', { token })
     if (!res.ok) return res
     location.assign('/')
     return null

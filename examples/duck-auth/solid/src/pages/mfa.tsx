@@ -1,11 +1,9 @@
 import * as ui from '@examples/duck-auth-ui/recipes'
-import { authUseSignOut } from '@gentleduck/auth/client/solid'
 import { api } from '../api'
 import { createSubmit, Field, Notice } from '../form'
 import { AuthLayout } from '../layout'
 
 export function Mfa() {
-  const signOut = authUseSignOut()
   const submit = createSubmit(async (form) => {
     const res = await api.verifyMfa(String(form.get('code')).trim())
     if (!res.ok) return res
@@ -21,7 +19,7 @@ export function Mfa() {
         <button
           type="button"
           class={ui.button({ variant: 'link', size: 'sm' })}
-          onClick={() => signOut.mutate().then(() => location.assign('/sign-in'))}>
+          onClick={() => api.signOut().then(() => location.assign('/sign-in'))}>
           Use another account
         </button>
       }>

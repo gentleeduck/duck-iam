@@ -1,5 +1,5 @@
 import { drizzlePgAdapter } from '@gentleduck/auth/adapters/drizzle/pg'
-import { AuthError, createAuth, type Deliver, orNull, type Provider } from '@gentleduck/auth/core'
+import { createAuth, type Deliver, orNull } from '@gentleduck/auth/core'
 import { cookieTransport, memoryDPoPNonceStore, type Transport } from '@gentleduck/auth/core/transport'
 import { MemoryLimiter } from '@gentleduck/auth/limiters/memory'
 import { magicLink } from '@gentleduck/auth/providers/magic-link'
@@ -19,20 +19,6 @@ export const PAGES = {
   resetPassword: '/reset-password',
   signIn: '/sign-in',
   verifyEmail: '/verify-email',
-}
-
-/** Where the browser lands after an IdP callback: the app once signed in, the sign-in page with the code otherwise. */
-export async function landing(callback: Promise<Provider.Intent[]>): Promise<Provider.Intent[]> {
-  const failedWith = (code: string) => `${APP_URL}${PAGES.signIn}?error=${code}`
-  try {
-    const intents = await callback
-    const failed = intents.find((intent) => intent.type === 'error')
-    const url = failed ? failedWith(failed.code) : APP_URL
-    return [...intents.filter((intent) => intent.type !== 'error'), { type: 'redirect', url }]
-  } catch (err) {
-    if (!(err instanceof AuthError)) throw err
-    return [{ type: 'redirect', url: failedWith(err.code) }]
-  }
 }
 
 /** No mailer in an example: every token link is printed where the backend runs. */

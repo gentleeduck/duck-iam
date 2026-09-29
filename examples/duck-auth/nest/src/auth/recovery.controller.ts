@@ -29,10 +29,10 @@ export class RecoveryController {
   }
 
   @Post('password/reset')
-  async reset(@Req() req: NestAdapter.Request, @Res() res: ExpressAdapter.Response) {
+  async reset(@Req() req: NestAdapter.Request, @Body() body: unknown, @Res() res: ExpressAdapter.Response) {
     const { intents } = await this.auth.flows.completePasswordReset({
-      token: readString(req.body, 'token') ?? '',
-      newPassword: readString(req.body, 'password') ?? '',
+      token: readString(body, 'token') ?? '',
+      newPassword: readString(body, 'password') ?? '',
       currentSid: this.auth.transport.extract({ headers: nodeHeadersToFetch(req.headers) }) ?? undefined,
     })
     applyIntents([...intents, { type: 'json', status: 200, body: { ok: true } }], res)

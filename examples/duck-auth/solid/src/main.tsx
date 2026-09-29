@@ -1,7 +1,5 @@
-import { Provider } from '@gentleduck/auth/client/solid'
 import type { Component } from 'solid-js'
 import { render } from 'solid-js/web'
-import { api } from './api'
 import './index.css'
 import { Dashboard } from './pages/dashboard'
 import { ForgotPassword } from './pages/forgot-password'
@@ -27,12 +25,5 @@ const Page = PAGES[location.pathname] ?? Dashboard
 const root = document.getElementById('root')
 
 if (root) {
-  render(
-    () => (
-      <Provider {...api.auth}>
-        <Page />
-      </Provider>
-    ),
-    root,
-  )
+  render(() => <Page />, root)
 }

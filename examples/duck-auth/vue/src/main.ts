@@ -1,6 +1,4 @@
-import { createAuthVuePlugin } from '@gentleduck/auth/client/vue'
 import { type Component, createApp } from 'vue'
-import { api } from './api'
 import './index.css'
 import DashboardHome from './pages/DashboardHome.vue'
 import ForgotPassword from './pages/ForgotPassword.vue'
@@ -22,6 +20,4 @@ const PAGES: Record<string, Component> = {
   '/mfa': TwoFactorCheck,
 }
 
-createApp(PAGES[location.pathname] ?? DashboardHome)
-  .use(createAuthVuePlugin(api.auth))
-  .mount('#app')
+createApp(PAGES[location.pathname] ?? DashboardHome).mount('#app')

@@ -10,6 +10,7 @@
     "./signup": "./src/signup.ts",
     "./deletion-guards": "./src/deletion-guards.ts",
     "./body": "./src/body.ts",
+    "./routes": "./src/routes.ts",
     "./db": "./src/db.ts"
   },
   "scripts": {

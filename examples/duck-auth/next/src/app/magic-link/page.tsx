@@ -1,17 +1,13 @@
 'use client'
 
-import { useSignIn } from '@gentleduck/auth/client/react'
 import { Button } from '@gentleduck/registry-ui/button'
+import { api } from '@/api'
 import { AuthLayout } from '@/components/auth-layout'
 import { Notice, useSubmit } from '@/components/form'
 
 export default function MagicLinkPage() {
-  const signIn = useSignIn()
   const submit = useSubmit(async () => {
-    const res = await signIn.mutate({
-      providerId: 'magic-link',
-      input: { token: new URLSearchParams(location.search).get('token') ?? '' },
-    })
+    const res = await api.signIn('magic-link', { token: new URLSearchParams(location.search).get('token') ?? '' })
     if (!res.ok) return res
     location.assign('/')
     return null

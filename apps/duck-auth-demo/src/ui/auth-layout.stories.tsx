@@ -1,12 +1,11 @@
-import { authWithStorybook } from '@gentleduck/auth/client/react/storybook'
 import type { Meta, StoryObj } from '@storybook/react'
 import { AuthLayout } from './auth-layout'
+import { live } from './live'
 import { ProvidersList } from './providers-list'
 import { SignInForm } from './sign-in-form'
 
 const meta: Meta<typeof AuthLayout> = {
   component: AuthLayout,
-  decorators: [authWithStorybook({})],
   parameters: { layout: 'fullscreen' },
   title: 'Auth / AuthLayout',
 }
@@ -22,8 +21,8 @@ const PROVIDERS = [
 export const FullSignInPage: Story = {
   render: () => (
     <AuthLayout brand={<h1 className="font-semibold text-2xl">Duck Auth</h1>} footer="2026 GentleDuck">
-      <SignInForm description="Use your work email." />
-      <ProvidersList providers={PROVIDERS} />
+      <SignInForm description="Use your work email." onSubmit={async () => ({ ok: true })} />
+      <ProvidersList onSelect={async () => {}} providers={PROVIDERS} />
     </AuthLayout>
   ),
 }
@@ -35,11 +34,13 @@ export const FullSignInPage: Story = {
  * apps/duck-auth-demo/README.md.
  */
 export const LiveSignInPage: Story = {
-  decorators: [authWithStorybook({ live: true })],
   render: () => (
     <AuthLayout brand={<h1 className="font-semibold text-2xl">Duck Auth (live)</h1>} footer="Backend on :8787">
-      <SignInForm description="Real backend — try alice@test / hunter2hunter2 after signup." />
-      <ProvidersList providers={[{ id: 'magic-link', label: 'Email me a magic link' }]} />
+      <SignInForm description="Real backend — try alice@test / hunter2hunter2 after signup." onSubmit={live.signIn} />
+      <ProvidersList
+        onSelect={live.begin}
+        providers={[{ id: 'magic-link', input: { email: 'alice@test' }, label: 'Email me a magic link' }]}
+      />
     </AuthLayout>
   ),
 }

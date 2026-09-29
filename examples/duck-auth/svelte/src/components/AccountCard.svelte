@@ -1,7 +1,6 @@
 <script lang="ts">
-  import type { Account } from '@examples/duck-auth-ui/api'
+  import type { Account, Envelope } from '@examples/duck-auth-ui/api'
   import * as ui from '@examples/duck-auth-ui/recipes'
-  import type { Envelope } from '@gentleduck/auth/client/vanilla'
   import { api } from '../api'
   import FormNotice from './FormNotice.svelte'
 

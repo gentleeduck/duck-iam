@@ -11,9 +11,8 @@
 
 ## Backends
 
-Each backend has `src/db/{index,migrate,seed}.ts`, mounts duck-auth's own handlers, and writes the
-app routes (see the route table in `README.md`) with its framework's router, CSRF guard and
-error handler.
+Each backend has `src/db/{index,migrate,seed}.ts` and writes every route (see the route list in
+`README.md`) over `auth.flows.*` with its framework's router, CSRF guard and error handler.
 
 - [x] express, hono, fastify, koa, elysia, nest, bun, next: `tsc` + biome clean. The API smoke
       passes against each one (fails=0): sign-in, sign-up, verify, reset, magic link, TOTP
@@ -21,17 +20,18 @@ error handler.
 - [x] A malformed or oversize JSON body answers 400 on express, fastify and koa, as it does on hono,
       bun and next: each reads it as no body, the way duck-auth's `readBodyJson` does. Elysia parses
       its own body, so Bun caps it at the same 100 KiB (413); nest answers its own 413.
-- [x] A body that is not a sign-in answers `AUTH_INVALID_CREDENTIALS` 400 on every backend, bun's
-      hand-written routes included, as the adapters do.
+- [x] A body that is not a sign-in answers `AUTH_INVALID_PARAMETERS` on every backend: `signIn()` in
+      `shared/routes` refuses it.
 - [x] An IdP callback lands on `APP_URL` once signed in, and on `/sign-in?error=CODE` otherwise, on
-      all eight: `landing()` in `shared/` covers both the error intents and the thrown `AuthError`s
-      (a forged `state`, an IdP refusal).
+      all eight: `providerCallback()` in `shared/routes` covers both the error intents and the thrown
+      `AuthError`s (a forged `state`, an IdP refusal). It drives only an oauth provider, and takes no
+      CSRF guard, so Apple's cross-site form post lands.
 - [x] OAuth makes an account for a first-time IdP user and links an existing one only when both
       sides verified the address. A provider turns on only once its id and secret are both set.
 - [x] Rate limits are duck-auth's default, ten tries per account and flow every 15 minutes, on all
       eight: the 11th wrong password answers `AUTH_RATE_LIMITED` with `retryAfter: 900`.
-- [x] `GET /me` and `GET /me/sessions` answer `cache-control: no-store` on all eight, as duck-auth's
-      own session route does. Express and nest do not send `X-Powered-By`.
+- [x] `GET /auth/session`, `GET /me` and `GET /me/sessions` answer `cache-control: no-store` on all
+      eight. Express and nest do not send `X-Powered-By`.
 - [x] A spoofed `x-forwarded-for` does not reach a session's recorded address on any backend.
 - [x] grpc: `bun run client` signs in, reads the account back, and signs out. `VerifyMfa` revokes
       the one-factor token it replaces, as `stepUp()` does for a cookie.
@@ -105,9 +105,9 @@ Reported to duck-auth, and handled here:
 
 By design:
 
-- Every client and server export resolves to `dist/`, so the examples need `bun run build` in
+- Every server export resolves to `dist/`, so the examples need `bun run build` in
   `packages/duck-auth` first.
-- `oauthCallback` sets the session cookies but does not redirect: where the browser lands is the
-  app's call. Every backend wraps it in `landing()`.
+- duck-auth answers an OAuth callback with the session cookies and no redirect: where the browser
+  lands is the app's call, made in `providerCallback()`.
 - An OAuth provider with no `profileToIdentityProfile` refuses every first sign-in: the app's
   profile shape is the app's to make.

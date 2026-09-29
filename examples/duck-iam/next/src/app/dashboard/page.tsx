@@ -1,7 +1,6 @@
 'use client'
 
-import { useSession, useSignOut } from '@gentleduck/auth/client/react'
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { AccessProvider, usePermissions } from '@/access'
 import { api } from './api'
 import { DuckMarket } from './duck-market'
@@ -10,8 +9,11 @@ import { LoginForm } from './login-form'
 const EMPTY_PERMISSIONS = {}
 
 export default function DashboardPage() {
-  const { status } = useSession()
-  const signOut = useSignOut()
+  const [status, setStatus] = useState<'loading' | 'guest' | 'authed'>('loading')
+  const refresh = useCallback(async () => setStatus((await api.session()).session ? 'authed' : 'guest'), [])
+  useEffect(() => {
+    void refresh()
+  }, [refresh])
   const [me, setMe] = useState<{ subject: string; scope: string | null } | null>(null)
 
   // Piggybacks on the same `/api/me/permissions` call `usePermissions` already makes, rather than
@@ -39,7 +41,7 @@ export default function DashboardPage() {
   if (status === 'guest') {
     return (
       <main>
-        <LoginForm />
+        <LoginForm onSignedIn={refresh} />
       </main>
     )
   }
@@ -67,7 +69,7 @@ export default function DashboardPage() {
 
   return (
     <AccessProvider permissions={permissions}>
-      <DuckMarket userId={me.subject} companyId={me.scope} onSignOut={() => signOut.mutate()} />
+      <DuckMarket userId={me.subject} companyId={me.scope} onSignOut={() => api.signOut().then(refresh)} />
     </AccessProvider>
   )
 }

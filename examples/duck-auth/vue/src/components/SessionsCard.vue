@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { type Account, type Session, sessionLine } from '@examples/duck-auth-ui/api'
+import { type Account, type Envelope, type Session, sessionLine } from '@examples/duck-auth-ui/api'
 import * as ui from '@examples/duck-auth-ui/recipes'
-import type { Envelope } from '@gentleduck/auth/client/vanilla'
 import { onMounted, shallowRef } from 'vue'
 import { api } from '../api'
 import FormNotice from './FormNotice.vue'

@@ -1,13 +1,11 @@
 <script setup lang="ts">
 import * as ui from '@examples/duck-auth-ui/recipes'
-import { useAuthSignOut } from '@gentleduck/auth/client/vue'
 import { api } from '../api'
 import AuthLayout from '../components/AuthLayout.vue'
 import FormField from '../components/FormField.vue'
 import FormNotice from '../components/FormNotice.vue'
 import { useSubmit } from '../submit'
 
-const signOut = useAuthSignOut()
 const submit = useSubmit(async (form) => {
   const res = await api.verifyMfa(String(form.get('code')).trim())
   if (!res.ok) return res
@@ -16,7 +14,7 @@ const submit = useSubmit(async (form) => {
 })
 
 async function switchAccount() {
-  await signOut.mutate()
+  await api.signOut()
   location.assign('/sign-in')
 }
 </script>

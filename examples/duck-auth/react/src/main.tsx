@@ -1,8 +1,6 @@
-import { Provider } from '@gentleduck/auth/client/react'
 import type { ReactNode } from 'react'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { api } from './api'
 import './index.css'
 import { Dashboard } from './pages/dashboard'
 import { ForgotPassword } from './pages/forgot-password'
@@ -30,9 +28,7 @@ const root = document.getElementById('root')
 if (root) {
   createRoot(root).render(
     <StrictMode>
-      <Provider {...api.auth}>
-        <Page />
-      </Provider>
+      <Page />
     </StrictMode>,
   )
 }

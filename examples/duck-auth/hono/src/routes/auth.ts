@@ -1,16 +1,9 @@
-import { type AppAuth, landing, PAGES } from '@examples/duck-auth-shared/auth'
+import { type AppAuth, PAGES } from '@examples/duck-auth-shared/auth'
 import { readString } from '@examples/duck-auth-shared/body'
+import { beginProvider, currentSession, providerCallback, signIn, signOut } from '@examples/duck-auth-shared/routes'
 import { signUp } from '@examples/duck-auth-shared/signup'
-import { executeIntents, oauthCallback, readBodyJson, readBodyText } from '@gentleduck/auth/server/generic'
-import {
-  honoCaller,
-  honoCsrf,
-  honoProviderBegin,
-  honoSession,
-  honoSignIn,
-  honoSignOut,
-  toHonoAdapterCtx,
-} from '@gentleduck/auth/server/hono'
+import { executeIntents, jsonResponse, readBodyJson, readBodyText } from '@gentleduck/auth/server/generic'
+import { honoCaller, honoCsrf, toHonoAdapterCtx } from '@gentleduck/auth/server/hono'
 import { type Context, Hono } from 'hono'
 import { getConnInfo } from 'hono/bun'
 
@@ -22,22 +15,31 @@ export function authRouter(auth: AppAuth) {
 
   router.get('/providers', (c) => c.json({ providers: auth.providers.list() }))
 
-  // duck-auth's own handlers guard their CSRF themselves.
-  router.post('/signin', (c) => honoSignIn(auth)(withIp(c)))
-  router.post('/signout', (c) => honoSignOut(auth)(withIp(c)))
-  router.get('/session', (c) => honoSession(auth)(withIp(c)))
-  router.post('/providers/:id/begin', (c) => honoProviderBegin(auth)(withIp(c)))
-
-  // Where the IdP returns the browser; the cookies land, then the app takes over.
+  // Where the IdP returns the browser. Apple's form post is read as text, the same query string a redirect carries.
   router.on(['GET', 'POST'], '/providers/:id/callback', async (c) => {
-    const body = c.req.method === 'POST' ? ((await readBodyText(c.req.raw)) ?? '') : undefined
-    const request = { body, cookie: c.req.header('cookie'), method: c.req.method, url: c.req.url }
-    const intents = await landing(oauthCallback(auth, c.req.param('id'), request, honoCaller(withIp(c))))
-    return executeIntents(intents)
+    const params =
+      c.req.method === 'POST'
+        ? new URLSearchParams((await readBodyText(c.req.raw)) ?? '')
+        : new URL(c.req.url).searchParams
+    const headers = c.req.raw.headers
+    return executeIntents(await providerCallback(auth, c.req.param('id'), params, headers, honoCaller(withIp(c))))
   })
 
-  // Everything below is this app's own, so it takes the guard.
+  // Everything below takes the guard.
   router.use((c, next) => honoCsrf(auth)(toHonoAdapterCtx(c), next))
+
+  router.post('/signin', async (c) => {
+    const body = await readBodyJson(c.req.raw)
+    return executeIntents(await signIn(auth, c.req.raw.headers, body, honoCaller(withIp(c))))
+  })
+
+  router.post('/signout', async (c) => executeIntents(await signOut(auth, c.req.raw.headers)))
+
+  router.get('/session', async (c) => jsonResponse(200, await currentSession(auth, c.req.raw.headers)))
+
+  router.post('/providers/:id/begin', async (c) => {
+    return executeIntents(await beginProvider(auth, c.req.param('id'), await readBodyJson(c.req.raw)))
+  })
 
   router.post('/signup', async (c) => {
     return c.json(await signUp(auth, await readBodyJson(c.req.raw)), 201)

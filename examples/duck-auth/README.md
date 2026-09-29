@@ -1,13 +1,12 @@
 # duck-auth examples
 
-Nine backends, one per `@gentleduck/auth` server adapter, and five browser clients, one per
-client binding. They all use one shared Postgres database, so an account made on one backend
-can sign in on any other, and one browser session works against all of them.
+Nine backends, one per `@gentleduck/auth` server adapter, and five browser clients. They all use
+one shared Postgres database, so an account made on one backend can sign in on any other, and one
+browser session works against all of them.
 
-duck-auth has no framework routes. It provides handlers for its own endpoints (sign in, sign
-out, session, provider begin and callback) and the flows behind everything else. Each backend
-mounts those handlers and writes its other routes itself, the way an app would: sign-up,
-password reset, email verification, MFA and the account endpoints.
+duck-auth has no routes and no client. It provides the flows (`auth.flows.*`) and, per framework,
+the CSRF guard, the actor scope and the caller fingerprint. Each backend writes every route itself,
+the way an app would, and each client calls them with `fetch`.
 
 ## Quick start
 
@@ -46,9 +45,11 @@ Sign in as `ada@duck.test` / `duck-auth-examples`.
   - `body`: JSON body narrowing.
   - `session`: `signedIn()`, which refuses a guest, and a one-factor session once TOTP is on;
     `stepUp()`, the second step of a sign-in.
+  - `routes`: the framework-free part of sign-in, sign-out, the session and the provider begin and
+    callback routes, over `auth.flows.*`.
   - `signup`: `signUp()`, a password account, unverified until its emailed link is opened.
 - `ui/` (`@examples/duck-auth-ui`), used by every client:
-  - `api`: the routes each backend adds next to duck-auth's own.
+  - `api`: a `fetch` call for each route the backends answer.
   - `backends`: the port map and the Vite proxy.
   - `recipes`: duck-ui's registry styles as `@gentleduck/variants` recipes.
   - `theme.css`: duck-ui's tokens.
@@ -74,19 +75,19 @@ has no fallback. Run `db:setup` once, from any backend.
 | Elysia | `server/elysia` | `elysia/` | 4500 |
 | NestJS | `server/nestjs` | `nest/` | 4600 |
 | Bun | `server/generic` on `Bun.serve` | `bun/` | 4700 |
-| Next.js | `server/next` + `client/react` | `next/` | 4800 |
+| Next.js | `server/next` | `next/` | 4800 |
 | gRPC | `server/grpc` | `grpc/` | 4900 |
 
 Every HTTP backend answers the same routes:
 
-| Route | Owner |
-|---|---|
-| `POST /auth/signin`, `POST /auth/signout`, `GET /auth/session` | duck-auth |
-| `POST /auth/providers/:id/begin`, `GET/POST /auth/providers/:id/callback` | duck-auth |
-| `GET /auth/providers` | the app |
-| `POST /auth/signup`, `/auth/password/forgot`, `/auth/password/reset`, `/auth/email/verify` | the app |
-| `POST /auth/mfa/verify`, `/auth/mfa/totp/{begin,confirm,remove}`, `/auth/mfa/backup-codes` | the app |
-| `GET /me`, `POST /me/email/resend`, `GET /me/sessions`, `POST /me/sessions/revoke-others` | the app |
+- `POST /auth/signin`, `POST /auth/signout`, `GET /auth/session`, `GET /auth/providers`
+- `POST /auth/providers/:id/begin`, `GET/POST /auth/providers/:id/callback`
+- `POST /auth/signup`, `/auth/password/forgot`, `/auth/password/reset`, `/auth/email/verify`
+- `POST /auth/mfa/verify`, `/auth/mfa/totp/{begin,confirm,remove}`, `/auth/mfa/backup-codes`
+- `GET /me`, `POST /me/email/resend`, `GET /me/sessions`, `POST /me/sessions/revoke-others`
+
+Every route but the provider callback takes the CSRF guard. The callback is where the IdP sends
+the browser back, Apple with a cross-site form post, so the signed `state` is its proof instead.
 
 Next.js is full stack: it serves these routes under `/api` and serves its own pages. gRPC has
 no browser client. With the server running, `bun run client` signs the demo account in, reads
@@ -94,13 +95,13 @@ it back and signs out. Set `MFA_CODE` once TOTP is on.
 
 ## Clients
 
-| Framework | Binding | Dir | Port |
+| Framework | Components | Dir | Port |
 |---|---|---|---|
-| React | `client/react` + `@gentleduck/registry-ui` | `react/` | 5100 |
-| Vue | `client/vue` | `vue/` | 5200 |
-| Svelte | `client/svelte` | `svelte/` | 5300 |
-| Solid | `client/solid` | `solid/` | 5400 |
-| Vanilla | `client/vanilla` | `vanilla/` | 5500 |
+| React | `@gentleduck/registry-ui` | `react/` | 5100 |
+| Vue | `ui/` recipes | `vue/` | 5200 |
+| Svelte | `ui/` recipes | `svelte/` | 5300 |
+| Solid | `ui/` recipes | `solid/` | 5400 |
+| Vanilla | `ui/` recipes | `vanilla/` | 5500 |
 
 Each client has the same auth pages and a dashboard home:
 - sign in, sign up, forgot and reset password, email verification, magic link, the MFA check;

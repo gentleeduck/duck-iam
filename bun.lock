@@ -266,7 +266,6 @@
       "name": "@examples/duck-auth-react",
       "dependencies": {
         "@examples/duck-auth-ui": "workspace:*",
-        "@gentleduck/auth": "workspace:*",
         "@gentleduck/registry-ui": "^0.5.0",
         "react": "^19.2.7",
         "react-dom": "^19.2.7",
@@ -299,7 +298,6 @@
       "name": "@examples/duck-auth-solid",
       "dependencies": {
         "@examples/duck-auth-ui": "workspace:*",
-        "@gentleduck/auth": "workspace:*",
         "solid-js": "^1.9.13",
       },
       "devDependencies": {
@@ -314,7 +312,6 @@
       "name": "@examples/duck-auth-svelte",
       "dependencies": {
         "@examples/duck-auth-ui": "workspace:*",
-        "@gentleduck/auth": "workspace:*",
         "svelte": "^5.57.1",
       },
       "devDependencies": {
@@ -328,7 +325,6 @@
     "examples/duck-auth/ui": {
       "name": "@examples/duck-auth-ui",
       "dependencies": {
-        "@gentleduck/auth": "workspace:*",
         "@gentleduck/variants": "^1.0.0",
         "uqr": "^0.1.3",
       },
@@ -340,7 +336,6 @@
       "name": "@examples/duck-auth-vanilla",
       "dependencies": {
         "@examples/duck-auth-ui": "workspace:*",
-        "@gentleduck/auth": "workspace:*",
       },
       "devDependencies": {
         "@tailwindcss/vite": "^4.3.0",
@@ -353,7 +348,6 @@
       "name": "@examples/duck-auth-vue",
       "dependencies": {
         "@examples/duck-auth-ui": "workspace:*",
-        "@gentleduck/auth": "workspace:*",
         "vue": "^3.5.43",
       },
       "devDependencies": {

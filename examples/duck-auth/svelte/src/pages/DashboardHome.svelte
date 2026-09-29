@@ -3,7 +3,6 @@
   import * as ui from '@examples/duck-auth-ui/recipes'
   import { onMount } from 'svelte'
   import { api } from '../api'
-  import { auth } from '../auth'
   import AccountCard from '../components/AccountCard.svelte'
   import BackendPicker from '../components/BackendPicker.svelte'
   import SessionsCard from '../components/SessionsCard.svelte'
@@ -18,7 +17,7 @@
   })
 
   async function signOut() {
-    if ((await auth.signOut()).ok) location.assign('/sign-in')
+    if ((await api.signOut()).ok) location.assign('/sign-in')
   }
 </script>
 

@@ -1,4 +1,5 @@
-import { nextSignOut } from '@gentleduck/auth/server/next'
-import { auth } from '@/auth'
+import { signOut } from '@examples/duck-iam-shared/routes'
+import { executeIntents } from '@gentleduck/auth/server/generic'
+import { auth, route } from '@/auth'
 
-export const POST = nextSignOut(auth)
+export const POST = route(async (req) => executeIntents(await signOut(auth, req.headers)))

@@ -1,14 +1,13 @@
 <script setup lang="ts">
 import * as ui from '@examples/duck-auth-ui/recipes'
-import { useAuthSignIn } from '@gentleduck/auth/client/vue'
+import { api } from '../api'
 import AuthLayout from '../components/AuthLayout.vue'
 import FormNotice from '../components/FormNotice.vue'
 import { useSubmit } from '../submit'
 
-const signIn = useAuthSignIn()
 const token = new URLSearchParams(location.search).get('token') ?? ''
 const submit = useSubmit(async () => {
-  const res = await signIn.mutate({ providerId: 'magic-link', input: { token } })
+  const res = await api.signIn('magic-link', { token })
   if (!res.ok) return res
   location.assign('/')
   return null

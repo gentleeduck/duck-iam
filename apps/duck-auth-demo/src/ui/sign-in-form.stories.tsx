@@ -1,10 +1,13 @@
-import { authWithStorybook } from '@gentleduck/auth/client/react/storybook'
 import type { Meta, StoryObj } from '@storybook/react'
+import { live } from './live'
 import { SignInForm } from './sign-in-form'
 
 const meta: Meta<typeof SignInForm> = {
+  args: {
+    onSubmit: async (_email, password) =>
+      password === 'hunter2hunter2' ? { ok: true } : { message: 'Wrong password (try hunter2hunter2)', ok: false },
+  },
   component: SignInForm,
-  decorators: [authWithStorybook({})],
   title: 'Auth / SignInForm',
 }
 export default meta
@@ -19,15 +22,6 @@ export const WithDescription: Story = {
   },
 }
 
-export const AuthedAlready: Story = {
-  decorators: [
-    authWithStorybook({
-      identity: { id: 'identity-1', profile: { email: 'demo@gentleduck.org', username: 'demo' } },
-      session: { aal: 2, factors: [{ method: 'password', completedAt: new Date() }], id: 'sess-1' },
-    }),
-  ],
-}
-
 /**
  * Hits the real demo backend at `http://localhost:8787`. Boot it first:
  * `cd apps/duck-auth-demo && bun run db:up && bun run db:migrate && bun run dev`.
@@ -35,6 +29,5 @@ export const AuthedAlready: Story = {
  * before driving this story.
  */
 export const Live: Story = {
-  args: { description: 'Live backend — http://localhost:8787' },
-  decorators: [authWithStorybook({ live: true })],
+  args: { description: 'Live backend — http://localhost:8787', onSubmit: live.signIn },
 }

@@ -1,4 +1,4 @@
-import type { Envelope } from '@gentleduck/auth/client/vanilla'
+import type { Envelope } from '@examples/duck-auth-ui/api'
 
 /** A form's submit: hands `send` the fields and the button pressed, and keeps its answer. `null` shows nothing. */
 export function createSubmit(send: (form: FormData) => Promise<Envelope<unknown> | null>) {

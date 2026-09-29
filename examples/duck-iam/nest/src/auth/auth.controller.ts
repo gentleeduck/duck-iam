@@ -1,24 +1,30 @@
 import type { AppAuth } from '@examples/duck-iam-shared/auth'
-import { DUCK_AUTH_TOKEN, type NestAdapter, nestSession, nestSignIn, nestSignOut } from '@gentleduck/auth/server/nestjs'
-import { Controller, Get, Inject, Post, Req, Res } from '@nestjs/common'
+import { currentSession, signIn, signOut } from '@examples/duck-iam-shared/routes'
+import { applyIntents, type ExpressAdapter } from '@gentleduck/auth/server/express'
+import { nodeHeadersToFetch } from '@gentleduck/auth/server/generic'
+import { DUCK_AUTH_TOKEN, type NestAdapter, nestCaller } from '@gentleduck/auth/server/nestjs'
+import { Body, Controller, Get, Inject, Post, Req, Res, UseGuards } from '@nestjs/common'
+import { CsrfGuard } from './csrf.guard'
 
-/** duck-auth's own handlers, which guard their CSRF themselves. */
+/** Sign-in, sign-out and the session. Nest runs on Express here, so Express's intents writer applies. */
 @Controller('auth')
+@UseGuards(CsrfGuard)
 export class AuthController {
   constructor(@Inject(DUCK_AUTH_TOKEN) private readonly auth: AppAuth) {}
 
   @Post('signin')
-  signIn(@Req() req: NestAdapter.Request, @Res() res: NestAdapter.Response) {
-    return nestSignIn(this.auth)(req, res)
+  async signIn(@Req() req: NestAdapter.Request, @Body() body: unknown, @Res() res: ExpressAdapter.Response) {
+    applyIntents(await signIn(this.auth, nodeHeadersToFetch(req.headers), body, nestCaller(req)), res)
   }
 
   @Post('signout')
-  signOut(@Req() req: NestAdapter.Request, @Res() res: NestAdapter.Response) {
-    return nestSignOut(this.auth)(req, res)
+  async signOut(@Req() req: NestAdapter.Request, @Res() res: ExpressAdapter.Response) {
+    applyIntents(await signOut(this.auth, nodeHeadersToFetch(req.headers)), res)
   }
 
   @Get('session')
-  session(@Req() req: NestAdapter.Request, @Res() res: NestAdapter.Response) {
-    return nestSession(this.auth)(req, res)
+  async session(@Req() req: NestAdapter.Request, @Res() res: ExpressAdapter.Response) {
+    const body = await currentSession(this.auth, nodeHeadersToFetch(req.headers))
+    applyIntents([{ type: 'json', status: 200, body }], res)
   }
 }

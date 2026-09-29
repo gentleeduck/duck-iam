@@ -1,6 +1,5 @@
-import { errorText } from '@examples/duck-auth-ui/api'
+import { type Envelope, errorText } from '@examples/duck-auth-ui/api'
 import * as ui from '@examples/duck-auth-ui/recipes'
-import type { Envelope } from '@gentleduck/auth/client/vanilla'
 import { createSignal, type JSX, Show, splitProps } from 'solid-js'
 
 /** A form's submit: hands `send` the fields and the button pressed, and keeps its answer. `null` shows nothing. */
