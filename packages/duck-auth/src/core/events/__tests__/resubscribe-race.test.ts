@@ -246,3 +246,35 @@ describe('RedisEvents: swapping the last handler must not leave the channel clos
     }
   })
 })
+
+describe('RedisEvents on valkey: origin handlers hold no channel', () => {
+  it('never subscribes for origin handlers, and closes the channel with the last fleet one', async () => {
+    const { bus, sub } = wire()
+    bus.on('lockout', () => {}, { delivery: 'origin' })
+    await settle()
+    expect(sub.subscribeCalls).toBe(0)
+
+    const off = bus.on('lockout', () => {})
+    await settle()
+    expect(sub.channels.has(CHANNEL)).toBe(true)
+
+    off()
+    await settle()
+    expect(sub.channels.has(CHANNEL)).toBe(false)
+  })
+
+  it('runs the fleet handlers, never the origin ones, for a message from a peer', async () => {
+    const { bus, sub } = wire()
+    const origin = vi.fn()
+    const fleet = vi.fn()
+    bus.on('lockout', origin, { delivery: 'origin' })
+    bus.on('lockout', fleet)
+    await settle()
+
+    sub.deliver(CHANNEL, fromPeer())
+    await settle()
+
+    expect(fleet).toHaveBeenCalledOnce()
+    expect(origin).not.toHaveBeenCalled()
+  })
+})

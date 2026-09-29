@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto'
 import type { RedisLike } from '~/core/drivers/redis-like'
 import type { Events } from '~/core/events/events.types'
 
+type Listener = (payload: unknown) => void | Promise<void>
+
 export namespace RedisEvents {
   /** A `RedisLike.Client` with pub/sub in the `@upstash/redis` shape; `valkeyPubSubAdapter` fits ioredis and
    *  iovalkey to it. */
@@ -24,14 +26,15 @@ export namespace RedisEvents {
   }
 }
 
-/** Publishes each emit to a per-event channel, so every `on()` subscriber across the fleet receives
- *  it. Local handlers fire synchronously off the publish, so a call site does not pay a Redis
- *  round trip to observe its own emit. */
+/** Publishes each emit to a per-event channel. A `fleet` handler runs on every server, an `origin` one
+ *  only on the server that emitted, inside its async context. Local handlers run off the publish, so a
+ *  call site does not pay a Redis round trip to observe its own emit. */
 export class RedisEvents implements Events.IBus {
   private readonly _redis: RedisEvents.Client
   private readonly _prefix: string
   private readonly _instanceId: string
-  private readonly _localHandlers = new Map<Events.EventName, Set<(payload: unknown) => void | Promise<void>>>()
+  private readonly _origin = new Map<Events.EventName, Set<Listener>>()
+  private readonly _fleet = new Map<Events.EventName, Set<Listener>>()
   private readonly _subscriptions = new Map<Events.EventName, Promise<(() => Promise<void>) | null>>()
 
   constructor(cfg: RedisEvents.Cfg) {
@@ -46,15 +49,16 @@ export class RedisEvents implements Events.IBus {
     return `${this._prefix}:${event}`
   }
 
-  /** Registers a local handler, subscribing to the channel on the first one for that event. */
-  on<K extends Events.EventName>(event: K, handler: Events.Handler<K>): Events.Unsubscribe {
-    let set = this._localHandlers.get(event)
-    if (!set) {
-      set = new Set()
-      this._localHandlers.set(event, set)
-    }
-    const wrapped = handler as (payload: unknown) => void | Promise<void>
+  /** Registers a local handler. The first `fleet` one for an event subscribes to its channel and removing
+   *  the last closes it; an `origin` one never touches the channel. */
+  on<K extends Events.EventName>(event: K, handler: Events.Handler<K>, opts?: Events.OnOptions): Events.Unsubscribe {
+    const origin = opts?.delivery === 'origin'
+    const handlers = origin ? this._origin : this._fleet
+    const set = handlers.get(event) ?? new Set<Listener>()
+    handlers.set(event, set)
+    const wrapped = handler as Listener
     set.add(wrapped)
+    if (origin) return () => set.delete(wrapped)
 
     if (!this._subscriptions.has(event)) {
       // The promise itself, recorded synchronously. The guard above used to read a map written inside
@@ -64,8 +68,8 @@ export class RedisEvents implements Events.IBus {
     }
 
     return () => {
-      set?.delete(wrapped)
-      if (!set || set.size > 0) return
+      set.delete(wrapped)
+      if (set.size > 0) return
       const pending = this._subscriptions.get(event)
       if (!pending) return
       // The teardown stays in the map while it runs, and resubscribes if a handler arrived meanwhile: an
@@ -96,7 +100,7 @@ export class RedisEvents implements Events.IBus {
         const envelope = parseEnvelope(message)
         if (envelope === null) return
         if (envelope.from === this._instanceId) return
-        await this._dispatchLocal(event, envelope.payload)
+        await this._dispatchLocal(event, envelope.payload, this._fleet.get(event))
       })
       .catch(() => {
         // The subscriber failed to register; in-process events still work. Dropped from the map
@@ -106,7 +110,8 @@ export class RedisEvents implements Events.IBus {
       })
   }
 
-  /** Publishes the event so every subscribed node runs its local handlers, this one included. */
+  /** Publishes the event, whether or not this server holds a `fleet` handler, and runs this server's
+   *  `origin` and `fleet` handlers. */
   async emit<K extends Events.EventName>(event: K, payload: Events.EventMap[K]): Promise<void> {
     const envelope = JSON.stringify({ from: this._instanceId, payload })
     await Promise.all([
@@ -117,18 +122,20 @@ export class RedisEvents implements Events.IBus {
         console.error(`[@gentleduck/auth] RedisEvents could not publish "${event}" to the fleet:`, err)
         return 0
       }),
-      this._dispatchLocal(event, payload),
+      this._dispatchLocal(event, payload, this._origin.get(event), this._fleet.get(event)),
     ])
   }
 
-  private async _dispatchLocal<K extends Events.EventName>(event: K, payload: unknown): Promise<void> {
-    const set = this._localHandlers.get(event)
-    if (!set || set.size === 0) return
+  private async _dispatchLocal(
+    event: Events.EventName,
+    payload: unknown,
+    ...sets: Array<Set<Listener> | undefined>
+  ): Promise<void> {
     // Snapshotted, as `InMemoryEvents.emit` does and for its reason: a `for...of` over a live Set
     // visits entries added after the cursor, so a handler that called `on()` for this same event ran
     // inside the emit that triggered it - and one that re-subscribed itself never terminated. The two
     // implementations of this bus disagreed about what an emit is.
-    for (const handler of [...set]) {
+    for (const handler of sets.flatMap((set) => [...(set ?? [])])) {
       try {
         await handler(payload)
       } catch (err) {
@@ -137,9 +144,9 @@ export class RedisEvents implements Events.IBus {
     }
   }
 
-  /** Used by Engine.strict()'s boot-time gates. */
+  /** Used by Engine.strict()'s boot-time gates. Counts both deliveries. */
   listenerCount<K extends Events.EventName>(event: K): number {
-    return this._localHandlers.get(event)?.size ?? 0
+    return (this._origin.get(event)?.size ?? 0) + (this._fleet.get(event)?.size ?? 0)
   }
 }
 

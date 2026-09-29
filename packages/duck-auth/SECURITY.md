@@ -131,10 +131,10 @@ the items below are choices only the operator can make.
 
 `createAuth` runs `strict()` as it returns. In production it throws one
 `AUTH_MISCONFIGURED` listing every footgun at once: a missing or in-memory
-limiter, a `secure: false` cookie, a memory store, the in-process event bus,
-an http `baseUrl`, no provider, no `lockout` listener, and so on. A
-`lockout` listener cannot exist before `createAuth` returns, so pass
-`strict: false`, subscribe, then call it yourself:
+limiter, a `secure: false` cookie, a memory store, the in-process event bus
+holding a `fleet` handler, an http `baseUrl`, no provider, no `lockout`
+listener, and so on. A `lockout` listener cannot exist before `createAuth`
+returns, so pass `strict: false`, subscribe, then call it yourself:
 
 ```ts
 const auth = createAuth({

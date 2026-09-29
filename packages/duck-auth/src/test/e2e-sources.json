@@ -729,6 +729,16 @@
       "proves": "valkeyEvents over real pub/sub: an emit on one instance reaches a listener on another, and the emitting instance does not see its own emit twice."
     },
     {
+      "file": "src/core/events/__tests__/events.delivery.e2e.test.ts",
+      "backing": [
+        "redis"
+      ],
+      "derivedFrom": [
+        "internal-audit"
+      ],
+      "proves": "origin and fleet delivery over real pub/sub: an origin handler runs once, on the emitter, inside its async context, a fleet handler runs on every server and outside it on a peer, origin handlers hold no channel, and an emit publishes from a server with no fleet handler."
+    },
+    {
       "file": "src/core/idempotency/__tests__/idempotency.valkey.e2e.test.ts",
       "backing": [
         "redis"

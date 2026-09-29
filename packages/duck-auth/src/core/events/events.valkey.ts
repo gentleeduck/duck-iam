@@ -8,7 +8,7 @@ import { RedisEvents } from './events.redis'
  * ordinary commands. ioredis delivers every subscribed channel through one shared
  * `'message'` event rather than a per-call callback, so this filters by channel;
  * `RedisEvents.on()` subscribes at most once per channel and unsubscribes at most once
- * when its local handlers drain to zero, so it never needs concurrent listeners on the
+ * when its `fleet` handlers drain to zero, so it never needs concurrent listeners on the
  * same channel.
  */
 export function valkeyPubSubAdapter(

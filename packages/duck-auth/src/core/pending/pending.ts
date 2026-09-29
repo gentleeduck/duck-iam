@@ -10,8 +10,8 @@ class BufferingBus implements Events.IBus {
 
   constructor(private readonly _target: Events.IBus) {}
 
-  on<K extends Events.EventName>(event: K, handler: Events.Handler<K>): Events.Unsubscribe {
-    return this._target.on(event, handler)
+  on<K extends Events.EventName>(event: K, handler: Events.Handler<K>, opts?: Events.OnOptions): Events.Unsubscribe {
+    return this._target.on(event, handler, opts)
   }
 
   async emit<K extends Events.EventName>(event: K, payload: Events.EventMap[K]): Promise<void> {
