@@ -57,7 +57,7 @@ For tests, and for a framework adapter that renders the name in user-facing outp
 Defined in: [packages/duck-auth/src/core/transport/cookie.transport.ts:108](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/cookie.transport.ts#L108)
 
 The companion CSRF cookie's name, which drops the `__Host-` prefix when the transport's own settings
- forbid it. This is what a client passes as `csrfCookieName`.
+ forbid it, and so the name a page reads the token by.
 
 ##### Returns
 

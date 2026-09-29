@@ -325,66 +325,47 @@ authSamlProvider<Profile>({
 
 ## 5. Server Adapters
 
-Pick one. All expose the same `signIn`, `signOut`, `session`, `beginProvider`, `callback` handlers.
-
-### Hono
+duck-auth ships no routes. You write them over `auth.flows.*`; each adapter gives you the glue (CSRF guard, caller fingerprint, writing a flow's intents). With Hono:
 
 ```ts
+import { AuthError } from '@gentleduck/auth/core'
+import { errorResponse, executeIntents, jsonResponse, readBodyJson } from '@gentleduck/auth/server/generic'
+import { honoCaller, honoCsrf, toHonoAdapterCtx } from '@gentleduck/auth/server/hono'
 import { Hono } from 'hono'
-import {
-  authHonoSignIn,
-  authHonoSignOut,
-  authHonoSession,
-  authHonoBeginProvider,
-  authHonoCallback,
-} from '@gentleduck/auth/server/hono'
 import { auth } from './auth'
 
 const app = new Hono()
+app.onError(errorResponse)
+app.use('/auth/*', (c, next) => honoCsrf(auth)(toHonoAdapterCtx(c), next))
 
-app.post('/auth/signin',               authHonoSignIn(auth))
-app.post('/auth/signout',              authHonoSignOut(auth))
-app.get('/auth/session',               authHonoSession(auth))
-app.post('/auth/providers/:id/begin',  authHonoBeginProvider(auth))
-app.get('/auth/providers/:id/callback', authHonoCallback(auth))
+app.post('/auth/signin', async (c) => {
+  const body = await readBodyJson(c.req.raw)
+  if (typeof body !== 'object' || body === null) throw new AuthError('AUTH_INVALID_PARAMETERS')
+  const providerId: unknown = Reflect.get(body, 'providerId')
+  if (typeof providerId !== 'string') throw new AuthError('AUTH_INVALID_PARAMETERS')
+  const { intents } = await auth.flows.signIn({
+    input: Reflect.get(body, 'input') ?? {},
+    providerId,
+    ...honoCaller(toHonoAdapterCtx(c)),
+    previousSid: auth.transport.extract(c.req.raw) ?? undefined,
+  })
+  return executeIntents(intents)
+})
+
+app.post('/auth/signout', async (c) => {
+  const sid = auth.transport.extract(c.req.raw)
+  return executeIntents(sid ? (await auth.flows.signOut(sid)).intents : auth.transport.revoke())
+})
+
+app.get('/auth/session', async (c) => {
+  const resolved = await auth.resolveSession(c.req.raw).orNull()
+  if (!resolved) return jsonResponse(200, { session: null, identity: null })
+  const { csrfHash: _csrfHash, ...session } = resolved.session
+  return jsonResponse(200, { session, identity: resolved.identity })
+})
 ```
 
-### Express
-
-```ts
-import express from 'express'
-import {
-  authExpressSignIn,
-  authExpressSignOut,
-  authExpressSession,
-} from '@gentleduck/auth/server/express'
-import { auth } from './auth'
-
-const router = express.Router()
-router.post('/auth/signin',  authExpressSignIn(auth))
-router.post('/auth/signout', authExpressSignOut(auth))
-router.get('/auth/session',  authExpressSession(auth))
-```
-
-### Next.js
-
-```ts
-// app/api/auth/[...auth]/route.ts
-import { authNextSignIn, authNextSignOut, authNextSession } from '@gentleduck/auth/server/next'
-import { auth } from '@/lib/auth'
-
-export const POST = authNextSignIn(auth)
-// or mount all handlers:
-export { authNextSignIn as POST, authNextSession as GET }
-```
-
-### Fastify / Koa / NestJS / Elysia
-
-```ts
-import { authFastifySignIn } from '@gentleduck/auth/server/fastify'
-import { authKoaSignIn }     from '@gentleduck/auth/server/koa'
-import { authElysiaSignIn }  from '@gentleduck/auth/server/elysia'
-```
+The other frameworks, the OAuth begin/callback pair and what each route must do are in the docs under Server, and `examples/duck-auth` runs all of them.
 
 ---
 
@@ -596,27 +577,30 @@ authAssertCompliance(auth.config, AUTH_SOCI2_PRESET)
 
 ---
 
-## 12. Client (browser)
+## 12. Browser
+
+duck-auth ships no client; the page calls your own routes with `fetch` and echoes the CSRF cookie on every write.
 
 ```ts
-import { authCreateClient } from '@gentleduck/auth/client/vanilla'
-
-const client = authCreateClient({ baseUrl: '/auth' })
-
-// Subscribe to session state
-const unsub = client.onChange((state) => {
-  if (state) console.log('logged in', state.identityId)
-  else       console.log('logged out')
-})
+const post = (path: string, body: unknown = {}) =>
+  fetch(path, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-csrf-token': document.cookie.match(/(?:^|; )(?:__Host-)?duck-csrf=([^;]*)/)?.[1] ?? '',
+    },
+    body: JSON.stringify(body),
+  })
 
 // Sign in
-await client.signIn({ providerId: 'password', input: { email, password } })
+await post('/auth/signin', { providerId: 'password', input: { email, password } })
 
-// OAuth redirect
-await client.beginProvider('google')
+// OAuth: your begin route answers `{ url }`
+const { url } = await (await post('/auth/providers/oauth:google/begin')).json()
+location.assign(url)
 
 // Sign out
-await client.signOut()
+await post('/auth/signout')
 ```
 
 ---

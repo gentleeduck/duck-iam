@@ -168,10 +168,10 @@ and in `DELETE /api/notes`:
 
 <Step>The pages</Step>
 
-Drop `csrfCookieName` from both clients in `src/page.ts` and `src/magic-link.ts`. Over https the CSRF cookie is `__Host-duck-csrf`, which is the client's default, and the notes request reads it under that name:
+Over https the CSRF cookie is `__Host-duck-csrf`, so `src/page.ts` and `src/magic-link.ts` read it under that name:
 
 ```ts title="src/page.ts"
-const csrfToken = document.cookie.match(/(?:^|; )__Host-duck-csrf=([^;]*)/)?.[1] ?? ''
+'x-csrf-token': document.cookie.match(/(?:^|; )__Host-duck-csrf=([^;]*)/)?.[1] ?? '',
 ```
 
 <Step>Start it</Step>

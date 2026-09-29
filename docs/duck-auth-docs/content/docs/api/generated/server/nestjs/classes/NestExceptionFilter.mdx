@@ -3,7 +3,7 @@ title: "Class: NestExceptionFilter"
 description: "Turns an AuthError into the Nest response its status and code describe."
 ---
 
-Defined in: [packages/duck-auth/src/server/nestjs/index.ts:307](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/nestjs/index.ts#L307)
+Defined in: [packages/duck-auth/src/server/nestjs/index.ts:124](https://github.com/gentleeduck/duck-iam/blob/44bcf8a73771002e33ba3229f37138c9febd726b/packages/duck-auth/src/server/nestjs/index.ts#L124)
 
 Turns an `AuthError` into the Nest response its status and code describe.
 
@@ -27,10 +27,10 @@ Turns an `AuthError` into the Nest response its status and code describe.
 
 > **catch**(`err`: [`AuthError`](../../../index/type-aliases/AuthError), `host`: `ArgumentsHost`): `void`
 
-Defined in: [packages/duck-auth/src/server/nestjs/index.ts:310](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/nestjs/index.ts#L310)
+Defined in: [packages/duck-auth/src/server/nestjs/index.ts:127](https://github.com/gentleeduck/duck-iam/blob/44bcf8a73771002e33ba3229f37138c9febd726b/packages/duck-auth/src/server/nestjs/index.ts#L127)
 
-Writes the error's status and JSON body onto the Nest response, unless a duck-auth handler already answered
- it: a second write throws ERR_HTTP_HEADERS_SENT, which Nest then logs in place of this error.
+Writes the error's status and JSON body onto the Nest response, unless it was already answered: a second
+ write throws ERR_HTTP_HEADERS_SENT, which Nest then logs in place of this error.
 
 #### Parameters
 

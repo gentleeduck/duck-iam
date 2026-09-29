@@ -5,7 +5,7 @@ description: "preHandler hook shape. Sending is not what halts the chain - await
 
 > **PreHandler** = (`req`: [`Request`](Request), `reply`: [`Reply`](Reply)) => `Promise`\<`void`\>
 
-Defined in: [packages/duck-auth/src/server/fastify/fastify.types.ts:11](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/fastify/fastify.types.ts#L11)
+Defined in: [packages/duck-auth/src/server/fastify/fastify.types.ts:5](https://github.com/gentleeduck/duck-iam/blob/44bcf8a73771002e33ba3229f37138c9febd726b/packages/duck-auth/src/server/fastify/fastify.types.ts#L5)
 
 `preHandler` hook shape. Sending is not what halts the chain - awaiting the reply is, so a hook that
  refuses a request must `await` the send before it returns.

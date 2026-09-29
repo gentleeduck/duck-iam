@@ -3,9 +3,9 @@ title: "Type Alias: Context"
 description: "The Koa context fields the adapter reads and writes."
 ---
 
-> **Context** = \{ `body`: `unknown`; `params?`: `Record`\<`string`, `string`\>; `request`: \{ `body?`: `unknown`; `headers`: `Record`\<`string`, `string` \| `string`[] \| `undefined`\>; `ip?`: `string`; `method`: `string`; `url`: `string`; \}; `status`: `number`; `append?`: `void`; `set`: `void`; \}
+> **Context** = \{ `body`: `unknown`; `request`: \{ `headers`: `Record`\<`string`, `string` \| `string`[] \| `undefined`\>; `ip?`: `string`; `method`: `string`; \}; `status`: `number`; `append?`: `void`; `set`: `void`; \}
 
-Defined in: [packages/duck-auth/src/server/koa/koa.types.ts:10](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/koa/koa.types.ts#L10)
+Defined in: [packages/duck-auth/src/server/koa/koa.types.ts:7](https://github.com/gentleeduck/duck-iam/blob/44bcf8a73771002e33ba3229f37138c9febd726b/packages/duck-auth/src/server/koa/koa.types.ts#L7)
 
 The Koa context fields the adapter reads and writes.
 
@@ -15,27 +15,15 @@ The Koa context fields the adapter reads and writes.
 
 > **body**: `unknown`
 
-Defined in: [packages/duck-auth/src/server/koa/koa.types.ts:21](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/koa/koa.types.ts#L21)
-
-***
-
-### params?
-
-> `optional` **params?**: `Record`\<`string`, `string`\>
-
-Defined in: [packages/duck-auth/src/server/koa/koa.types.ts:19](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/koa/koa.types.ts#L19)
+Defined in: [packages/duck-auth/src/server/koa/koa.types.ts:15](https://github.com/gentleeduck/duck-iam/blob/44bcf8a73771002e33ba3229f37138c9febd726b/packages/duck-auth/src/server/koa/koa.types.ts#L15)
 
 ***
 
 ### request
 
-> **request**: \{ `body?`: `unknown`; `headers`: `Record`\<`string`, `string` \| `string`[] \| `undefined`\>; `ip?`: `string`; `method`: `string`; `url`: `string`; \}
+> **request**: \{ `headers`: `Record`\<`string`, `string` \| `string`[] \| `undefined`\>; `ip?`: `string`; `method`: `string`; \}
 
-Defined in: [packages/duck-auth/src/server/koa/koa.types.ts:11](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/koa/koa.types.ts#L11)
-
-#### body?
-
-> `optional` **body?**: `unknown`
+Defined in: [packages/duck-auth/src/server/koa/koa.types.ts:8](https://github.com/gentleeduck/duck-iam/blob/44bcf8a73771002e33ba3229f37138c9febd726b/packages/duck-auth/src/server/koa/koa.types.ts#L8)
 
 #### headers
 
@@ -51,17 +39,13 @@ Resolved by the framework against its own proxy trust, never read from a header 
 
 > **method**: `string`
 
-#### url
-
-> **url**: `string`
-
 ***
 
 ### status
 
 > **status**: `number`
 
-Defined in: [packages/duck-auth/src/server/koa/koa.types.ts:20](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/koa/koa.types.ts#L20)
+Defined in: [packages/duck-auth/src/server/koa/koa.types.ts:14](https://github.com/gentleeduck/duck-iam/blob/44bcf8a73771002e33ba3229f37138c9febd726b/packages/duck-auth/src/server/koa/koa.types.ts#L14)
 
 ## Methods
 
@@ -69,7 +53,7 @@ Defined in: [packages/duck-auth/src/server/koa/koa.types.ts:20](https://github.c
 
 > `optional` **append**(`field`: `string`, `value`: `string` \| `string`[]): `void`
 
-Defined in: [packages/duck-auth/src/server/koa/koa.types.ts:23](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/koa/koa.types.ts#L23)
+Defined in: [packages/duck-auth/src/server/koa/koa.types.ts:17](https://github.com/gentleeduck/duck-iam/blob/44bcf8a73771002e33ba3229f37138c9febd726b/packages/duck-auth/src/server/koa/koa.types.ts#L17)
 
 #### Parameters
 
@@ -91,7 +75,7 @@ Defined in: [packages/duck-auth/src/server/koa/koa.types.ts:23](https://github.c
 
 > **set**(`field`: `string`, `value`: `string` \| `string`[]): `void`
 
-Defined in: [packages/duck-auth/src/server/koa/koa.types.ts:22](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/koa/koa.types.ts#L22)
+Defined in: [packages/duck-auth/src/server/koa/koa.types.ts:16](https://github.com/gentleeduck/duck-iam/blob/44bcf8a73771002e33ba3229f37138c9febd726b/packages/duck-auth/src/server/koa/koa.types.ts#L16)
 
 #### Parameters
 

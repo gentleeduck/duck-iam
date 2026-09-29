@@ -5,7 +5,7 @@ description: "What requestSecurity takes: the request fingerprint, and what to d
 
 > **RequestSecurityOptions** = \{ `caller?`: [`CallerFingerprint`](CallerFingerprint); `onAnomaly?`: (`result`: [`Result`](../../../index/namespaces/Anomaly/type-aliases/Result), `session`: [`Me`](../../../index/namespaces/Sessions/type-aliases/Me)) => `void` \| `Promise`\<`void`\>; `onHijack?`: (`drift`: [`HijackDrift`](HijackDrift), `session`: [`Me`](../../../index/namespaces/Sessions/type-aliases/Me)) => `void` \| `Promise`\<`void`\>; \}
 
-Defined in: [packages/duck-auth/src/server/generic/index.ts:324](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/generic/index.ts#L324)
+Defined in: [packages/duck-auth/src/server/generic/index.ts:237](https://github.com/gentleeduck/duck-iam/blob/44bcf8a73771002e33ba3229f37138c9febd726b/packages/duck-auth/src/server/generic/index.ts#L237)
 
 What [requestSecurity](../functions/requestSecurity) takes: the request fingerprint, and what to do when it drifts.
 
@@ -15,7 +15,7 @@ What [requestSecurity](../functions/requestSecurity) takes: the request fingerpr
 
 > `optional` **caller?**: [`CallerFingerprint`](CallerFingerprint)
 
-Defined in: [packages/duck-auth/src/server/generic/index.ts:327](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/generic/index.ts#L327)
+Defined in: [packages/duck-auth/src/server/generic/index.ts:240](https://github.com/gentleeduck/duck-iam/blob/44bcf8a73771002e33ba3229f37138c9febd726b/packages/duck-auth/src/server/generic/index.ts#L240)
 
 Passing one switches these checks on; without it the session's `ip` / `userAgent` are stamped at
  sign-in and never looked at again.
@@ -26,7 +26,7 @@ Passing one switches these checks on; without it the session's `ip` / `userAgent
 
 > `optional` **onAnomaly?**: (`result`: [`Result`](../../../index/namespaces/Anomaly/type-aliases/Result), `session`: [`Me`](../../../index/namespaces/Sessions/type-aliases/Me)) => `void` \| `Promise`\<`void`\>
 
-Defined in: [packages/duck-auth/src/server/generic/index.ts:334](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/generic/index.ts#L334)
+Defined in: [packages/duck-auth/src/server/generic/index.ts:247](https://github.com/gentleeduck/duck-iam/blob/44bcf8a73771002e33ba3229f37138c9febd726b/packages/duck-auth/src/server/generic/index.ts#L247)
 
 Called instead of the default refusal for any anomaly decision but `'allow'`. Throwing refuses.
  The default acts on `'deny'` alone: `'step-up'` shares its threshold with the device detector's own
@@ -52,7 +52,7 @@ Called instead of the default refusal for any anomaly decision but `'allow'`. Th
 
 > `optional` **onHijack?**: (`drift`: [`HijackDrift`](HijackDrift), `session`: [`Me`](../../../index/namespaces/Sessions/type-aliases/Me)) => `void` \| `Promise`\<`void`\>
 
-Defined in: [packages/duck-auth/src/server/generic/index.ts:330](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/generic/index.ts#L330)
+Defined in: [packages/duck-auth/src/server/generic/index.ts:243](https://github.com/gentleeduck/duck-iam/blob/44bcf8a73771002e33ba3229f37138c9febd726b/packages/duck-auth/src/server/generic/index.ts#L243)
 
 Called instead of the configured reaction on drift, and the only place to handle `'rotate'`, which
  `applyReaction` leaves alone since a wrapper cannot write a cookie. Throwing refuses the request.

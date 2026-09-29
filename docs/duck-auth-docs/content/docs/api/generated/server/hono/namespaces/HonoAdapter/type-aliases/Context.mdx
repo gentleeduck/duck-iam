@@ -3,9 +3,9 @@ title: "Type Alias: Context"
 description: "The Hono context fields the adapter reads."
 ---
 
-> **Context** = \{ `ip?`: `string`; `req`: \{ `method`: `string`; `raw`: `Request`; `url`: `string`; `header`: `string` \| `Record`\<`string`, `string`\> \| `undefined`; `param`: `string` \| `undefined`; \}; \}
+> **Context** = \{ `ip?`: `string`; `req`: \{ `raw`: `Request`; `header`: `string` \| `Record`\<`string`, `string`\> \| `undefined`; \}; \}
 
-Defined in: [packages/duck-auth/src/server/hono/hono.types.ts:10](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/hono/hono.types.ts#L10)
+Defined in: [packages/duck-auth/src/server/hono/hono.types.ts:7](https://github.com/gentleeduck/duck-iam/blob/44bcf8a73771002e33ba3229f37138c9febd726b/packages/duck-auth/src/server/hono/hono.types.ts#L7)
 
 The Hono context fields the adapter reads.
 
@@ -15,7 +15,7 @@ The Hono context fields the adapter reads.
 
 > `optional` **ip?**: `string`
 
-Defined in: [packages/duck-auth/src/server/hono/hono.types.ts:12](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/hono/hono.types.ts#L12)
+Defined in: [packages/duck-auth/src/server/hono/hono.types.ts:9](https://github.com/gentleeduck/duck-iam/blob/44bcf8a73771002e33ba3229f37138c9febd726b/packages/duck-auth/src/server/hono/hono.types.ts#L9)
 
 Hono resolves no address itself; an app that knows its proxies sets this.
 
@@ -23,21 +23,13 @@ Hono resolves no address itself; an app that knows its proxies sets this.
 
 ### req
 
-> **req**: \{ `method`: `string`; `raw`: `Request`; `url`: `string`; `header`: `string` \| `Record`\<`string`, `string`\> \| `undefined`; `param`: `string` \| `undefined`; \}
+> **req**: \{ `raw`: `Request`; `header`: `string` \| `Record`\<`string`, `string`\> \| `undefined`; \}
 
-Defined in: [packages/duck-auth/src/server/hono/hono.types.ts:13](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/hono/hono.types.ts#L13)
-
-#### method
-
-> **method**: `string`
+Defined in: [packages/duck-auth/src/server/hono/hono.types.ts:10](https://github.com/gentleeduck/duck-iam/blob/44bcf8a73771002e33ba3229f37138c9febd726b/packages/duck-auth/src/server/hono/hono.types.ts#L10)
 
 #### raw
 
 > **raw**: `Request`
-
-#### url
-
-> **url**: `string`
 
 #### header()
 
@@ -52,18 +44,4 @@ Defined in: [packages/duck-auth/src/server/hono/hono.types.ts:13](https://github
 ##### Returns
 
 `string` \| `Record`\<`string`, `string`\> \| `undefined`
-
-#### param()
-
-> **param**(`name`: `string`): `string` \| `undefined`
-
-##### Parameters
-
-###### name
-
-`string`
-
-##### Returns
-
-`string` \| `undefined`
 
