@@ -14,3 +14,9 @@ updates:
       interval: weekly
     labels:
       - ci
+    groups:
+      # init and analyze must run the same version, so every codeql-action step moves in one PR.
+      codeql-action:
+        patterns:
+          - "github/codeql-action"
+          - "github/codeql-action/*"
