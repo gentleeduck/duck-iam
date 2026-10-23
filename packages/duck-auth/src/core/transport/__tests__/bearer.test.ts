@@ -86,6 +86,12 @@ describe('AuthBearerTransport.extract', () => {
       const custom = new BearerTransport({ header: 'x-api-token' })
       expect(custom.extract({ headers: new Headers({ 'x-api-token': 'Bearer abc' }) })).toBe('abc')
     })
+
+    it('refuses a header name Headers.get would throw on for every request', () => {
+      for (const header of ['', ' ', 'authorization ', 'x token', 'x-token:']) {
+        expect(() => new BearerTransport({ header })).toThrow(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
+      }
+    })
   })
 })
 

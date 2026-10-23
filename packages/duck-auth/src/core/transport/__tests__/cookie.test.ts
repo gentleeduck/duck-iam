@@ -82,6 +82,18 @@ describe('AuthCookieTransport - construction invariants', () => {
   it("accepts sameSite: 'none' with secure", () => {
     expect(new CookieTransport({ name: 'sid', sameSite: 'none', secure: true }).secure).toBe(true)
   })
+
+  it('refuses a path or domain the browser would replace or drop', () => {
+    const misconfigured = expect.objectContaining({ code: 'AUTH_MISCONFIGURED' })
+    for (const path of ['', 'app', 'app/', '/a;b']) {
+      expect(() => new CookieTransport({ domain: 'example.com', path })).toThrow(misconfigured)
+    }
+    for (const domain of ['https://example.com', 'example.com:3000', 'example.com/', ' example.com']) {
+      expect(() => new CookieTransport({ domain })).toThrow(misconfigured)
+    }
+    expect(new CookieTransport({ domain: '.example.com', path: '/app' }).cookieName).toBe('duck-sid')
+    expect(new CookieTransport({ domain: '' }).cookieName).toBe('__Host-duck-sid')
+  })
 })
 
 describe('AuthCookieTransport.extract - happy path', () => {

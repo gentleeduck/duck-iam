@@ -56,6 +56,18 @@ export class CookieTransport implements Transport.ITransport {
         detail: '@gentleduck/auth CookieTransport: maxAgeSec must be a positive whole number of seconds',
       })
     }
+    // RFC 6265 5.2.4 and 5.3: a Path not starting with `/` becomes the sign-in route's own directory, and a
+    // Domain the host cannot match, one carrying a scheme or a port, drops the cookie. Neither says so.
+    if (cfg.path !== undefined && !/^\/[\x20-\x3a\x3c-\x7e]*$/.test(cfg.path)) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: `@gentleduck/auth CookieTransport: path must start with / (got ${JSON.stringify(cfg.path)})`,
+      })
+    }
+    if (cfg.domain && !/^\.?[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*$/.test(cfg.domain)) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: `@gentleduck/auth CookieTransport: domain must be a bare host, no scheme or port (got ${JSON.stringify(cfg.domain)})`,
+      })
+    }
     const hasDomain = Boolean(cfg.domain)
     this._name = cfg.name ?? (hasDomain ? 'duck-sid' : '__Host-duck-sid')
     this._options = {
