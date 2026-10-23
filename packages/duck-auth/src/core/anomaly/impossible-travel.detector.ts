@@ -7,9 +7,9 @@ import {
 } from './anomaly.constants'
 import type { Anomaly, AuthImpossibleTravel } from './anomaly.types'
 
-/** Whether a pair is a place on earth, within ±90 / ±180. NaN and Infinity fail both bounds. */
+/** Whether a pair is a place on earth, within ±90 / ±180. Numbers only, since `Math.abs(null)` is 0. */
 function isCoordinate(lat: number, lon: number): boolean {
-  return Math.abs(lat) <= 90 && Math.abs(lon) <= 180
+  return Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180
 }
 
 /** Haversine distance in km between two (lat, lon) pairs. */
@@ -38,6 +38,11 @@ export function authImpossibleTravelDetector(opts: {
   const cfg: AuthImpossibleTravel.Cfg = {
     maxKmPerHour: opts.config?.maxKmPerHour ?? DEFAULT_IMPOSSIBLE_TRAVEL_CONFIG.maxKmPerHour,
     minElapsedMs: opts.config?.minElapsedMs ?? DEFAULT_IMPOSSIBLE_TRAVEL_CONFIG.minElapsedMs,
+  }
+  if (typeof opts.getLastSeen !== 'function') {
+    throw new AuthError('AUTH_MISCONFIGURED', {
+      detail: 'authImpossibleTravelDetector: getLastSeen must be a function',
+    })
   }
   if (!Number.isFinite(cfg.maxKmPerHour) || cfg.maxKmPerHour <= 0) {
     throw new AuthError('AUTH_MISCONFIGURED', {

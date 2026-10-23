@@ -112,6 +112,15 @@ describe('what the detector has nothing to say about', () => {
     }
   })
 
+  it('a coordinate that is not a number, rather than reading it as 0,0', async () => {
+    // A NaN stored as JSON comes back null, and `Math.abs(null)` is 0: a trip from the Gulf of Guinea.
+    const stored = JSON.parse(JSON.stringify({ at: NOW - HOUR, lat: Number.NaN, lon: Number.NaN }))
+    expect(await evaluate(detector(stored), NYC)).toEqual([])
+    const unplaced = JSON.parse('{ "lat": null, "lon": null }')
+    expect(await evaluate(detector({ ...NYC, at: NOW - HOUR }), unplaced)).toEqual([])
+    expect(await evaluate(detector({ ...NYC, at: NOW - HOUR }), JSON.parse('{ "lat": "", "lon": "" }'))).toEqual([])
+  })
+
   it('a request time that is not a number, which nothing upstream refuses', async () => {
     expect(await evaluate(detector({ ...NYC, at: NOW - HOUR }), TOKYO, Number.NaN)).toEqual([])
   })
@@ -139,6 +148,13 @@ describe('construction and the store', () => {
   it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])('refuses a minElapsedMs of %o', (minElapsedMs) => {
     // Zero is the divisor, so the most extreme teleport became an infinite speed and was discarded.
     expect(() => detector(null, { minElapsedMs })).toThrow(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
+  })
+
+  it('refuses a getLastSeen that is not a function, which would throw on every request with a position', () => {
+    expect(() =>
+      authImpossibleTravelDetector(Object.assign({ getLastSeen: async () => null }, { getLastSeen: undefined })),
+    ).toThrow(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
+    expect(() => authImpossibleTravelDetector({ getLastSeen: async () => null })).not.toThrow()
   })
 
   it('reads an explicit undefined as omitted, so the defaults apply', async () => {
