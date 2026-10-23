@@ -64,7 +64,7 @@ export namespace JwtTransport {
   /** A key tokens are verified against, by `kid`. */
   export interface IVerifyKey {
     kid: string
-    /** `'HS256'` by default, for backwards compatibility; ES256 and RS256 callers set it explicitly. */
+    /** `'HS256'` by default, for backwards compatibility; an asymmetric key must name its alg, since a PEM under HS256 is refused. */
     alg?: JwtTransport.IJwtAlg
     /** The UTF-8 secret for `HS256`, and the PEM-encoded public key (SPKI or RSA-PUBLIC) for `ES256`
      *  and `RS256`. */
@@ -234,7 +234,7 @@ function parseJwtPayload(raw: unknown): JwtTransport.Payload | null {
 
 /** The floor every key must clear. The constructor and `rotateSignKey` install into the same two
  *  fields, and only the constructor used to check. */
-function assertKeyMaterial(k: { kid: string; key: string }, field: string): void {
+function assertKeyMaterial(k: { kid: string; alg?: JwtTransport.IJwtAlg; key: string }, field: string): void {
   // The kid flows into the JOSE header of every token, so a huge or non-string one inflates them all.
   if (typeof k.kid !== 'string' || k.kid.length === 0 || k.kid.length > 256) {
     throw new AuthError('AUTH_MISCONFIGURED', {
@@ -247,6 +247,22 @@ function assertKeyMaterial(k: { kid: string; key: string }, field: string): void
     throw new AuthError('AUTH_MISCONFIGURED', {
       detail: `JwtTransport.${field}.key must be a non-empty string (HS256 secret or PEM)`,
     })
+  }
+  // SECURITY: an asymmetric key under HS256, which an omitted `alg` defaults to, makes the public key the
+  // HMAC secret, so anyone holding it signs tokens for any identity (RFC 8725 section 2.1).
+  if ((k.alg ?? 'HS256') === 'HS256' && isAsymmetricKey(k.key)) {
+    throw new AuthError('AUTH_MISCONFIGURED', {
+      detail: `JwtTransport.${field} '${k.kid}' is HS256 but its key is a PEM; set the alg it was made for`,
+    })
+  }
+}
+
+function isAsymmetricKey(key: string): boolean {
+  try {
+    createPublicKey(key)
+    return true
+  } catch {
+    return false
   }
 }
 
@@ -588,6 +604,17 @@ export class JwtTransport implements Transport.ITransport {
     if (opts.verifyKey && opts.verifyKey.kid !== newSign.kid) {
       throw new AuthError('AUTH_MISCONFIGURED', {
         detail: 'rotateSignKey: verifyKey.kid must match signKey.kid',
+      })
+    }
+    // The constructor's check on a kid both sides name: a mismatch fails every token the rotation mints.
+    if (opts.verifyKey && (opts.verifyKey.alg ?? 'HS256') !== newAlg) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: `rotateSignKey: verifyKey alg (${opts.verifyKey.alg ?? 'HS256'}) does not match signKey alg (${newAlg})`,
+      })
+    }
+    if (opts.verifyKey && newAlg === 'HS256' && opts.verifyKey.key !== newSign.key) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: 'rotateSignKey: an HS256 verifyKey must hold the signKey secret',
       })
     }
     if (opts.verifyKey) {

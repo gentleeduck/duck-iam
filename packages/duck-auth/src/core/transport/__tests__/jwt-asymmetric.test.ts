@@ -1,4 +1,4 @@
-import { generateKeyPairSync } from 'node:crypto'
+import { createHmac, generateKeyPairSync } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import { isRecord } from '~/core/predicates'
 import type { Sessions } from '~/core/sessions/sessions.types'
@@ -144,6 +144,50 @@ describe('JwtTransport - alg-confusion guard (RFC 8725 section 3.1)', () => {
     const fakeSig = 'A'.repeat(32)
     const jwt = `${header}.${payload}.${fakeSig}`
     await expect(t.verify(jwt)).rejects.toMatchObject({ code: 'AUTH_JWT_INVALID' })
+  })
+
+  describe('a PEM under HS256, which an omitted alg defaults to', () => {
+    const forge = (kid: string) => {
+      const now = Math.floor(Date.now() / 1000)
+      const head = Buffer.from(JSON.stringify({ alg: 'HS256', kid, typ: 'JWT' })).toString('base64url')
+      const body = Buffer.from(
+        JSON.stringify({ aal: 2, exp: now + 60, factors: ['password'], iat: now, iss: 'iss', sid: 'x', sub: 'victim' }),
+      ).toString('base64url')
+      return `${head}.${body}.${createHmac('sha256', pubPem).update(`${head}.${body}`).digest('base64url')}`
+    }
+
+    it('is refused in verifyKeys, where it let the public key sign for anyone', async () => {
+      const cfg = {
+        issuer: 'iss',
+        signKey: { alg: 'ES256' as const, key: privPem, kid: 'k1' },
+        verifyKeys: [{ alg: 'ES256' as const, key: pubPem, kid: 'k1' }],
+      }
+      expect(() => new JwtTransport({ ...cfg, verifyKeys: [...cfg.verifyKeys, { key: pubPem, kid: 'old' }] })).toThrow(
+        expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
+      )
+      await expect(new JwtTransport(cfg).verify(forge('old'))).rejects.toMatchObject({ code: 'AUTH_JWT_KEY_UNKNOWN' })
+    })
+
+    it('is refused by rotateSignKey, and the ring keeps no entry for it', async () => {
+      const t = new JwtTransport({ issuer: 'iss', signKey: { key: 'x'.repeat(40), kid: 'k1' }, verifyKeys: [] })
+      expect(() =>
+        t.rotateSignKey({ signKey: { alg: 'ES256', key: privPem, kid: 'k2' }, verifyKey: { key: pubPem, kid: 'k2' } }),
+      ).toThrow(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
+      await expect(t.verify(forge('k2'))).rejects.toMatchObject({ code: 'AUTH_JWT_KEY_UNKNOWN' })
+    })
+
+    it('rotateSignKey refuses a verifyKey whose alg or secret differs from the signKey', () => {
+      const t = new JwtTransport({ issuer: 'iss', signKey: { key: 'x'.repeat(40), kid: 'k1' }, verifyKeys: [] })
+      expect(() =>
+        t.rotateSignKey({
+          signKey: { alg: 'ES256', key: privPem, kid: 'k2' },
+          verifyKey: { alg: 'RS256', key: pubPem, kid: 'k2' },
+        }),
+      ).toThrow(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
+      expect(() =>
+        t.rotateSignKey({ signKey: { key: 'y'.repeat(40), kid: 'k3' }, verifyKey: { key: 'z'.repeat(40), kid: 'k3' } }),
+      ).toThrow(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
+    })
   })
 
   it('refuses unknown alg headers (none / RS512 / etc.)', async () => {
