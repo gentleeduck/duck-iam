@@ -30,6 +30,11 @@ export async function impersonate<Profile extends Identities.ProfileMetadataBase
   if (!real?.identityId) {
     throw new AuthError('AUTH_UNAUTHENTICATED')
   }
+  // SECURITY: the operator's own tenant, not one the caller names: a session elsewhere is no session here, as
+  // `resolveSession` reads it, or an operator could act in another tenant and be released into it as themselves.
+  if (opts.tenantId !== undefined && opts.tenantId !== real.tenantId) {
+    throw new AuthError('AUTH_UNAUTHENTICATED')
+  }
   // SECURITY: nesting would name the previous target as the accountable human, and releasing it would
   // hand out an unmarked session as them.
   if (real.actingAs) {
@@ -61,7 +66,7 @@ export async function impersonate<Profile extends Identities.ProfileMetadataBase
     // nothing.
     aal: 1,
     factors: [],
-    ...(opts.tenantId !== undefined && { tenantId: opts.tenantId }),
+    tenantId: real.tenantId,
     // The row's own deadlines, not just the marker's, so the row dies with the window.
     ttlMs,
     actingAs: {

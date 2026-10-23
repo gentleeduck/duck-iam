@@ -367,6 +367,64 @@ describe('FlowsImpl - impersonation', () => {
     expect(live.map((s) => s.id)).toEqual([released.session?.id])
   })
 
+  describe('the tenant', () => {
+    async function tenantAdmin(): Promise<string> {
+      const { sid } = await auth.sessions.create({
+        aal: 2,
+        factors: [{ completedAt: new Date(), method: 'password' }],
+        identityId: adminId,
+        kind: 'user',
+        tenantId: 'acme',
+      })
+      return sid
+    }
+
+    it('is the operator session tenant, and release returns the operator there', async () => {
+      const out = await auth.flows.impersonate({
+        authorize: async () => true,
+        realSid: await tenantAdmin(),
+        reason: 'x',
+        targetIdentityId: targetId,
+      })
+      expect(out.session.tenantId).toBe('acme')
+      const back = await auth.flows.releaseImpersonation(out.sid)
+      expect(back.session?.tenantId).toBe('acme')
+    })
+
+    it('accepts the operator session tenant by name', async () => {
+      const out = await auth.flows.impersonate({
+        authorize: async () => true,
+        realSid: await tenantAdmin(),
+        reason: 'x',
+        targetIdentityId: targetId,
+        tenantId: 'acme',
+      })
+      expect(out.session.tenantId).toBe('acme')
+    })
+
+    it('refuses another, before asking authorize, and leaves the operator signed in', async () => {
+      const realSid = await tenantAdmin()
+      const authorize = vi.fn(async () => true)
+      await expect(
+        auth.flows.impersonate({ authorize, realSid, reason: 'x', targetIdentityId: targetId, tenantId: 'globex' }),
+      ).rejects.toMatchObject({ code: 'AUTH_UNAUTHENTICATED' })
+      expect(authorize).not.toHaveBeenCalled()
+      await expect(auth.sessions.getBySid(realSid)).resolves.toMatchObject({ tenantId: 'acme' })
+    })
+
+    it('refuses a tenant named for a global operator session', async () => {
+      await expect(
+        auth.flows.impersonate({
+          authorize: async () => true,
+          realSid: adminSid,
+          reason: 'x',
+          targetIdentityId: targetId,
+          tenantId: 'acme',
+        }),
+      ).rejects.toMatchObject({ code: 'AUTH_UNAUTHENTICATED' })
+    })
+  })
+
   it('releaseImpersonation with non-impersonation SID surfaces AUTH_IMPERSONATE_EXPIRED', async () => {
     await expect(auth.flows.releaseImpersonation(adminSid)).rejects.toMatchObject({
       code: 'AUTH_IMPERSONATE_EXPIRED',
