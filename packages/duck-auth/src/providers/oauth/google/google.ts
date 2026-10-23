@@ -23,6 +23,7 @@ export function google<Profile extends Identities.ProfileMetadataBase = Identiti
     endpoints: GOOGLE_ENDPOINTS,
     scopes: opts.scopes ?? ['openid', 'email', 'profile'],
     fetch: opts.fetch,
+    timeoutMs: opts.timeoutMs,
   })
   return oProvider<Profile>({
     providerId: 'google',

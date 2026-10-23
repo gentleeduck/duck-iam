@@ -51,6 +51,7 @@ export function github<Profile extends Identities.ProfileMetadataBase = Identiti
     endpoints: GITHUB_ENDPOINTS,
     scopes: opts.scopes ?? ['read:user', 'user:email'],
     fetch: opts.fetch,
+    timeoutMs: opts.timeoutMs,
   })
   return oProvider<Profile>({
     providerId: 'github',

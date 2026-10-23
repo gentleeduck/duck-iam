@@ -26,6 +26,8 @@ export namespace OAuth {
     scopes: string[]
     /** Override the fetch impl (test stubs). */
     fetch?: typeof globalThis.fetch
+    /** Per request to the IdP, the body included. Default 10 seconds. */
+    timeoutMs?: number
   }
 
   /** Standard oauth2 token-endpoint response. */
@@ -68,6 +70,8 @@ export namespace OAuth {
     scopes?: string[]
     /** Override fetch impl (test stubs). */
     fetch?: typeof globalThis.fetch
+    /** Per request to the IdP, the body included. Default 10 seconds. */
+    timeoutMs?: number
     /** Customise identity resolution at signin time. */
     onSignIn?: Options<AppProfile>['onSignIn']
     /** Project canonical Profile into the consumer's Profile shape. */

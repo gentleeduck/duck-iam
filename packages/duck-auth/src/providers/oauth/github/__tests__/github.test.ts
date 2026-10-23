@@ -5,13 +5,14 @@
  * lets `onFederationConflict: 'link-if-verified'` fire for this provider at all.
  */
 
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { AuthEngine } from '~/core/engine'
 import type { Identities } from '~/core/identities'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { memoryDPoPNonceStore } from '~/core/transport/dpop-nonce.memory'
 import { afterOAuthBegin } from '~/test/oauth-browser'
+import { OAuthClient } from '../../core/client'
 import type { OAuth } from '../../core/oauth.types'
 import { github } from '../github'
 
@@ -19,35 +20,52 @@ interface MyProfile extends Identities.ProfileMetadataBase {}
 
 type EmailRow = { email: string; primary: boolean; verified: boolean }
 
-/** A GitHub that answers `/user` and `/user/emails`, and nothing else. `emails` of `null` is a token
- *  without the `user:email` scope, which GitHub refuses with a 403. */
-function fakeGithub(user: Record<string, unknown>, emails: EmailRow[] | null): typeof globalThis.fetch {
-  return vi.fn(async (url: string) => {
-    if (url.startsWith('https://github.com/login/oauth/access_token')) {
-      return new Response(JSON.stringify({ access_token: 'at', expires_in: 3600, token_type: 'Bearer' }), {
-        headers: { 'content-type': 'application/json' },
-        status: 200,
+const TOKEN = { access_token: 'at', expires_in: 3600, token_type: 'bearer' }
+
+/** A GitHub that answers as the real one does: its token endpoint form-encoded unless asked for JSON, and its
+ *  API not at all without a User-Agent, which the Workers runtime's fetch never sends. `emails` of `null` is a
+ *  token without the `user:email` scope, which GitHub refuses with a 403. */
+function fakeGithub(
+  user: Record<string, unknown>,
+  emails: EmailRow[] | null,
+  token: Record<string, string | number> = TOKEN,
+): typeof globalThis.fetch {
+  return async (input, init) => {
+    const url = input instanceof Request ? input.url : String(input)
+    const headers = new Headers(init?.headers)
+    if (url === 'https://github.com/login/oauth/access_token') {
+      if (headers.get('accept')?.includes('application/json')) return Response.json(token)
+      const form = new URLSearchParams(Object.entries(token).map(([k, v]) => [k, String(v)]))
+      return new Response(form.toString(), {
+        headers: { 'content-type': 'application/x-www-form-urlencoded; charset=utf-8' },
       })
+    }
+    if (!headers.get('user-agent')) {
+      return new Response(
+        'Request forbidden by administrative rules. Please make sure your request has a User-Agent header',
+        {
+          status: 403,
+        },
+      )
     }
     if (url === 'https://api.github.com/user/emails') {
       if (emails === null) return new Response('{"message":"Requires user:email"}', { status: 403 })
-      return new Response(JSON.stringify(emails), {
-        headers: { 'content-type': 'application/json' },
-        status: 200,
-      })
+      return Response.json(emails)
     }
-    if (url === 'https://api.github.com/user') {
-      return new Response(JSON.stringify(user), { headers: { 'content-type': 'application/json' }, status: 200 })
-    }
+    if (url === 'https://api.github.com/user') return Response.json(user)
     throw new Error(`unexpected url ${url}`)
-  }) as unknown as typeof globalThis.fetch
+  }
 }
 
 /** Captures the profile the provider resolved, which is the thing under test. */
 function build(
   user: Record<string, unknown>,
   emails: EmailRow[] | null,
-  opts: { onFederationConflict?: OAuth.FederationPolicy; refuseProfile?: boolean } = {},
+  opts: {
+    onFederationConflict?: OAuth.FederationPolicy
+    refuseProfile?: boolean
+    token?: Record<string, string | number>
+  } = {},
 ): { auth: AuthEngine<MyProfile>; adapter: MemoryAdapter<MyProfile>; seen: OAuth.Profile[] } {
   const seen: OAuth.Profile[] = []
   const adapter = new MemoryAdapter<MyProfile>()
@@ -57,7 +75,7 @@ function build(
       github<MyProfile>({
         clientId: 'cid',
         clientSecret: 'csec',
-        fetch: fakeGithub(user, emails),
+        fetch: fakeGithub(user, emails, opts.token),
         profileToIdentityProfile: (p) => {
           seen.push(p)
           if (opts.refuseProfile) return null
@@ -81,6 +99,55 @@ async function signIn(auth: AuthEngine<MyProfile>) {
   const { state, cookieHeader } = afterOAuthBegin(await auth.flows.beginProvider('oauth:github', {}))
   return auth.flows.signIn({ input: { code: 'authcode', cookieHeader, state }, providerId: 'oauth:github' })
 }
+
+describe('github provider - its token endpoint and API as GitHub answers them', () => {
+  it('signs in, though the token endpoint answers form-encoded unless asked for JSON', async () => {
+    const { auth, seen } = build({ id: 42, login: 'octocat', email: null }, [])
+    const res = await signIn(auth)
+    expect(res.session?.identityId).toBeTruthy()
+    expect(seen[0]?.sub).toBe('42')
+  })
+
+  it("refuses the error GitHub's token endpoint answers with a 200, and creates nobody", async () => {
+    const { auth, adapter } = build({ id: 42, login: 'octocat', email: null }, [], {
+      token: { error: 'bad_verification_code', error_description: 'The code passed is incorrect or expired.' },
+    })
+    await expect(signIn(auth)).rejects.toMatchObject({ code: 'AUTH_PROVIDER_FAILED' })
+    await expect(adapter.identities.find({ providerId: 'oauth:github', providerSub: '42' })).rejects.toMatchObject({
+      code: 'AUTH_IDENTITY_NOT_FOUND',
+    })
+  })
+
+  it('reads /user and /user/emails through a fetch that sends no User-Agent, as the Workers runtime does', async () => {
+    const { auth, seen } = build({ id: 42, login: 'octocat', email: null }, [
+      { email: 'primary@x.com', primary: true, verified: true },
+    ])
+    await signIn(auth)
+    expect(seen[0]).toMatchObject({ sub: '42', email: 'primary@x.com', emailVerified: true })
+  })
+
+  it("refreshes a GitHub App's token at the same endpoint", async () => {
+    const client = new OAuthClient({
+      clientId: 'cid',
+      clientSecret: 'csec',
+      endpoints: {
+        authorizationEndpoint: 'https://github.com/login/oauth/authorize',
+        tokenEndpoint: 'https://github.com/login/oauth/access_token',
+      },
+      fetch: fakeGithub({}, null, {
+        access_token: 'ghu_new',
+        expires_in: 28800,
+        refresh_token: 'ghr_new',
+        token_type: 'bearer',
+      }),
+      scopes: [],
+    })
+    await expect(client.refresh('ghr_old')).resolves.toMatchObject({
+      access_token: 'ghu_new',
+      refresh_token: 'ghr_new',
+    })
+  })
+})
 
 describe('github provider - profile resolution', () => {
   it('takes the primary verified address from /user/emails, not the public profile email', async () => {

@@ -24,6 +24,7 @@ export function linkedin<Profile extends Identities.ProfileMetadataBase = Identi
     endpoints: LINKEDIN_ENDPOINTS,
     scopes: opts.scopes ?? ['openid', 'profile', 'email'],
     fetch: opts.fetch,
+    timeoutMs: opts.timeoutMs,
   })
   return oProvider<Profile>({
     providerId: 'linkedin',

@@ -102,6 +102,18 @@ describe('federation conflict policy, through a shipped provider', () => {
     expect(row?.providers.map((p) => p.providerSub)).toEqual(['g-1'])
   })
 
+  it("refuses under 'link-if-verified' a second Google account for an identity that already holds one", async () => {
+    // Signed in before, unlinked: the store kept the first account, so the second never showed among the
+    // identity's links.
+    const { auth, adapter, existingId } = await buildAuth({ ...VERIFIED, sub: 'g-2' }, 'link-if-verified')
+    await adapter.identities.link(existingId, { providerId: 'oauth:google', providerSub: 'g-1' })
+
+    await expect(signInThroughGoogle(auth)).rejects.toMatchObject({ code: 'AUTH_PROVIDER_TAKEN' })
+    const row = await adapter.identities.find({ id: existingId })
+    expect(row.providers.map((p) => p.providerSub)).toEqual(['g-1'])
+    expect(await adapter.sessions.listByIdentity(existingId)).toEqual([])
+  })
+
   it("still rejects under 'link-if-verified' when the email is unverified", async () => {
     // The squatting case the default exists for: anyone who can get an IdP to
     // emit an unverified address gets the account that owns it.

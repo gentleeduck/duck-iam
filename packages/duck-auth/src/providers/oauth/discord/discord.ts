@@ -25,6 +25,7 @@ export function discord<Profile extends Identities.ProfileMetadataBase = Identit
     endpoints: DISCORD_ENDPOINTS,
     scopes: opts.scopes ?? ['identify', 'email'],
     fetch: opts.fetch,
+    timeoutMs: opts.timeoutMs,
   })
   return oProvider<Profile>({
     providerId: 'discord',

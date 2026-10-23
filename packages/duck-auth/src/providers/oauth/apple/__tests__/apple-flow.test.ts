@@ -1,4 +1,4 @@
-import { generateKeyPairSync } from 'node:crypto'
+import { generateKeyPairSync, type KeyObject } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { AuthEngine } from '~/core/engine'
@@ -74,6 +74,20 @@ describe('Sign in with Apple, form_post', () => {
     expect(() =>
       google<P>({ clientId: 'g', clientSecret: 's', ...SHARED, stateCookie: { name: 'duck-oauth', secure: false } }),
     ).not.toThrow()
+  })
+
+  it('refuses a privateKey that cannot sign ES256 when built, not at the first callback', () => {
+    const pem = (key: KeyObject) => key.export({ format: 'pem', type: 'pkcs8' }).toString()
+    for (const privateKey of [
+      '',
+      'not a key',
+      PEM.replace(/\n/g, '\\n'),
+      pem(generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey),
+      pem(generateKeyPairSync('ec', { namedCurve: 'P-384' }).privateKey),
+    ]) {
+      expect(() => appleWith({ privateKey })).toThrow(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
+    }
+    expect(() => appleWith()).not.toThrow()
   })
 
   it.each([

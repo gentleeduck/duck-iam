@@ -130,7 +130,10 @@ export class OProviderImpl<Profile extends Identities.ProfileMetadataBase = Iden
     // Burned once the state is proven ours and proven to have reached the browser that began the flow,
     // and before the code is spent, so a replayed callback never reaches the IdP. A transient exchange
     // failure therefore costs the flow rather than leaving the state live for a second attempt.
-    if (this.opts.nonceStore && !(await this.opts.nonceStore.recordSeen(verified.nonce, OAUTH_STATE_MAX_AGE_MS))) {
+    // Held until the state stops verifying, `iat` + the window, as DPoP holds a jti: a state dated ahead
+    // of this clock outlives a nonce forgotten a window from now.
+    const holdMs = verified.iat + OAUTH_STATE_MAX_AGE_MS - Date.now()
+    if (this.opts.nonceStore && !(await this.opts.nonceStore.recordSeen(verified.nonce, holdMs))) {
       throw new AuthError('AUTH_OAUTH_NONCE_REPLAY')
     }
 
