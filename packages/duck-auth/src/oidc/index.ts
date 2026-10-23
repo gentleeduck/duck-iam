@@ -2,6 +2,11 @@
 
 import { AuthError } from '../core/errors'
 
+/** How long the discovery request may take, its body included, unless `timeoutMs` says otherwise. */
+const DISCOVERY_TIMEOUT_DEFAULT_MS = 10_000
+/** Far past any real discovery document, which runs to a few KiB. */
+const DISCOVERY_MAX_BYTES = 64 * 1024
+
 /** Build the discovery document; `extraClaims` is appended verbatim. */
 export function authBuildOidcDiscovery(cfg: AuthOidcDiscovery.Cfg): AuthOidcDiscovery.IDocument {
   if (!cfg.issuer) {
@@ -26,8 +31,19 @@ export function authBuildOidcDiscovery(cfg: AuthOidcDiscovery.Cfg): AuthOidcDisc
   }
   const canonicalPath = parsed.pathname.replace(/\/+$/, '')
   const issuer = `${parsed.origin}${canonicalPath}`
-  const prefix = cfg.prefix ?? '/auth'
+  const prefix = (cfg.prefix ?? '/auth').replace(/\/+$/, '')
   const jwks = cfg.jwksPath ?? '/.well-known/jwks.json'
+  // Appended to the issuer as text, so a path without its leading slash lands on another host.
+  for (const [key, path] of [
+    ['prefix', prefix],
+    ['jwksPath', jwks],
+  ] as const) {
+    if (path.length > 0 && !path.startsWith('/')) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: `authBuildOidcDiscovery: ${key} must start with / (got ${path})`,
+      })
+    }
+  }
   const algs = cfg.signingAlgs ?? ['HS256']
   // Spread `extraClaims` first so canonical fields cannot be shadowed.
   const doc: AuthOidcDiscovery.IDocument = {
@@ -77,8 +93,10 @@ export async function authFetchOidcDiscovery(
     ttlMs?: number
     /** Skip the cache lookup; still writes the result. Use for forced refresh. */
     bypassCache?: boolean
+    /** How long the request may take, its body included. Default 10 seconds. */
+    timeoutMs?: number
   } = {},
-): Promise<AuthOidcDiscovery.IDocument> {
+): Promise<AuthOidcDiscovery.IPublishedDocument> {
   let parsed: URL
   try {
     parsed = new URL(issuer)
@@ -94,6 +112,13 @@ export async function authFetchOidcDiscovery(
       detail: `authFetchOidcDiscovery: issuer must use HTTPS (${parsed.protocol}). Pass allowHttp: true for dev only.`,
     })
   }
+  const timeoutMs = opts.timeoutMs ?? DISCOVERY_TIMEOUT_DEFAULT_MS
+  // `setTimeout`'s ceiling: past it the timer fires at once.
+  if (!Number.isFinite(timeoutMs) || timeoutMs < 1 || timeoutMs > 2_147_483_647) {
+    throw new AuthError('AUTH_MISCONFIGURED', {
+      detail: `authFetchOidcDiscovery: timeoutMs must be a number of milliseconds from 1 to 2147483647 (got ${String(timeoutMs)})`,
+    })
+  }
   const canonical = `${parsed.origin}${parsed.pathname.replace(/\/+$/, '')}`
   const cacheKey = canonical
   if (!opts.bypassCache) {
@@ -102,19 +127,29 @@ export async function authFetchOidcDiscovery(
   }
   const fetchImpl = opts.fetch ?? globalThis.fetch
   const url = `${canonical}/.well-known/openid-configuration`
-  const res = await fetchImpl(url, { redirect: 'error' })
+  let res: Response
+  let raw: unknown
+  try {
+    // The signal bounds the body read as well as the response.
+    res = await fetchImpl(url, { redirect: 'error', signal: AbortSignal.timeout(timeoutMs) })
+    raw = res.ok ? await readJsonCapped(res) : null
+  } catch (err) {
+    throw new AuthError('AUTH_PROVIDER_FAILED', {
+      providerId: 'oidc',
+      detail: `authFetchOidcDiscovery ${url} unreachable: ${err instanceof Error ? err.message : String(err)}`,
+    })
+  }
   if (!res.ok) {
     throw new AuthError('AUTH_PROVIDER_FAILED', {
       providerId: 'oidc',
       detail: `authFetchOidcDiscovery ${url} returned ${res.status}`,
     })
   }
-  const raw: unknown = await res.json()
   const doc = parseDiscoveryDoc(raw)
   if (!doc) {
     throw new AuthError('AUTH_PROVIDER_FAILED', {
       providerId: 'oidc',
-      detail: `authFetchOidcDiscovery ${url}: malformed discovery document`,
+      detail: `authFetchOidcDiscovery ${url}: malformed discovery document, or one over ${DISCOVERY_MAX_BYTES} bytes`,
     })
   }
   // the upstream's `issuer` claim MUST equal the requested issuer
@@ -137,8 +172,32 @@ export async function authFetchOidcDiscovery(
   return doc
 }
 
+/** The body parsed as JSON, read no further than {@link DISCOVERY_MAX_BYTES}: `null` past that, or when it is
+ *  not JSON. A read that fails, a timeout included, throws. */
+async function readJsonCapped(res: Response): Promise<unknown> {
+  const reader = res.body?.getReader()
+  if (!reader) return null
+  const decoder = new TextDecoder()
+  let text = ''
+  let size = 0
+  try {
+    for (let chunk = await reader.read(); !chunk.done; chunk = await reader.read()) {
+      size += chunk.value.byteLength
+      if (size > DISCOVERY_MAX_BYTES) return null
+      text += decoder.decode(chunk.value, { stream: true })
+    }
+  } finally {
+    void reader.cancel().catch(() => {})
+  }
+  try {
+    return JSON.parse(text + decoder.decode())
+  } catch {
+    return null
+  }
+}
+
 /** Structural validator for an OIDC discovery doc; `null` on any required-field shape mismatch. */
-function parseDiscoveryDoc(raw: unknown): AuthOidcDiscovery.IDocument | null {
+function parseDiscoveryDoc(raw: unknown): AuthOidcDiscovery.IPublishedDocument | null {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null
   const requireString = (key: string): string | null => {
     const v: unknown = Reflect.get(raw, key)
@@ -154,29 +213,27 @@ function parseDiscoveryDoc(raw: unknown): AuthOidcDiscovery.IDocument | null {
     }
     return out
   }
+  /** The spec's default when absent, `null` when present and not a list of strings. */
+  const arrayOr = (key: string, fallback: string[]): string[] | null =>
+    Reflect.get(raw, key) === undefined ? fallback : requireStringArray(key)
+  // Required only where OIDC Discovery 1.0 section 3 requires it: Google, Apple and Microsoft each omit an optional field.
   const issuer = requireString('issuer')
   const authorization_endpoint = requireString('authorization_endpoint')
   const token_endpoint = requireString('token_endpoint')
-  const userinfo_endpoint = requireString('userinfo_endpoint')
   const jwks_uri = requireString('jwks_uri')
-  const end_session_endpoint = requireString('end_session_endpoint')
-  if (
-    issuer === null ||
-    authorization_endpoint === null ||
-    token_endpoint === null ||
-    userinfo_endpoint === null ||
-    jwks_uri === null ||
-    end_session_endpoint === null
-  ) {
+  if (issuer === null || authorization_endpoint === null || token_endpoint === null || jwks_uri === null) {
     return null
   }
-  const scopes_supported = requireStringArray('scopes_supported')
+  // `openid` is the one scope every OP supports, and an issuer listing no PKCE method supports none (RFC 8414).
+  const scopes_supported = arrayOr('scopes_supported', ['openid'])
   const response_types_supported = requireStringArray('response_types_supported')
-  const grant_types_supported = requireStringArray('grant_types_supported')
+  const grant_types_supported = arrayOr('grant_types_supported', ['authorization_code', 'implicit'])
   const subject_types_supported = requireStringArray('subject_types_supported')
   const id_token_signing_alg_values_supported = requireStringArray('id_token_signing_alg_values_supported')
-  const token_endpoint_auth_methods_supported = requireStringArray('token_endpoint_auth_methods_supported')
-  const code_challenge_methods_supported = requireStringArray('code_challenge_methods_supported')
+  const token_endpoint_auth_methods_supported = arrayOr('token_endpoint_auth_methods_supported', [
+    'client_secret_basic',
+  ])
+  const code_challenge_methods_supported = arrayOr('code_challenge_methods_supported', [])
   if (
     scopes_supported === null ||
     response_types_supported === null ||
@@ -188,15 +245,11 @@ function parseDiscoveryDoc(raw: unknown): AuthOidcDiscovery.IDocument | null {
   ) {
     return null
   }
-  const reg: unknown = Reflect.get(raw, 'registration_endpoint')
-  if (reg !== undefined && (typeof reg !== 'string' || reg.length === 0)) return null
-  const out: AuthOidcDiscovery.IDocument = {
+  const out: AuthOidcDiscovery.IPublishedDocument = {
     issuer,
     authorization_endpoint,
     token_endpoint,
-    userinfo_endpoint,
     jwks_uri,
-    end_session_endpoint,
     scopes_supported,
     response_types_supported,
     grant_types_supported,
@@ -205,7 +258,19 @@ function parseDiscoveryDoc(raw: unknown): AuthOidcDiscovery.IDocument | null {
     token_endpoint_auth_methods_supported,
     code_challenge_methods_supported,
   }
-  if (typeof reg === 'string') out.registration_endpoint = reg
+  // Checked here, or the extras below copied a non-string into a field typed as one.
+  for (const key of [
+    'userinfo_endpoint',
+    'end_session_endpoint',
+    'introspection_endpoint',
+    'revocation_endpoint',
+    'registration_endpoint',
+  ] as const) {
+    if (Reflect.get(raw, key) === undefined) continue
+    const v = requireString(key)
+    if (v === null) return null
+    out[key] = v
+  }
   // Preserve unknown extras (extension fields, custom claims).
   for (const [k, v] of Object.entries(raw)) {
     if (!(k in out)) out[k] = v
@@ -214,7 +279,7 @@ function parseDiscoveryDoc(raw: unknown): AuthOidcDiscovery.IDocument | null {
 }
 
 interface DiscoveryCacheEntry {
-  doc: AuthOidcDiscovery.IDocument
+  doc: AuthOidcDiscovery.IPublishedDocument
   expiresAt: number
 }
 let _discoveryTtlMs = 60 * 60 * 1000
@@ -225,10 +290,24 @@ const _discoveryCache = new Map<string, DiscoveryCacheEntry>()
  * Tune the RP-side discovery cache. Called once at boot; affects
  * every subsequent `authFetchOidcDiscovery` call across the process.
  */
-export function authCfgureOidcDiscoveryCache(opts: { ttlMs?: number; capacity?: number }): void {
+export function authConfigureOidcDiscoveryCache(opts: { ttlMs?: number; capacity?: number }): void {
+  // A NaN capacity never evicts, and a NaN ttlMs never caches.
+  if (opts.ttlMs !== undefined && !(opts.ttlMs >= 0)) {
+    throw new AuthError('AUTH_MISCONFIGURED', {
+      detail: `authConfigureOidcDiscoveryCache: ttlMs must be a number of milliseconds, 0 or more (got ${String(opts.ttlMs)})`,
+    })
+  }
+  if (opts.capacity !== undefined && !(Number.isSafeInteger(opts.capacity) && opts.capacity >= 0)) {
+    throw new AuthError('AUTH_MISCONFIGURED', {
+      detail: `authConfigureOidcDiscoveryCache: capacity must be a whole number, 0 or more (got ${String(opts.capacity)})`,
+    })
+  }
   if (opts.ttlMs !== undefined) _discoveryTtlMs = opts.ttlMs
   if (opts.capacity !== undefined) _discoveryCapacity = opts.capacity
 }
+
+/** @deprecated Misspelled; use {@link authConfigureOidcDiscoveryCache}. */
+export const authCfgureOidcDiscoveryCache = authConfigureOidcDiscoveryCache
 
 /** Drop every cached discovery doc; useful for tests + ops rotation. */
 export function authFlushOidcDiscoveryCache(): void {
@@ -281,14 +360,15 @@ export namespace AuthOidcDiscovery {
     extraClaims?: Record<string, unknown>
   }
 
-  /** The `/.well-known/openid-configuration` document. */
-  export interface IDocument {
+  /** A discovery document as an issuer publishes it, as `authFetchOidcDiscovery` answers it: an endpoint the spec
+   *  leaves optional may be absent, and an absent list holds the spec's default. */
+  export interface IPublishedDocument {
     issuer: string
     authorization_endpoint: string
     token_endpoint: string
-    userinfo_endpoint: string
+    userinfo_endpoint?: string
     jwks_uri: string
-    end_session_endpoint: string
+    end_session_endpoint?: string
     introspection_endpoint?: string
     revocation_endpoint?: string
     registration_endpoint?: string
@@ -300,6 +380,12 @@ export namespace AuthOidcDiscovery {
     token_endpoint_auth_methods_supported: string[]
     code_challenge_methods_supported: string[]
     [extra: string]: unknown
+  }
+
+  /** The `/.well-known/openid-configuration` document `authBuildOidcDiscovery` builds, every endpoint in it. */
+  export interface IDocument extends IPublishedDocument {
+    userinfo_endpoint: string
+    end_session_endpoint: string
   }
 
   /** The JWT transport surface that publishes its verify keys. */

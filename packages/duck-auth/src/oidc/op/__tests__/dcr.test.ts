@@ -245,3 +245,100 @@ describe('AuthOidcOpRoot.register (RFC 7591 DCR)', () => {
     })
   })
 })
+
+describe('AuthOidcOpRoot DCR configuration, refused up front', () => {
+  const MISCONFIGURED = expect.objectContaining({ code: 'AUTH_MISCONFIGURED' })
+
+  it('refuses an initialAccessToken key holding undefined, as an unset env var gives, which opened registration', async () => {
+    expect(() => buildOp({ dcr: { enabled: true, initialAccessToken: undefined } })).toThrow(MISCONFIGURED)
+    // Leaving the key out is still how open registration is asked for.
+    const open = buildOp({ dcr: { enabled: true } })
+    expect((await open.register({ redirect_uris: ['http://localhost/cb'] }, new Headers())).status).toBe(201)
+  })
+
+  it('refuses a blank initialAccessToken, which a trimmed presented token matched', async () => {
+    for (const initialAccessToken of ['', '   ']) {
+      expect(() => buildOp({ dcr: { enabled: true, initialAccessToken } })).toThrow(MISCONFIGURED)
+    }
+  })
+
+  it('refuses a maxRedirectUris that is not a whole number, which turned the cap off', async () => {
+    for (const maxRedirectUris of [Number(undefined), 0, 1.5]) {
+      expect(() => buildOp({ dcr: { enabled: true, maxRedirectUris } })).toThrow(MISCONFIGURED)
+    }
+    const op = buildOp({ dcr: { enabled: true, maxRedirectUris: 2 } })
+    const uris = ['http://localhost/a', 'http://localhost/b', 'http://localhost/c']
+    expect((await op.register({ redirect_uris: uris }, new Headers())).status).toBe(400)
+    expect((await op.register({ redirect_uris: uris.slice(0, 2) }, new Headers())).status).toBe(201)
+  })
+})
+
+describe('AuthOidcOpRoot.register - client metadata from an untrusted body', () => {
+  let op: OidcOpRoot<ProfileShape>
+  beforeEach(() => {
+    op = buildOp({ dcr: { enabled: true } })
+  })
+
+  const BASE = {
+    client_uri: 'https://app.example/about',
+    grant_types: ['authorization_code'],
+    logo_uri: 'https://cdn.example/logo.png',
+    redirect_uris: ['http://localhost/cb'],
+    response_types: ['code'],
+    scope: 'openid',
+  }
+
+  it.each([
+    ['client_uri', 'a javascript: URL', 'javascript:alert(document.domain)'],
+    ['logo_uri', 'a data: URL', 'data:image/svg+xml,<svg onload=alert(1)>'],
+    ['client_uri', 'not a URL', 'not a url'],
+    ['logo_uri', 'a URL with userinfo', 'https://user:pw@cdn.example/logo.png'],
+    ['client_uri', 'over 2048 characters', `https://app.example/${'a'.repeat(2048)}`],
+  ])('refuses a %s that is %s, which a consent screen links on the provider origin', async (key, _label, value) => {
+    const r = await op.register({ ...BASE, [key]: value }, new Headers())
+    expect(r).toMatchObject({ status: 400, body: { error: 'invalid_client_metadata' } })
+  })
+
+  it('keeps http(s) metadata URIs', async () => {
+    const r = await op.register(BASE, new Headers())
+    if (!isDcrSuccess(r)) throw new Error(`expected 201, got ${r.status}`)
+    expect(r.body).toMatchObject({ client_uri: BASE.client_uri, logo_uri: BASE.logo_uri })
+  })
+
+  it('answers a field of the wrong type as invalid metadata, where it threw a TypeError', async () => {
+    const bodies = [
+      Object.assign({ ...BASE }, { scope: 42 }),
+      Object.assign({ ...BASE }, { grant_types: 42 }),
+      Object.assign({ ...BASE }, { grant_types: 'authorization_code' }),
+      Object.assign({ ...BASE }, { response_types: {} }),
+      Object.assign({ ...BASE }, { response_types: [1] }),
+      Object.assign({ ...BASE }, { client_uri: 42 }),
+    ]
+    for (const body of bodies) {
+      expect(await op.register(body, new Headers())).toMatchObject({
+        status: 400,
+        body: { error: 'invalid_client_metadata' },
+      })
+    }
+  })
+
+  it('refuses the same URIs on the registerClient path', async () => {
+    for (const key of ['client_uri', 'logo_uri']) {
+      await expect(
+        op.registerClient({
+          client_id: 'admin-made',
+          redirect_uris: ['http://localhost/cb'],
+          [key]: 'javascript:alert(1)',
+        }),
+      ).rejects.toMatchObject({ code: 'AUTH_INVALID_PARAMETERS' })
+    }
+    await expect(
+      op.registerClient({
+        client_id: 'admin-made',
+        client_uri: BASE.client_uri,
+        logo_uri: BASE.logo_uri,
+        redirect_uris: ['http://localhost/cb'],
+      }),
+    ).resolves.toMatchObject({ client_id: 'admin-made' })
+  })
+})

@@ -1,5 +1,5 @@
 import { createHmac } from 'node:crypto'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import type { Identities } from '~/core'
 import { sha256 } from '~/core/crypto'
@@ -656,12 +656,291 @@ describe('AuthOidcOpRoot end-to-end code flow', () => {
       new Headers(),
     )
     if ('error' in tok) throw new Error(tok.error)
+    const bearer = new Headers({ authorization: `Bearer ${tok.access_token}` })
+    // Another client cannot revoke it (RFC 7009 section 2.1), credentials or not.
     const basic = Buffer.from(`resource:${client_secret}`).toString('base64')
-    await op.revoke(
-      { token: tok.access_token, token_type_hint: 'access_token' },
-      new Headers({ authorization: `Basic ${basic}` }),
+    expect(
+      await op.revoke(
+        { token: tok.access_token, token_type_hint: 'access_token' },
+        new Headers({ authorization: `Basic ${basic}` }),
+      ),
+    ).toBeUndefined()
+    expect('error' in (await op.userinfo(bearer))).toBe(false)
+    // Its own public client can, naming itself in the body.
+    expect(
+      await op.revoke({ token: tok.access_token, token_type_hint: 'access_token', client_id: 'spa' }, new Headers()),
+    ).toBeUndefined()
+    expect('error' in (await op.userinfo(bearer))).toBe(true)
+  })
+})
+
+describe('AuthOidcOpRoot - who may revoke, introspect and refresh, and for which subject', () => {
+  let auth: ReturnType<typeof buildAuth>
+  let op: OidcOpRoot<ProfileShape>
+  let identity: Identities.Me<ProfileShape>
+  const { verifier, challenge } = pkceVerifierAndChallenge()
+  const SCOPE = ['openid', 'offline_access']
+
+  beforeEach(async () => {
+    auth = buildAuth()
+    op = buildOp(auth)
+    identity = await auth.identities.create({ profile: { email: 'u@x.com', username: 'u' } })
+    for (const client_id of ['spa', 'other-spa']) {
+      await op.registerClient({
+        client_id,
+        redirect_uris: ['http://localhost/cb'],
+        scope: SCOPE,
+        token_endpoint_auth_method: 'none',
+      })
+    }
+  })
+
+  async function tokensFor(client_id: string, extra: { client_secret?: string; pkce?: boolean } = {}) {
+    const pkce = extra.pkce ?? true
+    const completed = await op.completeConsent({
+      client_id,
+      identity,
+      redirect_uri: 'http://localhost/cb',
+      scope: SCOPE,
+      ...(pkce && { code_challenge: challenge, code_challenge_method: 'S256' }),
+      sid: 'sess',
+      tenant_id: null,
+    })
+    if (completed.kind !== 'redirect') throw new Error(`expected redirect, got ${completed.kind}`)
+    const code = new URL(completed.url).searchParams.get('code') ?? ''
+    const tok = await op.token(
+      {
+        client_id,
+        code,
+        grant_type: 'authorization_code',
+        redirect_uri: 'http://localhost/cb',
+        ...(pkce && { code_verifier: verifier }),
+        ...(extra.client_secret !== undefined && { client_secret: extra.client_secret }),
+      },
+      new Headers(),
     )
-    const ui = await op.userinfo(new Headers({ authorization: `Bearer ${tok.access_token}` }))
-    expect('error' in ui).toBe(true)
+    if ('error' in tok) throw new Error(tok.error)
+    return { access: tok.access_token, refresh: tok.refresh_token ?? '' }
+  }
+
+  const refresh = (client_id: string, refresh_token: string, client_secret?: string) =>
+    op.token(
+      { client_id, grant_type: 'refresh_token', refresh_token, ...(client_secret !== undefined && { client_secret }) },
+      new Headers(),
+    )
+
+  it('lets a public client revoke its own refresh token by client_id in the body, where it was a no-op', async () => {
+    const { refresh: rt } = await tokensFor('spa')
+    expect(await op.revoke({ client_id: 'spa', token: rt }, new Headers())).toBeUndefined()
+    expect(await refresh('spa', rt)).toMatchObject({ error: 'invalid_grant' })
+  })
+
+  it('answers invalid_client to a revoke that names no client, and leaves the token live', async () => {
+    const { refresh: rt } = await tokensFor('spa')
+    expect(await op.revoke({ token: rt }, new Headers())).toMatchObject({ error: 'invalid_client' })
+    expect(await refresh('spa', rt)).not.toHaveProperty('error')
+  })
+
+  it('takes client_secret_post credentials from the body for revoke and introspect', async () => {
+    const { client_secret } = await op.registerClient({
+      client_id: 'post',
+      redirect_uris: ['http://localhost/cb'],
+      scope: SCOPE,
+      token_endpoint_auth_method: 'client_secret_post',
+    })
+    if (!client_secret) throw new Error('expected a secret')
+    const { access, refresh: rt } = await tokensFor('post', { client_secret, pkce: false })
+    const creds = { client_id: 'post', client_secret }
+    expect(await op.introspect({ ...creds, token: access }, new Headers())).toMatchObject({ active: true })
+    expect(await op.introspect({ client_id: 'post', client_secret: 'wrong', token: access }, new Headers())).toEqual({
+      active: false,
+    })
+    expect(await op.revoke({ ...creds, token: rt }, new Headers())).toBeUndefined()
+    expect(await refresh('post', rt, client_secret)).toMatchObject({ error: 'invalid_grant' })
+  })
+
+  it("does not let one client revoke another's refresh token", async () => {
+    const { refresh: rt } = await tokensFor('spa')
+    expect(await op.revoke({ client_id: 'other-spa', token: rt }, new Headers())).toBeUndefined()
+    expect(await refresh('spa', rt)).not.toHaveProperty('error')
+  })
+
+  it("checks the binding before spending a refresh token, so another client's attempt does not burn the owner's", async () => {
+    const { refresh: rt } = await tokensFor('spa')
+    expect(await refresh('other-spa', rt)).toMatchObject({ error: 'invalid_grant' })
+    expect(await refresh('spa', rt)).not.toHaveProperty('error')
+  })
+
+  it('ends the grant of a subject since erased: no refresh, and its tokens introspect inactive', async () => {
+    const { client_secret } = await op.registerClient({
+      client_id: 'rs',
+      redirect_uris: ['http://localhost/cb'],
+      token_endpoint_auth_method: 'client_secret_basic',
+    })
+    const basic = new Headers({ authorization: `Basic ${Buffer.from(`rs:${client_secret}`).toString('base64')}` })
+    const { access, refresh: rt } = await tokensFor('spa')
+    expect(await op.introspect({ token: access }, basic)).toMatchObject({ active: true, sub: identity.id })
+    expect(await op.introspect({ token: rt, token_type_hint: 'refresh_token' }, basic)).toMatchObject({ active: true })
+    await auth.identities.erase(identity.id, { reason: 'test' }).orNull()
+    expect(await op.introspect({ token: access }, basic)).toEqual({ active: false })
+    expect(await op.introspect({ token: rt, token_type_hint: 'refresh_token' }, basic)).toEqual({ active: false })
+    expect(await refresh('spa', rt)).toMatchObject({ error: 'invalid_grant' })
+  })
+
+  it('refuses a code minted for a subject erased before it was exchanged', async () => {
+    const completed = await op.completeConsent({
+      client_id: 'spa',
+      code_challenge: challenge,
+      code_challenge_method: 'S256',
+      identity,
+      redirect_uri: 'http://localhost/cb',
+      scope: SCOPE,
+      sid: 'sess',
+      tenant_id: null,
+    })
+    if (completed.kind !== 'redirect') throw new Error('expected redirect')
+    const code = new URL(completed.url).searchParams.get('code') ?? ''
+    await auth.identities.erase(identity.id, { reason: 'test' }).orNull()
+    const tok = await op.token(
+      {
+        client_id: 'spa',
+        code,
+        code_verifier: verifier,
+        grant_type: 'authorization_code',
+        redirect_uri: 'http://localhost/cb',
+      },
+      new Headers(),
+    )
+    expect(tok).toMatchObject({ error: 'invalid_grant' })
+  })
+
+  it('re-checks scope and PKCE at completeConsent, whose input came back through the host form', async () => {
+    const base = {
+      client_id: 'spa',
+      identity,
+      redirect_uri: 'http://localhost/cb',
+      sid: 'sess',
+      tenant_id: null,
+    }
+    const pkce = { code_challenge: challenge, code_challenge_method: 'S256' }
+    const refused = [
+      { ...base, scope: SCOPE },
+      { ...base, ...pkce, scope: ['openid', 'email'] },
+      { ...base, ...pkce, scope: ['offline_access'] },
+      { ...base, code_challenge: challenge, code_challenge_method: 'plain', scope: SCOPE },
+    ]
+    for (const input of refused) {
+      expect(await op.completeConsent(input)).toMatchObject({ kind: 'error', status: 400 })
+    }
+    expect(await op.completeConsent({ ...base, ...pkce, scope: SCOPE })).toMatchObject({ kind: 'redirect' })
+  })
+})
+
+describe('AuthOidcOpRoot.authorize - a demand for a fresh sign-in, by prompt=login or max_age', () => {
+  let ask: (extra?: { prompt?: string; max_age?: string }) => Promise<OidcOP.AuthorizeResult<ProfileShape>>
+
+  // A session whose only factor was presented an hour ago.
+  beforeEach(async () => {
+    const auth = buildAuth()
+    const op = buildOp(auth)
+    await op.registerClient({
+      client_id: 'spa',
+      redirect_uris: ['http://localhost/cb'],
+      scope: ['openid'],
+      token_endpoint_auth_method: 'none',
+    })
+    const identity = await auth.identities.create({ profile: { email: 'u@x.com', username: 'u' } })
+    const { sid } = await auth.sessions.create({
+      aal: 1,
+      factors: [{ completedAt: new Date(Date.now() - 3_600_000), method: 'password' }],
+      identityId: identity.id,
+      kind: 'user',
+    })
+    const { challenge } = pkceVerifierAndChallenge()
+    const pkce = { code_challenge: challenge, code_challenge_method: 'S256' }
+    await op.completeConsent({
+      ...pkce,
+      client_id: 'spa',
+      identity,
+      redirect_uri: 'http://localhost/cb',
+      scope: ['openid'],
+      sid: 'sess',
+      tenant_id: null,
+    })
+    ask = (extra = {}) =>
+      op.authorize(
+        {
+          ...pkce,
+          ...extra,
+          client_id: 'spa',
+          redirect_uri: 'http://localhost/cb',
+          response_type: 'code',
+          scope: 'openid',
+        },
+        { headers: new Headers({ cookie: `duck-sid=${sid}` }) },
+      )
+  })
+
+  it('sends a signed-in person back to sign in for prompt=login, alone or with consent', async () => {
+    for (const prompt of ['login', 'login consent', 'consent  login']) {
+      expect(await ask({ prompt })).toEqual({ kind: 'login_required', reason: 'prompt_login' })
+    }
+    // `none` with anything else is a contradiction (OIDC Core 3.1.2.1).
+    expect(await ask({ prompt: 'none login' })).toMatchObject({ kind: 'error', body: { error: 'invalid_request' } })
+    // Resumed without `login`, as the host does once the person has signed in again.
+    expect(await ask()).toMatchObject({ kind: 'redirect' })
+    expect(await ask({ prompt: 'none' })).toMatchObject({ kind: 'redirect' })
+    expect(await ask({ prompt: 'consent' })).toMatchObject({ kind: 'consent_required' })
+  })
+
+  it('sends them back to sign in once max_age has passed since their last factor, where max_age was dropped', async () => {
+    expect(await ask({ max_age: '60' })).toEqual({ kind: 'login_required', reason: 'max_age_exceeded' })
+    expect(await ask({ max_age: '0' })).toEqual({ kind: 'login_required', reason: 'max_age_exceeded' })
+    expect(await ask({ max_age: '60', prompt: 'none' })).toMatchObject({
+      kind: 'error',
+      body: { error: 'login_required' },
+    })
+    expect(await ask({ max_age: '7200' })).toMatchObject({ kind: 'redirect' })
+    for (const max_age of ['', '-1', '1.5', '1e3', 'abc', '99999999999']) {
+      expect(await ask({ max_age })).toMatchObject({ kind: 'error', body: { error: 'invalid_request' } })
+    }
+  })
+
+  it('treats max_age=0 as prompt=login, even straight after a sign-in', async () => {
+    const auth = buildAuth()
+    const op = buildOp(auth)
+    await op.registerClient({
+      client_id: 'spa',
+      redirect_uris: ['http://localhost/cb'],
+      scope: ['openid'],
+      token_endpoint_auth_method: 'none',
+    })
+    const identity = await auth.identities.create({ profile: { email: 'u@x.com', username: 'u' } })
+    const now = new Date()
+    vi.useFakeTimers({ now, toFake: ['Date'] })
+    try {
+      const { sid } = await auth.sessions.create({
+        aal: 1,
+        factors: [{ completedAt: now, method: 'password' }],
+        identityId: identity.id,
+        kind: 'user',
+      })
+      const { challenge } = pkceVerifierAndChallenge()
+      const result = await op.authorize(
+        {
+          client_id: 'spa',
+          code_challenge: challenge,
+          code_challenge_method: 'S256',
+          max_age: '0',
+          redirect_uri: 'http://localhost/cb',
+          response_type: 'code',
+          scope: 'openid',
+        },
+        { headers: new Headers({ cookie: `duck-sid=${sid}` }) },
+      )
+      expect(result).toEqual({ kind: 'login_required', reason: 'max_age_exceeded' })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

@@ -76,6 +76,24 @@ export class OidcOpRoot<Profile extends Identities.ProfileMetadataBase = Identit
 
   constructor(cfg: OidcOP.Cfg, deps: IDeps<Profile>, dcr?: OidcOP.DcrCfg) {
     this.dcrCfg = dcr ?? { enabled: false }
+    // The key holding `undefined` is an unset env var, not a choice of open registration, which leaves it out.
+    if (dcr?.enabled && 'initialAccessToken' in dcr && dcr.initialAccessToken === undefined) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: 'AuthOidcOP: dcr.initialAccessToken is undefined; leave the key out to run open registration',
+      })
+    }
+    // A presented token is trimmed, so a blank one matched `Bearer` followed by any whitespace JS trims.
+    if (dcr?.initialAccessToken !== undefined && dcr.initialAccessToken.trim() === '') {
+      throw new AuthError('AUTH_MISCONFIGURED', { detail: 'AuthOidcOP: dcr.initialAccessToken must not be blank' })
+    }
+    if (
+      dcr?.maxRedirectUris !== undefined &&
+      !(Number.isSafeInteger(dcr.maxRedirectUris) && dcr.maxRedirectUris >= 1)
+    ) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: `AuthOidcOP: dcr.maxRedirectUris must be a whole number, 1 or more (got ${String(dcr.maxRedirectUris)})`,
+      })
+    }
     if (!cfg.issuer) throw new AuthError('AUTH_MISCONFIGURED', { detail: 'AuthOidcOP: issuer required' })
     const parsed = parseIssuer(cfg.issuer, cfg.allowHttp ?? false)
     this.issuer = parsed
@@ -111,6 +129,8 @@ export class OidcOpRoot<Profile extends Identities.ProfileMetadataBase = Identit
       throw new AuthError('AUTH_INVALID_PARAMETERS', { detail: 'registerClient: at least one redirect_uri required' })
     }
     for (const uri of input.redirect_uris) assertValidRedirect(uri)
+    if (input.client_uri !== undefined) assertValidMetadataUri('client_uri', input.client_uri)
+    if (input.logo_uri !== undefined) assertValidMetadataUri('logo_uri', input.logo_uri)
     const method = input.token_endpoint_auth_method ?? (input.client_secret ? 'client_secret_basic' : 'none')
     const secret = method === 'none' ? null : (input.client_secret ?? randomToken(32))
     const row: OidcOP.Client = {
@@ -175,6 +195,26 @@ export class OidcOpRoot<Profile extends Identities.ProfileMetadataBase = Identit
       } catch (err) {
         const description = err instanceof Error ? err.message : 'invalid redirect_uri'
         return { status: 400, body: { error: 'invalid_redirect_uri', error_description: description } }
+      }
+    }
+    // The body is parsed JSON, so each field is checked for its type before it is read as one.
+    for (const key of ['grant_types', 'response_types'] as const) {
+      const v: unknown = req[key]
+      if (v !== undefined && !(Array.isArray(v) && v.every((x) => typeof x === 'string'))) {
+        return { status: 400, body: { error: 'invalid_client_metadata', error_description: `${key} must be a list` } }
+      }
+    }
+    if (req.scope !== undefined && typeof req.scope !== 'string') {
+      return { status: 400, body: { error: 'invalid_client_metadata', error_description: 'scope must be a string' } }
+    }
+    for (const key of ['client_uri', 'logo_uri'] as const) {
+      const v = req[key]
+      if (v === undefined) continue
+      try {
+        assertValidMetadataUri(key, v)
+      } catch (err) {
+        const description = err instanceof Error ? err.message : `invalid ${key}`
+        return { status: 400, body: { error: 'invalid_client_metadata', error_description: description } }
       }
     }
     const grantTypes = filterGrantTypes(req.grant_types ?? ['authorization_code', 'refresh_token'])
@@ -294,44 +334,31 @@ export class OidcOpRoot<Profile extends Identities.ProfileMetadataBase = Identit
       }
     }
     const requested = parsedScope
-    if (!requested.includes(REQUIRED_SCOPE)) {
+    const refused = this.refuseRequest(client, { ...req, scope: requested })
+    if (refused) {
+      return { kind: 'error', status: 302, redirectUri: req.redirect_uri, body: { ...refused, state: req.state } }
+    }
+    // A space-separated list (OIDC Core 3.1.2.1), so `login consent` asks for both.
+    const prompts = new Set(typeof req.prompt === 'string' ? req.prompt.split(' ').filter((p) => p.length > 0) : [])
+    if (prompts.has('none') && prompts.size > 1) {
       return {
         kind: 'error',
         status: 302,
         redirectUri: req.redirect_uri,
-        body: { error: 'invalid_scope', error_description: 'openid scope required', state: req.state },
+        body: { error: 'invalid_request', error_description: 'prompt none takes no other value', state: req.state },
       }
     }
-    for (const s of requested) {
-      if (!this.supportedScopes.includes(s) || !client.scope.includes(s)) {
-        return {
-          kind: 'error',
-          status: 302,
-          redirectUri: req.redirect_uri,
-          body: { error: 'invalid_scope', error_description: `scope '${s}' not allowed`, state: req.state },
-        }
-      }
-    }
-    // PKCE is mandatory for public clients, and S256 is required across the board.
-    if (req.code_challenge_method && req.code_challenge_method !== 'S256') {
+    if (req.max_age !== undefined && !/^\d{1,10}$/.test(req.max_age)) {
       return {
         kind: 'error',
         status: 302,
         redirectUri: req.redirect_uri,
-        body: { error: 'invalid_request', error_description: 'only S256 PKCE supported', state: req.state },
-      }
-    }
-    if (client.token_endpoint_auth_method === 'none' && !req.code_challenge) {
-      return {
-        kind: 'error',
-        status: 302,
-        redirectUri: req.redirect_uri,
-        body: { error: 'invalid_request', error_description: 'PKCE required for public clients', state: req.state },
+        body: { error: 'invalid_request', error_description: 'max_age must be whole seconds', state: req.state },
       }
     }
     const resolved = await this.deps.auth.resolveSession(httpReq).orNull()
     if (!resolved?.identity) {
-      if (req.prompt === 'none') {
+      if (prompts.has('none')) {
         return {
           kind: 'error',
           status: 302,
@@ -339,12 +366,30 @@ export class OidcOpRoot<Profile extends Identities.ProfileMetadataBase = Identit
           body: { error: 'login_required', state: req.state },
         }
       }
-      return { kind: 'login_required', reason: req.prompt === 'login' ? 'prompt_login' : 'no_session' }
+      return { kind: 'login_required', reason: prompts.has('login') ? 'prompt_login' : 'no_session' }
+    }
+    // Asked of a signed-in person too: the host signs them in again and resumes without `login`.
+    if (prompts.has('login')) return { kind: 'login_required', reason: 'prompt_login' }
+    if (req.max_age !== undefined) {
+      const { createdAt, factors } = resolved.session
+      const authAt = factors.length > 0 ? Math.max(...factors.map((f) => f.completedAt.getTime())) : createdAt.getTime()
+      // At the limit too, so `max_age=0` is `prompt=login` (OIDC Core 3.1.2.1).
+      if (Date.now() - authAt >= Number(req.max_age) * 1000) {
+        if (prompts.has('none')) {
+          return {
+            kind: 'error',
+            status: 302,
+            redirectUri: req.redirect_uri,
+            body: { error: 'login_required', state: req.state },
+          }
+        }
+        return { kind: 'login_required', reason: 'max_age_exceeded' }
+      }
     }
     const consent = await this.deps.consents.find(resolved.identity.id, client.client_id)
     const consentCoversRequest = consent !== null && requested.every((s) => consent.scope.includes(s))
-    if (!consentCoversRequest || req.prompt === 'consent') {
-      if (req.prompt === 'none') {
+    if (!consentCoversRequest || prompts.has('consent')) {
+      if (prompts.has('none')) {
         return {
           kind: 'error',
           status: 302,
@@ -389,6 +434,9 @@ export class OidcOpRoot<Profile extends Identities.ProfileMetadataBase = Identit
     if (!client?.redirect_uris.includes(input.redirect_uri)) {
       return { kind: 'error', status: 400, body: { error: 'invalid_request' } }
     }
+    // Checked again: this input came back through the host's consent form, not straight from `authorize`.
+    const refused = this.refuseRequest(client, input)
+    if (refused) return { kind: 'error', status: 400, body: refused }
     await this.deps.consents.upsert({
       identity_id: input.identity.id,
       client_id: input.client_id,
@@ -407,6 +455,29 @@ export class OidcOpRoot<Profile extends Identities.ProfileMetadataBase = Identit
       sid: input.sid,
       tenant_id: input.tenant_id,
     })
+  }
+
+  /** The scope and PKCE checks against the client, which `authorize` and `completeConsent` both run. */
+  private refuseRequest(
+    client: OidcOP.Client,
+    req: { scope: string[]; code_challenge?: string; code_challenge_method?: string },
+  ): OidcOP.OauthError | null {
+    if (!req.scope.includes(REQUIRED_SCOPE)) {
+      return { error: 'invalid_scope', error_description: 'openid scope required' }
+    }
+    for (const s of req.scope) {
+      if (!this.supportedScopes.includes(s) || !client.scope.includes(s)) {
+        return { error: 'invalid_scope', error_description: `scope '${s}' not allowed` }
+      }
+    }
+    // PKCE is mandatory for public clients, and S256 is required across the board.
+    if (req.code_challenge_method && req.code_challenge_method !== 'S256') {
+      return { error: 'invalid_request', error_description: 'only S256 PKCE supported' }
+    }
+    if (client.token_endpoint_auth_method === 'none' && !req.code_challenge) {
+      return { error: 'invalid_request', error_description: 'PKCE required for public clients' }
+    }
+    return null
   }
 
   private async mintCodeAndRedirect(input: {
@@ -485,6 +556,9 @@ export class OidcOpRoot<Profile extends Identities.ProfileMetadataBase = Identit
         return { error: 'invalid_grant', error_description: 'code_verifier mismatch' }
       }
     }
+    if (!(await this.deps.auth.identities.getById(row.identity_id).orNull())) {
+      return { error: 'invalid_grant', error_description: 'subject not found' }
+    }
     return this.issueTokens({
       client,
       identity_id: row.identity_id,
@@ -513,9 +587,16 @@ export class OidcOpRoot<Profile extends Identities.ProfileMetadataBase = Identit
       await this.deps.refreshTokens.revokeFamily(existing.family_id)
       return { error: 'invalid_grant', error_description: 'refresh token reuse detected' }
     }
+    // Before the consume, or another client spends it and the owner's next refresh reads as reuse.
+    if (existing && existing.client_id !== client.client_id) return { error: 'invalid_grant' }
     const row = await this.deps.refreshTokens.consume(hash, now)
     if (!row) return { error: 'invalid_grant', error_description: 'refresh token unknown / expired' }
     if (row.client_id !== client.client_id) return { error: 'invalid_grant' }
+    // Each refresh moves the expiry out, so a subject erased or deleted is checked for here or its grant never ends.
+    if (!(await this.deps.auth.identities.getById(row.identity_id).orNull())) {
+      await this.deps.refreshTokens.revokeFamily(row.family_id)
+      return { error: 'invalid_grant', error_description: 'subject not found' }
+    }
     let scope = row.scope
     if (req.scope) {
       const parsedScope = parseScopeString(req.scope)
@@ -628,20 +709,30 @@ export class OidcOpRoot<Profile extends Identities.ProfileMetadataBase = Identit
   }
 
   /**
-   * RFC 7662 introspection. Confidential clients only.
-   * Returns `{ active: false }` for unknown / expired tokens.
+   * RFC 7662 introspection. Confidential clients only, authenticating by Basic or, for `client_secret_post`,
+   * by `client_id` and `client_secret` in the body. Returns `{ active: false }` for unknown / expired tokens,
+   * and for a subject since erased or deleted.
    */
   async introspect(
-    req: { token: string; token_type_hint?: 'access_token' | 'refresh_token' },
+    req: {
+      token: string
+      token_type_hint?: 'access_token' | 'refresh_token'
+      client_id?: string
+      client_secret?: string
+    },
     headers: Headers,
   ): Promise<{ active: boolean; [k: string]: unknown }> {
-    const clientAuth = await this.authenticateClient({ grant_type: '' }, headers)
+    const clientAuth = await this.authenticateClient(
+      { grant_type: '', client_id: req.client_id, client_secret: req.client_secret },
+      headers,
+    )
     if ('error' in clientAuth) return { active: false }
     if (clientAuth.client.token_endpoint_auth_method === 'none') return { active: false }
     const now = Date.now()
+    const subjectExists = async (id: string) => (await this.deps.auth.identities.getById(id).orNull()) !== null
     if (req.token_type_hint !== 'refresh_token') {
       const at = await this.deps.accessTokens.findByHash(sha256(req.token), now)
-      if (at) {
+      if (at && (await subjectExists(at.identity_id))) {
         return {
           active: true,
           client_id: at.client_id,
@@ -654,7 +745,7 @@ export class OidcOpRoot<Profile extends Identities.ProfileMetadataBase = Identit
     }
     if (req.token_type_hint !== 'access_token') {
       const rt = await this.deps.refreshTokens.findByHash(sha256(req.token), now)
-      if (rt && rt.consumedAt === null) {
+      if (rt && rt.consumedAt === null && (await subjectExists(rt.identity_id))) {
         return {
           active: true,
           client_id: rt.client_id,
@@ -668,20 +759,35 @@ export class OidcOpRoot<Profile extends Identities.ProfileMetadataBase = Identit
     return { active: false }
   }
 
-  /** RFC 7009 token revocation. */
+  /**
+   * RFC 7009 revocation of a token issued to the calling client, which authenticates as it does at `/token`: a
+   * public client by `client_id` in the body. Answers `invalid_client` for one that fails to, which the host
+   * sends as a 401; otherwise nothing, a 200, including for a token unknown or issued to another client.
+   */
   async revoke(
-    req: { token: string; token_type_hint?: 'access_token' | 'refresh_token' },
+    req: {
+      token: string
+      token_type_hint?: 'access_token' | 'refresh_token'
+      client_id?: string
+      client_secret?: string
+    },
     headers: Headers,
-  ): Promise<void> {
-    const clientAuth = await this.authenticateClient({ grant_type: '' }, headers)
-    if ('error' in clientAuth) return
+  ): Promise<OidcOP.OauthError | undefined> {
+    const clientAuth = await this.authenticateClient(
+      { grant_type: '', client_id: req.client_id, client_secret: req.client_secret },
+      headers,
+    )
+    if ('error' in clientAuth) return clientAuth
+    const { client } = clientAuth
     const hash = sha256(req.token)
+    const now = Date.now()
     if (req.token_type_hint !== 'refresh_token') {
-      await this.deps.accessTokens.revokeByHash(hash)
+      const at = await this.deps.accessTokens.findByHash(hash, now)
+      if (at?.client_id === client.client_id) await this.deps.accessTokens.revokeByHash(hash)
     }
     if (req.token_type_hint !== 'access_token') {
-      const rt = await this.deps.refreshTokens.findByHash(hash, Date.now())
-      if (rt) await this.deps.refreshTokens.revokeFamily(rt.family_id)
+      const rt = await this.deps.refreshTokens.findByHash(hash, now)
+      if (rt?.client_id === client.client_id) await this.deps.refreshTokens.revokeFamily(rt.family_id)
     }
   }
 
@@ -690,22 +796,34 @@ export class OidcOpRoot<Profile extends Identities.ProfileMetadataBase = Identit
     headers: Headers,
   ): Promise<{ client: OidcOP.Client } | OidcOP.OauthError> {
     const basic = parseBasicAuth(headers.get('authorization'))
-    const clientIdFromBasic = basic?.user
-    const clientSecretFromBasic = basic?.pass
-    const clientId = clientIdFromBasic ?? req.client_id
-    if (!clientId) return { error: 'invalid_client', error_description: 'client_id required' }
-    const client = await this.deps.clients.findById(clientId)
+    // A Basic header owns the client_id even when it is empty, or a caller could
+    // name one client in the header and another in the body.
+    const idCandidates = basic ? basic.user : req.client_id ? [req.client_id] : []
+    if (idCandidates.length === 0 || idCandidates[0] === '') {
+      return { error: 'invalid_client', error_description: 'client_id required' }
+    }
+    let client: OidcOP.Client | null = null
+    for (const candidate of idCandidates) {
+      const found = await this.deps.clients.findById(candidate)
+      if (found) {
+        client = found
+        break
+      }
+    }
     if (!client) return { error: 'invalid_client' }
     switch (client.token_endpoint_auth_method) {
       case 'none':
         // Public clients prove themselves via PKCE; no secret to check.
         return { client }
-      case 'client_secret_basic':
-        if (!clientSecretFromBasic) return { error: 'invalid_client', error_description: 'Basic auth required' }
-        if (!client.client_secret_hash || !timingSafeEqual(sha256(clientSecretFromBasic), client.client_secret_hash)) {
+      case 'client_secret_basic': {
+        const secrets = basic?.pass.filter((candidate) => candidate !== '') ?? []
+        if (secrets.length === 0) return { error: 'invalid_client', error_description: 'Basic auth required' }
+        const hash = client.client_secret_hash
+        if (hash === null || !secrets.some((candidate) => timingSafeEqual(sha256(candidate), hash))) {
           return { error: 'invalid_client' }
         }
         return { client }
+      }
       case 'client_secret_post':
         if (!req.client_secret) return { error: 'invalid_client', error_description: 'client_secret required in body' }
         if (!client.client_secret_hash || !timingSafeEqual(sha256(req.client_secret), client.client_secret_hash)) {
@@ -801,6 +919,25 @@ function assertUsableScheme(url: URL, uri: string): void {
   })
 }
 
+/** A consent screen links `client_uri` and shows `logo_uri`, so each must be an http(s) URL: a `javascript:` link
+ *  there runs on the provider's own origin. */
+function assertValidMetadataUri(field: 'client_uri' | 'logo_uri', uri: unknown): void {
+  let url: URL | null = null
+  try {
+    url = typeof uri === 'string' && uri.length <= 2048 ? new URL(uri) : null
+  } catch {}
+  if (
+    url === null ||
+    (url.protocol !== 'https:' && url.protocol !== 'http:') ||
+    url.username !== '' ||
+    url.password !== ''
+  ) {
+    throw new AuthError('AUTH_INVALID_PARAMETERS', {
+      detail: `registerClient: ${field} must be an http(s) URL of at most 2048 characters, without userinfo`,
+    })
+  }
+}
+
 function isLoopbackHost(hostname: string): boolean {
   return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]'
 }
@@ -844,7 +981,8 @@ function normalizeTokenAuth(input: string | undefined): OidcOP.TokenEndpointAuth
   return null
 }
 
-function parseBasicAuth(header: string | null): { user: string; pass: string } | null {
+/** Each half of a Basic payload, form-decoded and raw, in the order to try them. */
+function parseBasicAuth(header: string | null): { user: string[]; pass: string[] } | null {
   if (!header) return null
   const trimmed = header.trim()
   if (!trimmed.toLowerCase().startsWith('basic ')) return null
@@ -858,7 +996,22 @@ function parseBasicAuth(header: string | null): { user: string; pass: string } |
   }
   const idx = decoded.indexOf(':')
   if (idx < 0) return null
-  return { user: decoded.slice(0, idx), pass: decoded.slice(idx + 1) }
+  return { pass: basicCandidates(decoded.slice(idx + 1)), user: basicCandidates(decoded.slice(0, idx)) }
+}
+
+/**
+ * RFC 6749 section 2.3.1 form-urlencodes each half before base64, so the decoded
+ * spelling comes first. The raw one follows for clients that skip the encoding,
+ * and is the only candidate when percent-decoding fails or changes nothing.
+ */
+function basicCandidates(raw: string): string[] {
+  let decoded: string
+  try {
+    decoded = decodeURIComponent(raw.replace(/\+/g, ' '))
+  } catch {
+    return [raw]
+  }
+  return decoded === raw ? [raw] : [decoded, raw]
 }
 
 /** Constructs {@link OidcOpRoot} directly. */

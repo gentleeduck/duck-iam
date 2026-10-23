@@ -183,9 +183,12 @@ export namespace OidcOP {
     code_challenge?: string
     code_challenge_method?: string
     prompt?: string
+    /** Whole seconds since the person last presented a factor, past which they sign in again. */
+    max_age?: string
   }
 
-  /** /authorize result the host app routes on. */
+  /** /authorize result the host app routes on. For `login_required` the host signs the person in, then
+   *  resumes the request without `login` in `prompt` and without `max_age`, which that sign-in answered. */
   export type AuthorizeResult<Profile extends Identities.ProfileMetadataBase> =
     | { kind: 'redirect'; url: string }
     | { kind: 'login_required'; reason: 'no_session' | 'prompt_login' | 'max_age_exceeded' }
