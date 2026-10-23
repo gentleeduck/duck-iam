@@ -843,6 +843,85 @@ describe('SessionsFacet', () => {
       await expect(adapter.sessions.getByHash(second.session.id)).resolves.toBeTruthy()
       await expect(adapter.sessions.getByHash(third.session.id)).resolves.toBeTruthy()
     })
+
+    it('counts the new session against its own kind only, so API key sessions never sign a person out', async () => {
+      const capped = new SessionsImpl(adapter.sessions, events, {
+        ...DEFAULT_SESSION_CONFIG,
+        maxSessionsPerIdentity: 2,
+      })
+      const mint = (kind: 'user' | 'apikey') => capped.create({ aal: 1, factors: [], identityId: 'user-1', kind })
+      const browser = await mint('user')
+      await adapter.sessions.update(browser.session.id, { createdAt: new Date(Date.now() - 60_000) })
+      const keys = [await mint('apikey'), await mint('apikey')]
+      await adapter.sessions.update(keys[0]!.session.id, { createdAt: new Date(Date.now() - 30_000) })
+      keys.push(await mint('apikey'))
+      await expect(adapter.sessions.getByHash(browser.session.id)).resolves.toBeTruthy()
+      expect(await orNull(adapter.sessions.getByHash(keys[0]!.session.id))).toBeNull()
+
+      // The cap still holds among a person's own sessions.
+      await mint('user')
+      await mint('user')
+      expect(await orNull(adapter.sessions.getByHash(browser.session.id))).toBeNull()
+    })
+
+    describe('the cap against a rotation and a dead row', () => {
+      const capped = () =>
+        new SessionsImpl(adapter.sessions, events, { ...DEFAULT_SESSION_CONFIG, maxSessionsPerIdentity: 2 })
+      const mint = (facet: SessionsImpl) => facet.create({ aal: 1, factors: [], identityId: 'user-1', kind: 'user' })
+      const age = (id: string, ms: number) => adapter.sessions.update(id, { createdAt: new Date(Date.now() - ms) })
+
+      it('steps up the oldest session at the cap instead of signing it out', async () => {
+        const facet = capped()
+        const oldest = await mint(facet)
+        await age(oldest.session.id, 60_000)
+        await mint(facet)
+        const up = await facet.rotateOrCreate({
+          aal: 2,
+          factors: [],
+          identityId: 'user-1',
+          kind: 'user',
+          previousSid: oldest.sid,
+          purpose: 'step-up',
+        })
+        await expect(adapter.sessions.getByHash(up.session.id)).resolves.toMatchObject({ aal: 2 })
+        expect(await adapter.sessions.listByIdentity('user-1')).toHaveLength(2)
+      })
+
+      it('counts the session a sign-in replaces as replaced, not as another device', async () => {
+        const facet = capped()
+        const other = await mint(facet)
+        await age(other.session.id, 60_000)
+        const current = await mint(facet)
+        const revoked: string[] = []
+        events.on('session.revoked', (p) => {
+          revoked.push(p.sessionId)
+        })
+        const next = await facet.rotateOrCreate({
+          aal: 1,
+          factors: [],
+          identityId: 'user-1',
+          kind: 'user',
+          previousSid: current.sid,
+          purpose: 'signin',
+        })
+        const left = (await adapter.sessions.listByIdentity('user-1')).map((s) => s.id).sort()
+        expect(left).toEqual([other.session.id, next.session.id].sort())
+        expect(revoked).toEqual([current.session.id])
+      })
+
+      it('neither counts an expired row nor spares it in place of a live one', async () => {
+        const facet = capped()
+        const live = await mint(facet)
+        await age(live.session.id, 20 * 86_400_000)
+        const dead = await mint(facet)
+        await adapter.sessions.update(dead.session.id, {
+          createdAt: new Date(Date.now() - 10 * 86_400_000),
+          expiresAt: new Date(Date.now() - 1_000),
+        })
+        await mint(facet)
+        await expect(adapter.sessions.getByHash(live.session.id)).resolves.toBeTruthy()
+      })
+    })
   })
 
   describe('the facet answers with the session or rejects', () => {

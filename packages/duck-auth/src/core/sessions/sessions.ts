@@ -68,6 +68,12 @@ export class SessionsImpl {
    *  the sign-in again is the caller's. `createdAt` is read from the clock below, so the re-mint
    *  `rotateOrCreate` does straight after its own sweep is never the one refused. */
   async create(input: Sessions.MintInput): Promise<{ session: Sessions.Me; sid: string; csrfToken: string }> {
+    const minted = await this._mint(input)
+    await this._enforceCap(minted.session)
+    return minted
+  }
+
+  private async _mint(input: Sessions.MintInput): Promise<{ session: Sessions.Me; sid: string; csrfToken: string }> {
     // Real flows mint 1 to 3; the cap is so a buggy caller cannot bloat the JSON column.
     if (!Array.isArray(input.factors) || input.factors.length > 16) {
       throw new AuthError('AUTH_MISCONFIGURED', {
@@ -143,20 +149,25 @@ export class SessionsImpl {
 
     await this._store.create(session)
     await this._events.emit('session.created', { session, identity: input.identity ?? null })
-    // After the write, never before it: evicting first would drop a live session and then, if this
-    // create failed, leave the person with fewer than they started with and no replacement.
-    const cap = this._cfg.maxSessionsPerIdentity
-    if (cap !== undefined && input.identityId) {
-      const all = await this._store.listByIdentity(input.identityId)
-      const excess = all.length - cap
-      if (excess > 0) {
-        // Oldest first by `createdAt`, and the one just minted is the newest, so it is never its own
-        // victim however low the cap is set.
-        const doomed = [...all].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime()).slice(0, excess)
-        await this.revokeByHashes(doomed.map((s) => s.id))
-      }
-    }
     return { session, sid, csrfToken }
+  }
+
+  /** Revokes the oldest live sessions of `fresh`'s kind over `maxSessionsPerIdentity`. Runs after the write, never
+   *  before it: evicting first would drop a live session and then, if the mint failed, leave no replacement. An
+   *  expired row signs nothing in, so it neither counts nor saves a live device from eviction, and `fresh` is never
+   *  its own victim. */
+  private async _enforceCap(fresh: Sessions.Me): Promise<void> {
+    const cap = this._cfg.maxSessionsPerIdentity
+    if (cap === undefined || !fresh.identityId) return
+    const now = Date.now()
+    const others = (await this._store.listByIdentity(fresh.identityId)).filter(
+      // One kind at a time: an m2m exchange's row, whose JWT resolves without it, evicted its owner's browser sessions.
+      (s) => s.id !== fresh.id && s.kind === fresh.kind && !isSessionExpired(s, now),
+    )
+    const excess = others.length + 1 - cap
+    if (excess <= 0) return
+    const doomed = others.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime()).slice(0, excess)
+    await this.revokeByHashes(doomed.map((s) => s.id))
   }
 
   /** One code path for every transition that changes a session's identity, AAL or privilege, so
@@ -215,7 +226,9 @@ export class SessionsImpl {
       return fresh
     }
 
-    const fresh = await this.create(minted)
+    // The cap is enforced once `prev` is settled: counted while it still stood, the row being replaced cost
+    // the person another device, and a step-up whose `prev` it evicted failed with no session left.
+    const fresh = await this._mint(minted)
     // Only a row that exists: a stale cookie names none, and its revoke would be an audit event for nothing.
     if (prev) {
       switch (input.purpose) {
@@ -245,9 +258,11 @@ export class SessionsImpl {
         }
       }
       await this._events.emit('session.rotated', { session: fresh.session, previousSessionId: prev.id })
+      await this._enforceCap(fresh.session)
       return fresh
     }
     await this._events.emit('session.rotated', { session: fresh.session })
+    await this._enforceCap(fresh.session)
     return fresh
   }
 

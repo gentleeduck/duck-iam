@@ -61,6 +61,18 @@ export class RedisSessionImpl<TRedis extends RedisLike.Client = RedisLike.Client
     this._prefix = cfg.prefix ?? 'auth'
     this._maxTtlSec = cfg.maxTtlSec ?? 30 * 24 * 60 * 60
     this._gcLeaseSec = cfg.gcLeaseSec ?? 5 * 60
+    // Both go to Redis as a TTL: NaN is sent as one, `EXPIRE` refuses a fraction on every sign-in, and 0
+    // deletes the identity index as it is written, leaving sessions "sign out everywhere" cannot find.
+    for (const [key, value] of [
+      ['maxTtlSec', this._maxTtlSec],
+      ['gcLeaseSec', this._gcLeaseSec],
+    ] as const) {
+      if (!Number.isSafeInteger(value) || value < 1) {
+        throw new AuthError('AUTH_MISCONFIGURED', {
+          detail: `RedisSessionImpl: ${key} must be a whole number of seconds above 0 (got ${value})`,
+        })
+      }
+    }
   }
 
   private _sessKey(sessionId: string): string {
