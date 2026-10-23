@@ -107,16 +107,8 @@ export class ApiKeysFacet {
       },
       ctx,
     )
-    const key: ApiKeys.ApiKey = {
-      id: cred.id,
-      identityId,
-      name: opts.name,
-      scopes: opts.scopes,
-      createdAt: cred.createdAt,
-      updatedAt: cred.updatedAt,
-      ...(opts.expiresAt !== undefined && { expiresAt: new Date(opts.expiresAt) }),
-    }
-    return { key, plaintext }
+    // The stored row, as `list` reads it: built from the input, a tenant-bound key came back without its tenant.
+    return { key: toApiKey(cred), plaintext }
   }
 
   /** No plaintext. */
@@ -167,6 +159,8 @@ export class ApiKeysFacet {
         name: meta.name,
         scopes: meta.scopes,
         ...(existing.expiresAt != null && { expiresAt: existing.expiresAt.getTime() }),
+        // SECURITY: the store stamps `ctx`'s tenant otherwise, so a rotation without it unbound the key.
+        ...(existing.tenantId != null && { tenantId: existing.tenantId }),
       },
       ctx,
     )

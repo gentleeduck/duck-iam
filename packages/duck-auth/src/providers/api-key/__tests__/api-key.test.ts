@@ -187,6 +187,25 @@ describe('api-key provider', () => {
       })
     })
 
+    it('keeps a key rotated without the tenant, as the docs rotate it, in its tenant', async () => {
+      const ident = await env.adapter.identities.create(
+        identityInput({ profile: { email: 't4@x.com', username: 't4' }, providers: [] }),
+      )
+      const created = await env.facet.create(ident.id, { name: 'tenant-A key', scopes: ['read'], tenantId: 'tenant-A' })
+      const rotated = await env.facet.rotate(created.key.id)
+      expect(rotated.key.tenantId).toBe('tenant-A')
+
+      const provider = authApiKey<ProfileShape>({ apiKeys: env.facet })
+      const at = (tenant: { tenantId?: string }) => ({ ...env.ctx, tenant })
+      for (const tenant of [{}, { tenantId: 'tenant-B' }]) {
+        await expect(provider.complete(at(tenant), { token: rotated.plaintext })).rejects.toMatchObject({
+          code: 'AUTH_APIKEY_INVALID',
+        })
+      }
+      const intents = await provider.complete(at({ tenantId: 'tenant-A' }), { token: rotated.plaintext })
+      expect(intents.map((i) => i.type)).toEqual(['startSession'])
+    })
+
     it('still identifies-confirms a tenant-A key on a tenant-A request (happy path)', async () => {
       const adapter = new MemoryAdapter<ProfileShape>()
       const events = new InMemoryEvents()

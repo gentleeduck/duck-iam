@@ -42,6 +42,23 @@ describe('ApiKeysFacet', () => {
       const { key } = await facet.create('u', { name: 'k', scopes: [], expiresAt, tenantId: 'T' })
       expect(key.expiresAt).toEqual(new Date(expiresAt))
     })
+
+    it('answers the key as list reads it back, its tenant included', async () => {
+      const { key } = await facet.create('u', {
+        name: 'k',
+        scopes: ['read'],
+        expiresAt: Date.now() + 60_000,
+        tenantId: 'T',
+      })
+      expect(key.tenantId).toBe('T')
+      expect([key]).toEqual(await facet.list('u'))
+    })
+
+    it('answers an expiresAt of null as no expiry, which is what it stores', async () => {
+      const { key } = await Reflect.apply(facet.create, facet, ['u', { name: 'k', scopes: [], expiresAt: null }])
+      expect(key.expiresAt).toBeUndefined()
+      expect((await adapter.credentials.findById(key.id, {})).expiresAt).toBeNull()
+    })
   })
 
   describe('verify', () => {
