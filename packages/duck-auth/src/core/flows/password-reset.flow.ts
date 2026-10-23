@@ -5,12 +5,13 @@
 import { orNull } from '~/core/answer'
 import {
   burnCredential,
+  evictUnproven,
   getCredentialPurpose,
   isCredentialExpired,
   isRevoked,
   toCredentialCreate,
 } from '~/core/credentials/credentials'
-import { RECOVERY_PURPOSES } from '~/core/credentials/credentials.constants'
+import { LATEST_STORABLE_MS, RECOVERY_PURPOSES } from '~/core/credentials/credentials.constants'
 import { AuthError } from '~/core/errors'
 import { refuseRateLimited } from '~/core/events/events.lockout'
 import { canonicalEmail, type Identities } from '~/core/identities'
@@ -52,11 +53,11 @@ export async function requestPasswordReset<Profile extends Identities.ProfileMet
 ): Promise<{ ok: true }> {
   const { email } = opts.input
   const ttlMs = opts.input.ttlMs ?? 30 * 60 * 1000
-  // Before the lookup: SQL stores refuse the `Invalid Date` a NaN makes, so below it this answers 500 for
-  // an address that exists and `{ok:true}` for one that does not.
-  if (!Number.isFinite(ttlMs) || ttlMs <= 0) {
+  // Before the lookup: stores refuse a deadline they cannot hold, a NaN's or one past 9999, so below it this
+  // answers 500 for an address that exists and `{ok:true}` for one that does not.
+  if (!Number.isFinite(ttlMs) || ttlMs <= 0 || Date.now() + ttlMs > LATEST_STORABLE_MS) {
     throw new AuthError('AUTH_MISCONFIGURED', {
-      detail: `password-reset: ttlMs must be a finite positive number (got ${ttlMs})`,
+      detail: `password-reset: ttlMs must be a positive number whose deadline a store can hold (got ${ttlMs})`,
     })
   }
   const callbackPath = isSafeCallbackPath(opts.input.callbackPath) ? opts.input.callbackPath : '/auth/reset-password'
@@ -121,7 +122,9 @@ export async function requestPasswordReset<Profile extends Identities.ProfileMet
     await ctx.stores.credentials.listByIdentity(subjectId, 'recovery', ctx.tenant)
   }
 
-  const url = `${ctx.baseUrl}${callbackPath}?token=${encodeURIComponent(token)}`
+  const link = new URL(`${ctx.baseUrl}${callbackPath}`)
+  // Set, so a `token` the asker wrote into `callbackPath` cannot be read ahead of this one.
+  link.searchParams.set('token', token)
   const requiresMfa = (await enrolledMfa(deps, subjectId, ctx.tenant)).length > 0
   if (!identityRow) {
     return { ok: true }
@@ -132,7 +135,7 @@ export async function requestPasswordReset<Profile extends Identities.ProfileMet
     kind: 'password-reset',
     identity: identityRow,
     tenant: ctx.tenant,
-    vars: { requiresMfa, ttlMin: Math.round(ttlMs / 60_000), url },
+    vars: { requiresMfa, ttlMin: Math.round(ttlMs / 60_000), url: link.href },
   })
   await deps.events.emit('recovery.password.requested', { identityId: identityRow.id })
   return { ok: true }
@@ -196,7 +199,6 @@ export async function completePasswordReset<Profile extends Identities.ProfileMe
   }
 
   await burnCredential(ctx, row)
-  await ctx.stores.credentials.revoke(row.id, ctx.tenant)
 
   // SECURITY: sessions first, password second. The other order leaves the new password live with the
   // old sessions still open if the revoke throws; failing before the write changes nothing and the
@@ -221,6 +223,17 @@ export async function completePasswordReset<Profile extends Identities.ProfileMe
   } else {
     await deps.sessions.revokeAllForIdentity(row.identityId)
   }
+  // SECURITY: the link proves the address, as a magic link does. Signed in to the row, the caller already held
+  // it; without that, whoever signed the row up may not hold the inbox, and what they linked or enrolled goes
+  // before the address is marked proven.
+  if (!identity.emailVerified) {
+    if (!callerSession) await evictUnproven(ctx.stores, row.identityId, row.id)
+    await deps.identities.markEmailVerified(row.identityId, identity.profile.email).catch((err: unknown) => {
+      throw err instanceof AuthError && err.code === 'AUTH_INVALID_PARAMETERS'
+        ? new AuthError('AUTH_RECOVERY_TOKEN_INVALID')
+        : err
+    })
+  }
   // With the sessions: a remembered device skips the second factor for whoever holds its token.
   const trustedDevice = RECOVERY_PURPOSES.trustedDevice
   await ctx.stores.credentials.deleteByKindAndPurpose(row.identityId, 'recovery', trustedDevice, ctx.tenant)
@@ -228,6 +241,8 @@ export async function completePasswordReset<Profile extends Identities.ProfileMe
   // SECURITY: in this reset's tenant, like every other store call above. `set` defaults the context to
   // `{}`, and an undefined tenant is not "this tenant" - `inTenant` emits no filter at all.
   await passwords.set(row.identityId, newPassword, ctx.stores.credentials, ctx.tenant)
+  // Spent, and live until here: it is what keeps `beginSignUp` from reading a swept row as abandoned.
+  await orNull(ctx.stores.credentials.revoke(row.id, ctx.tenant))
   await deps.events.emit('recovery.password.completed', { identityId: row.identityId })
   return { intents, ok: true }
 }

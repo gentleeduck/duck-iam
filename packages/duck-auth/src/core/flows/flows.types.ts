@@ -77,7 +77,7 @@ export namespace Flows {
   /** Where a reset link goes and how long it lives. */
   export type PasswordResetRequestInput = {
     email: string
-    /** Path on the app that handles the reset; the library appends `?token=`. */
+    /** Path on the app that handles the reset; the library sets its `token` query parameter. */
     callbackPath?: string
     /** Default 30 minutes. */
     ttlMs?: number
@@ -122,6 +122,7 @@ export namespace Flows {
     iamDecisionId?: string
     /** One hour, and an override cannot raise it. */
     ttlMs?: number
+    /** The request's tenant. The impersonation is in the operator's session's tenant, and naming another is refused. */
     tenantId?: string
   }
 
@@ -182,7 +183,7 @@ export namespace Flows {
     identityId: string
     /** Default 30 minutes. */
     ttlMs?: number
-    /** The library appends `?token=`. Default `/auth/verify-email`. */
+    /** The library sets its `token` query parameter. Default `/auth/verify-email`. */
     callbackPath?: string
     tenantId?: string
   }

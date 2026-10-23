@@ -442,11 +442,12 @@ describe('F2 / F6 / F7 / F28 - password reset', () => {
   it('a link sent to an address the account has since moved off is refused', async () => {
     await request()
     const current = await auth.identities.getById(identityId)
-    const ident = await auth.identities.updateProfile(identityId, { email: 'A@x.com' }, current.version)
+    await auth.identities.updateProfile(identityId, { email: 'A@x.com' }, current.version)
     await auth.flows.completePasswordReset({ newPassword: 'new-password-9', token: tokenFrom(channel) })
 
     await request()
-    await auth.identities.updateProfile(identityId, { email: 'b@x.com' }, ident.version)
+    const proven = await auth.identities.getById(identityId)
+    await auth.identities.updateProfile(identityId, { email: 'b@x.com' }, proven.version)
     await expect(
       auth.flows.completePasswordReset({ newPassword: 'newer-password-9', token: tokenFrom(channel) }),
     ).rejects.toMatchObject({ code: 'AUTH_RECOVERY_TOKEN_INVALID' })

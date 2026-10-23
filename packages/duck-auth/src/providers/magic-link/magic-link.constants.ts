@@ -4,6 +4,6 @@ export const DEFAULT_MAGIC_LINK_CONFIG = {
   ttlMs: 10 * 60 * 1000,
   /** Per-email rate-limit key prefix. */
   limiterKeyPrefix: 'magic-link:request:',
-  /** Where the link lands; the token is appended as `?token=`. */
+  /** Where the link lands; the token is set as its `token` query parameter. */
   callbackPath: '/auth/magic-link/callback',
 }

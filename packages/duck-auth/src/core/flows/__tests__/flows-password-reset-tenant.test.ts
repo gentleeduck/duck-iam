@@ -104,8 +104,9 @@ describe('completePasswordReset writes the new password into the tenant it was a
 
   it('a reset in one tenant leaves the other tenant password alone', async () => {
     const { adapter, auth, channel } = buildAuth()
+    // Proven: the reset that first proves an address clears what every tenant held.
     const ident = await adapter.identities.create(
-      identityInput({ profile: { email: 'a@x.com', username: 'a@x.com' }, providers: [] }),
+      identityInput({ emailVerified: true, profile: { email: 'a@x.com', username: 'a@x.com' }, providers: [] }),
     )
     await auth.passwords.set(ident.id, 'tenant-a-password', adapter.credentials, { tenantId: 'tenant-a' })
     await auth.passwords.set(ident.id, 'tenant-b-password', adapter.credentials, { tenantId: 'tenant-b' })

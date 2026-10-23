@@ -37,7 +37,9 @@ const FLOWS: Record<string, Request> = {
     }),
 }
 
-const UNUSABLE = [Number.NaN, 0, -1, Number.POSITIVE_INFINITY]
+/** The last two are finite: no `Date` holds the first, which sqlite stored as no expiry, and the second
+ *  lands past 9999, where mysql stops. */
+const UNUSABLE = [Number.NaN, 0, -1, Number.POSITIVE_INFINITY, 1e16, 8_000 * 365 * 24 * 60 * 60 * 1000]
 
 describe.each(Object.entries(FLOWS))('%s: the token lifetime', (_, request) => {
   it.each(UNUSABLE)('refuses ttlMs %o before writing or sending anything', async (ttlMs) => {
@@ -63,9 +65,11 @@ describe('password reset: a refused lifetime says nothing about who exists', () 
     const { auth, identityId } = await build()
     const findIdentityByEmail = async (email: string) => (email === 'a@x.com' ? { id: identityId } : null)
     for (const email of ['a@x.com', 'ghost@x.com']) {
-      await expect(
-        auth.flows.requestPasswordReset({ findIdentityByEmail, input: { email, ttlMs: Number.NaN } }),
-      ).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
+      for (const ttlMs of [Number.NaN, 1e16]) {
+        await expect(
+          auth.flows.requestPasswordReset({ findIdentityByEmail, input: { email, ttlMs } }),
+        ).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
+      }
     }
   })
 })

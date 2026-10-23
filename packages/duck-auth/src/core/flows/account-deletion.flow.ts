@@ -6,10 +6,10 @@ import {
   isRevoked,
   toCredentialCreate,
 } from '~/core/credentials/credentials'
-import { RECOVERY_PURPOSES } from '~/core/credentials/credentials.constants'
+import { LATEST_STORABLE_MS, RECOVERY_PURPOSES } from '~/core/credentials/credentials.constants'
 import { AuthError } from '~/core/errors'
 import { refuseRateLimited } from '~/core/events/events.lockout'
-import type { Identities } from '~/core/identities'
+import { canonicalEmail, type Identities } from '~/core/identities'
 import { isSafeCallbackPath } from '~/core/url-validators'
 import { deliver } from './flows.delivery'
 import type { Flows } from './flows.types'
@@ -20,9 +20,9 @@ export async function requestAccountDeletion<Profile extends Identities.ProfileM
 ): Promise<{ ok: true }> {
   const ctx = deps.ctxFactory(opts.tenantId)
   const ttlMs = opts.ttlMs ?? 30 * 60 * 1000
-  if (!Number.isFinite(ttlMs) || ttlMs <= 0) {
+  if (!Number.isFinite(ttlMs) || ttlMs <= 0 || Date.now() + ttlMs > LATEST_STORABLE_MS) {
     throw new AuthError('AUTH_MISCONFIGURED', {
-      detail: `account-deletion: ttlMs must be a finite positive number (got ${ttlMs})`,
+      detail: `account-deletion: ttlMs must be a positive number whose deadline a store can hold (got ${ttlMs})`,
     })
   }
   const callbackPath = isSafeCallbackPath(opts.callbackPath) ? opts.callbackPath : '/auth/delete-account'
@@ -61,7 +61,9 @@ export async function requestAccountDeletion<Profile extends Identities.ProfileM
       identityId: opts.identityId,
       kind: 'recovery',
       secret: tokenHash,
+      // The address the link is mailed to, so it deletes nothing once the account has moved off it.
       metadata: {
+        email: canonicalEmail(identity.profile.email),
         purpose: RECOVERY_PURPOSES.accountDeletion,
         ...(opts.reason !== undefined && { reason: opts.reason }),
       },
@@ -70,11 +72,12 @@ export async function requestAccountDeletion<Profile extends Identities.ProfileM
     ctx.tenant,
   )
 
-  const url = `${ctx.baseUrl}${callbackPath}?token=${encodeURIComponent(token)}`
+  const link = new URL(`${ctx.baseUrl}${callbackPath}`)
+  link.searchParams.set('token', token)
   await deliver(ctx.events, deps.deliver, {
     kind: 'account-deletion',
     identity,
-    vars: { url, ttlMin: Math.round(ttlMs / 60_000) },
+    vars: { url: link.href, ttlMin: Math.round(ttlMs / 60_000) },
     tenant: ctx.tenant,
   })
   return { ok: true }
@@ -107,6 +110,13 @@ export async function completeAccountDeletion<Profile extends Identities.Profile
     throw new AuthError('AUTH_RECOVERY_TOKEN_EXPIRED')
   }
 
+  // SECURITY: a link left in a mailbox the account has since moved off, or one issued before links carried their
+  // address, deletes nothing.
+  const current = await orNull(ctx.stores.identities.find({ id: row.identityId }))
+  if (!current || canonicalEmail(current.profile.email) !== row.metadata?.email) {
+    throw new AuthError('AUTH_RECOVERY_TOKEN_INVALID')
+  }
+
   await burnCredential(ctx, row)
   const identityId = row.identityId
   const identity = await deps.identities.softDelete(identityId).orNull()
@@ -133,11 +143,16 @@ export async function completeAccountDeletion<Profile extends Identities.Profile
 
   if (input.sendUndoLink && deps.deliver) {
     const callbackPath = isSafeCallbackPath(input.callbackPath) ? input.callbackPath : '/auth/cancel-deletion'
-    const url = `${ctx.baseUrl}${callbackPath}?token=${encodeURIComponent(cancellationToken)}`
+    const link = new URL(`${ctx.baseUrl}${callbackPath}`)
+    link.searchParams.set('token', cancellationToken)
     await deliver(ctx.events, deps.deliver, {
       kind: 'account-deletion-cancel',
       identity,
-      vars: { url, restorableUntil, ttlMin: Math.max(0, Math.round((restorableUntil - Date.now()) / 60_000)) },
+      vars: {
+        url: link.href,
+        restorableUntil,
+        ttlMin: Math.max(0, Math.round((restorableUntil - Date.now()) / 60_000)),
+      },
       tenant: ctx.tenant,
     })
   }

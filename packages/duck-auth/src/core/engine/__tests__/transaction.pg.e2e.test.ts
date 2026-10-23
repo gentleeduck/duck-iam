@@ -156,7 +156,8 @@ suite('E2E withTransaction on real Postgres', () => {
         identityId: identity.id,
         kind: 'recovery',
         lastUsedAt: null,
-        metadata: { purpose: 'account-deletion' },
+        // The address the link was mailed to, as `requestAccountDeletion` records it.
+        metadata: { email: 'del@x', purpose: 'account-deletion' },
         revokedAt: null,
         secret: sha256(token),
         tenantId: null,

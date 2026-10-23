@@ -105,6 +105,29 @@ describe('FlowsImpl - account linking', () => {
     ).rejects.toMatchObject({ code: 'AUTH_PROVIDER_FAILED' })
   })
 
+  it('linkProvider refuses a second account at a provider the identity already holds, and announces nothing', async () => {
+    await auth.flows.linkProvider({
+      authorize: ALLOW_LINK,
+      identityId: identityA,
+      providerId: 'google',
+      providerSub: 'google|111',
+    })
+    const handler = vi.fn()
+    auth.events.on('identity.linked', handler)
+
+    await expect(
+      auth.flows.linkProvider({
+        authorize: ALLOW_LINK,
+        identityId: identityA,
+        providerId: 'google',
+        providerSub: 'google|222',
+      }),
+    ).rejects.toMatchObject({ code: 'AUTH_PROVIDER_TAKEN' })
+    expect(handler).not.toHaveBeenCalled()
+    const ident = await adapter.identities.find({ id: identityA })
+    expect(ident.providers.map((p) => p.providerSub)).toEqual(['google|111'])
+  })
+
   it('linkProvider rejects unknown identity', async () => {
     await expect(
       auth.flows.linkProvider({

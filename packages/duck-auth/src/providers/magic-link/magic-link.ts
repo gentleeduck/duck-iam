@@ -1,5 +1,6 @@
 import { orNull } from '~/core/answer'
-import { burnCredential, isCredentialExpired, isRevoked, toCredentialCreate } from '~/core/credentials/credentials'
+import { burnCredential, evictUnproven, isCredentialExpired, toCredentialCreate } from '~/core/credentials/credentials'
+import { LATEST_STORABLE_MS } from '~/core/credentials/credentials.constants'
 import { AuthError } from '~/core/errors'
 import { refuseRateLimited } from '~/core/events/events.lockout'
 import { deliver } from '~/core/flows/flows.delivery'
@@ -25,11 +26,11 @@ export class MagicLinkImpl<Profile extends Identities.ProfileMetadataBase = Iden
 
   constructor(private readonly opts: MagicLink.Options<Profile>) {
     this.ttlMs = opts.ttlMs ?? DEFAULT_MAGIC_LINK_CONFIG.ttlMs
-    // SQL stores refuse the `Invalid Date` a NaN makes, and `begin` writes only for a known address, so
-    // the link endpoint would answer 500 for an account that exists and 200 for one that does not.
-    if (!Number.isFinite(this.ttlMs) || this.ttlMs <= 0) {
+    // Stores refuse a deadline they cannot hold, a NaN's or one past 9999, and `begin` writes only for a known
+    // address, so the link endpoint would answer 500 for an account that exists and 200 for one that does not.
+    if (!Number.isFinite(this.ttlMs) || this.ttlMs <= 0 || Date.now() + this.ttlMs > LATEST_STORABLE_MS) {
       throw new AuthError('AUTH_MISCONFIGURED', {
-        detail: `magic-link: ttlMs must be a finite positive number (got ${this.ttlMs})`,
+        detail: `magic-link: ttlMs must be a positive number whose deadline a store can hold (got ${this.ttlMs})`,
       })
     }
     this.prefix = opts.limiterKeyPrefix ?? DEFAULT_MAGIC_LINK_CONFIG.limiterKeyPrefix
@@ -107,7 +108,8 @@ export class MagicLinkImpl<Profile extends Identities.ProfileMetadataBase = Iden
       await ctx.stores.credentials.listByIdentity(subjectId, 'magic-link', ctx.tenant)
     }
 
-    const url = `${ctx.baseUrl}${this.callbackPath}?token=${encodeURIComponent(token)}`
+    const link = new URL(`${ctx.baseUrl}${this.callbackPath}`)
+    link.searchParams.set('token', token)
     const identityRow = await orNull(ctx.stores.identities.find({ id: subjectId }))
     if (!identityId || !identityRow) {
       if (identityId) {
@@ -125,7 +127,7 @@ export class MagicLinkImpl<Profile extends Identities.ProfileMetadataBase = Iden
       kind: 'magic-link',
       identity: identityRow,
       tenant: ctx.tenant,
-      vars: { ttlMin: Math.round(this.ttlMs / 60_000), url },
+      vars: { ttlMin: Math.round(this.ttlMs / 60_000), url: link.href },
     })
     return [{ type: 'json', status: 200, body: { ok: true } }]
   }
@@ -155,18 +157,21 @@ export class MagicLinkImpl<Profile extends Identities.ProfileMetadataBase = Iden
       throw new AuthError('AUTH_RECOVERY_TOKEN_INVALID')
     }
     await burnCredential(ctx, row)
-    await ctx.stores.credentials.revoke(row.id, ctx.tenant)
     // Redeeming the link proves the address. Left unproven, a row whose only credentials are spent links
     // reads to `beginSignUp` as an abandoned sign-up, which anyone may reclaim. And until now anyone could
-    // have held the row: whatever they signed it up with, linked or enrolled on it, and their sessions, go.
+    // have held the row: their sessions go, then whatever they linked or enrolled, and only then is the address
+    // marked proven, so a sweep stopped part-way runs again on the next link.
     const unproven = identity !== null && !identity.emailVerified
     if (unproven) {
-      await ctx.stores.identities.update(identity.id, { emailVerified: true }, identity.version)
-      for (const p of identity.providers) await ctx.stores.identities.unlink(identity.id, p.providerId)
-      for (const c of await ctx.stores.credentials.listByIdentity(identity.id, null, {})) {
-        if (!isRevoked(c)) await ctx.stores.credentials.revoke(c.id, {})
-      }
+      const squatted = await ctx.stores.sessions.listByIdentity(identity.id)
+      await ctx.stores.sessions.deleteAllForIdentity(identity.id)
+      for (const s of squatted) await ctx.events.emit('session.revoked', { sessionId: s.id, identityId: identity.id })
+      await evictUnproven(ctx.stores, identity.id, row.id)
+      const swept = await ctx.stores.identities.find({ id: identity.id })
+      await ctx.stores.identities.update(identity.id, { emailVerified: true }, swept.version)
     }
+    // Spent, and live until the row is marked: it is what keeps `beginSignUp` from reading the swept row as abandoned.
+    await orNull(ctx.stores.credentials.revoke(row.id, ctx.tenant))
     return [
       {
         type: 'startSession',

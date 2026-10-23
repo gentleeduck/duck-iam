@@ -6,7 +6,7 @@ import {
   isRevoked,
   toCredentialCreate,
 } from '~/core/credentials/credentials'
-import { RECOVERY_PURPOSES } from '~/core/credentials/credentials.constants'
+import { LATEST_STORABLE_MS, RECOVERY_PURPOSES } from '~/core/credentials/credentials.constants'
 import { AuthError } from '~/core/errors'
 import { refuseRateLimited } from '~/core/events/events.lockout'
 import type { Identities } from '~/core/identities'
@@ -20,9 +20,9 @@ export async function requestEmailVerification<Profile extends Identities.Profil
 ): Promise<{ ok: true }> {
   const ctx = deps.ctxFactory(opts.tenantId)
   const ttlMs = opts.ttlMs ?? 30 * 60 * 1000
-  if (!Number.isFinite(ttlMs) || ttlMs <= 0) {
+  if (!Number.isFinite(ttlMs) || ttlMs <= 0 || Date.now() + ttlMs > LATEST_STORABLE_MS) {
     throw new AuthError('AUTH_MISCONFIGURED', {
-      detail: `email-verification: ttlMs must be a finite positive number (got ${ttlMs})`,
+      detail: `email-verification: ttlMs must be a positive number whose deadline a store can hold (got ${ttlMs})`,
     })
   }
   const callbackPath = isSafeCallbackPath(opts.callbackPath) ? opts.callbackPath : '/auth/verify-email'
@@ -70,11 +70,12 @@ export async function requestEmailVerification<Profile extends Identities.Profil
     ctx.tenant,
   )
 
-  const url = `${ctx.baseUrl}${callbackPath}?token=${encodeURIComponent(token)}`
+  const link = new URL(`${ctx.baseUrl}${callbackPath}`)
+  link.searchParams.set('token', token)
   await deliver(ctx.events, deps.deliver, {
     kind: 'email-verification',
     identity,
-    vars: { url, ttlMin: Math.round(ttlMs / 60_000) },
+    vars: { url: link.href, ttlMin: Math.round(ttlMs / 60_000) },
     tenant: ctx.tenant,
   })
   return { ok: true }

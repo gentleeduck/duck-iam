@@ -31,6 +31,10 @@ export async function beginSignUp<Profile extends Identities.ProfileMetadataBase
   if (opts.required !== undefined && (!Array.isArray(opts.required) || opts.required.length > 16)) {
     throw new AuthError('AUTH_MISCONFIGURED', { detail: 'beginSignUp: required must be an array <=16' })
   }
+  // Before any write: the flow's reader refuses a stage it does not know, so the token answered would be dead.
+  if (opts.required?.some((stage) => typeof stage !== 'string' || !isSignUpStage(stage))) {
+    throw new AuthError('AUTH_MISCONFIGURED', { detail: 'beginSignUp: required names a stage that does not exist' })
+  }
   const ctx = deps.ctxFactory(opts.tenantId)
   const now = Date.now()
   const required = opts.required ?? ['email-verified', 'terms-accepted']
@@ -171,6 +175,10 @@ export async function advanceSignUp<Profile extends Identities.ProfileMetadataBa
   }
   if (typeof opts.stage !== 'string' || opts.stage.length === 0 || opts.stage.length > 64) {
     throw new AuthError('AUTH_SIGNUP_TOKEN_INVALID')
+  }
+  // The reader drops a stage it does not know, so recording one answered a completion that never counts.
+  if (!isSignUpStage(opts.stage)) {
+    throw new AuthError('AUTH_MISCONFIGURED', { detail: 'advanceSignUp: stage does not exist' })
   }
   const ctx = deps.ctxFactory(opts.tenantId)
   const { flow, row } = await liveSignUpFlow<Profile>(ctx, opts.flowToken, 'AUTH_SIGNUP_TOKEN_INVALID')

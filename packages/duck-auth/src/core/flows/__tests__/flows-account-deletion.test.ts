@@ -1,12 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import type { Credential } from '~/core/credentials'
+import { sha256 } from '~/core/crypto'
 import { AuthEngine } from '~/core/engine'
 import type { Identities } from '~/core/identities/identities.types'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
 import { passwords, ScryptHasher } from '~/providers/passwords'
 import { authTestDeliver } from '~/test'
+import { credentialInput } from '~/test/store-inputs'
 
 interface MyProfile extends Identities.ProfileMetadataBase {
   email: string
@@ -233,6 +235,46 @@ describe('FlowsImpl - account deletion', () => {
       code: 'AUTH_RECOVERY_TOKEN_INVALID',
     })
     await auth.flows.completeAccountDeletion({ token: t2 })
+  })
+
+  it('a link mailed to an address the account has since moved off deletes nothing', async () => {
+    await auth.flows.requestAccountDeletion({ identityId })
+    const token = new URL(channel.outbox[0]!.vars.url).searchParams.get('token')!
+    const cur = await auth.identities.getById(identityId)
+    const moved = await auth.identities.updateProfile(identityId, { email: 'A@x.com' }, cur.version)
+    await auth.identities.updateProfile(identityId, { email: 'b@x.com' }, moved.version)
+
+    await expect(auth.flows.completeAccountDeletion({ token })).rejects.toMatchObject({
+      code: 'AUTH_RECOVERY_TOKEN_INVALID',
+    })
+    await expect(auth.identities.getById(identityId)).resolves.toMatchObject({ deletedAt: null })
+  })
+
+  it('a case-only change of the address keeps the link working', async () => {
+    await auth.flows.requestAccountDeletion({ identityId })
+    const token = new URL(channel.outbox[0]!.vars.url).searchParams.get('token')!
+    const cur = await auth.identities.getById(identityId)
+    await auth.identities.updateProfile(identityId, { email: 'A@X.com' }, cur.version)
+
+    await expect(auth.flows.completeAccountDeletion({ token })).resolves.toMatchObject({ identityId })
+  })
+
+  it('a link carrying no address, as one issued before links carried it, deletes nothing', async () => {
+    const token = 'pre-release-deletion-link'
+    await adapter.credentials.create(
+      credentialInput({
+        expiresAt: new Date(Date.now() + 60_000),
+        identityId,
+        kind: 'recovery',
+        metadata: { purpose: 'account-deletion' },
+        secret: sha256(token),
+      }),
+      {},
+    )
+
+    await expect(auth.flows.completeAccountDeletion({ token })).rejects.toMatchObject({
+      code: 'AUTH_RECOVERY_TOKEN_INVALID',
+    })
   })
 
   it('rejects request for unknown identity', async () => {

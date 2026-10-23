@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { sha256 } from '~/core/crypto'
 import { AuthEngine } from '~/core/engine'
+import type { Flows } from '~/core/flows/flows.types'
 import type { Identities } from '~/core/identities/identities.types'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
@@ -230,5 +231,30 @@ describe('flows signup - tampered flow metadata', () => {
     const result = await auth.flows.completeSignUp({ flowToken })
     expect(result.session).toBeDefined()
     expect(result.sid).toBeTruthy()
+  })
+})
+
+describe('flows signup - a stage that does not exist', () => {
+  // A JS caller, or a list read from config: the stage type does not reach either.
+  const typo = (stage: string): Flows.SignUpStage[] => JSON.parse(JSON.stringify([stage]))
+
+  it('beginSignUp refuses it before writing the identity', async () => {
+    const { auth, adapter } = build()
+    await expect(auth.flows.beginSignUp({ email: 'a@x.com', required: typo('email-verfied') })).rejects.toMatchObject({
+      code: 'AUTH_MISCONFIGURED',
+    })
+    await expect(adapter.identities.find({ email: 'a@x.com' })).rejects.toBeInstanceOf(Error)
+  })
+
+  it('advanceSignUp refuses it rather than answering it completed', async () => {
+    const { auth } = build()
+    const { flowToken } = await auth.flows.beginSignUp({ email: 'a@x.com', required: ['terms-accepted'] })
+    const [stage] = typo('terms-acceptd')
+    await expect(auth.flows.advanceSignUp({ flowToken, stage: stage ?? 'completed' })).rejects.toMatchObject({
+      code: 'AUTH_MISCONFIGURED',
+    })
+    await expect(auth.flows.advanceSignUp({ flowToken, stage: 'terms-accepted' })).resolves.toMatchObject({
+      completed: ['email-collected', 'terms-accepted'],
+    })
   })
 })
