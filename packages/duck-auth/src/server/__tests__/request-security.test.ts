@@ -5,8 +5,9 @@ import { MemoryAdapter } from '~/adapters/memory'
 import { AuthMemoryDeviceFingerprintStore, deviceFingerprintDetector } from '~/core/anomaly'
 import type { Anomaly } from '~/core/anomaly/anomaly.types'
 import { AuthEngine } from '~/core/engine'
+import { AuthError } from '~/core/errors'
 import type { Hijack } from '~/core/hijack'
-import { SESSION_COLUMN_CAPS } from '~/core/sessions'
+import { SESSION_COLUMN_CAPS, type Sessions } from '~/core/sessions'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
 import { mfaProvider, totpAt } from '~/providers/mfa'
@@ -669,5 +670,56 @@ describe('a rotated session answers to the browser the one before it was issued 
 
     expect(await answer(auth, sid, updated)).toBe('served')
     expect(await answer(auth, sid, SIGNED_IN)).toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+  })
+})
+
+describe('a step-up onAnomaly asks a new device for is one it can finish', () => {
+  // The device is remembered only once a request is let through, so an `onAnomaly` refusing every step-up
+  // asked a device for one forever, completing it included.
+  it('serves the device once it has stepped up, and knows it after the session is no longer fresh', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      const adapter = new MemoryAdapter<Profile>()
+      const auth = new AuthEngine<Profile>({
+        baseUrl: 'https://x',
+        limiter: new MemoryLimiter({ max: 50, windowMs: 60_000 }),
+        providers: [mfaProvider()],
+        stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
+        transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+      })
+      const store = new AuthMemoryDeviceFingerprintStore()
+      auth.anomaly.register(deviceFingerprintDetector({ compose: (req) => req.userAgent ?? null, store }))
+      const onAnomaly = (result: Anomaly.Result, session: Sessions.Me) => {
+        if (result.decision === 'deny') throw new AuthError('AUTH_ANOMALY_DENIED', { score: result.score })
+        if (!session.fresh) throw new AuthError('AUTH_STEP_UP_REQUIRED', { challenge: result.signals })
+      }
+      const answer = async (sid: string): Promise<unknown> => {
+        let outcome: unknown = 'served'
+        await expressActorContext(auth, { getCaller: expressCaller, onAnomaly })(
+          expressReq(sid, SIGNED_IN),
+          expressRes,
+          (err) => {
+            if (err) outcome = err
+          },
+        )
+        return outcome
+      }
+      const sid = await signIn(auth)
+      vi.setSystemTime(Date.now() + 10 * 60_000)
+      expect(await answer(sid)).toMatchObject({ code: 'AUTH_STEP_UP_REQUIRED' })
+
+      const { identityId } = await auth.sessions.getBySid(sid)
+      const { secret } = await auth.mfa.beginTotpEnrollment(identityId ?? '', 'a@x.com')
+      const step = Math.floor(Date.now() / 30_000)
+      await auth.mfa.confirmTotpEnrollment(identityId ?? '', totpAt(secret, step))
+      const code = totpAt(secret, step + 1)
+      const stepped = await auth.flows.completeStepUp({ code, currentSid: sid, method: 'totp', ...SIGNED_IN })
+      expect(await answer(stepped.sid)).toBe('served')
+
+      vi.setSystemTime(Date.now() + 10 * 60_000)
+      expect(await answer(stepped.sid)).toBe('served')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

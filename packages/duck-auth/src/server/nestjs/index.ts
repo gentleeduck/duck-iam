@@ -47,6 +47,7 @@ export function makeGuard(
         verifyCsrf({
           headers: toFetchHeaders(req.headers),
           method: req.method,
+          transport: auth.transport,
           ...(opts.cfg !== undefined && { cfg: opts.cfg }),
           ...(resolved?.session.csrfHash != null && { sessionCsrfHash: resolved.session.csrfHash }),
         })

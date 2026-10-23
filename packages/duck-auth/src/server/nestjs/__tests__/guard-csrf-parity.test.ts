@@ -98,3 +98,24 @@ describe('nestjs makeGuard reaches the same CSRF verdict as makeCsrfGuard', () =
     ).toBe('')
   })
 })
+
+describe('makeGuard and a bearer on another scheme', () => {
+  it('exempts it as csrfGuard does, rather than demanding a token the client was never sent', async () => {
+    const adapter = new MemoryAdapter()
+    const auth = new AuthEngine({
+      baseUrl: 'https://app',
+      limiter: new MemoryLimiter({ max: 20, windowMs: 60_000 }),
+      providers: [],
+      stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
+      transport: new CompositeTransport([
+        new CookieTransport({ name: 'duck-sid', secure: false }),
+        new BearerTransport({ scheme: 'Token' }),
+      ]),
+    })
+    const { sid } = await auth.sessions.create({ aal: 1, factors: [], identityId: null, kind: 'user' })
+    const token = { authorization: `Token ${sid}` }
+
+    expect(await refusal(makeGuard(auth).canActivate(nestCtx(request(token))))).toBe('')
+    expect(await refusal(makeCsrfGuard(auth).canActivate(nestCtx(request(token))))).toBe('')
+  })
+})
