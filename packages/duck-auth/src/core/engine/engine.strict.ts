@@ -131,15 +131,10 @@ export function assertStrict<
   }
 
   // HTTPS in production, or oauth callback URLs, magic-link URLs and webhooks go out over plaintext.
-  if (typeof engine.cfg.baseUrl === 'string') {
-    try {
-      const u = new URL(engine.cfg.baseUrl)
-      if (u.protocol !== 'https:') {
-        errors.push(`baseUrl '${engine.cfg.baseUrl}' must use https:// in production (got ${u.protocol})`)
-      }
-    } catch {
-      errors.push(`baseUrl '${engine.cfg.baseUrl}' is not a valid URL`)
-    }
+  // The constructor has already refused a baseUrl that does not parse.
+  const { protocol } = new URL(engine.cfg.baseUrl)
+  if (protocol !== 'https:') {
+    errors.push(`baseUrl '${engine.cfg.baseUrl}' must use https:// in production (got ${protocol})`)
   }
 
   // Counted in the registry: `providers` drops a falsy entry and a thunk that answers nothing.

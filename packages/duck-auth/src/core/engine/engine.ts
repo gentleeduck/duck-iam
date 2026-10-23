@@ -10,6 +10,7 @@ import type { Anomaly } from '../anomaly/anomaly.types'
 import { type Answer, answer } from '../answer'
 import { type AuthCaptcha, AuthUnconfiguredCaptchaVerifier } from '../captcha'
 import type { Compliance } from '../compliance/compliance.types'
+import { normaliseBaseUrl } from '../config/config.constants'
 import { randomToken, sha256, timingSafeEqual } from '../crypto'
 import { AuthError } from '../errors'
 import { type Events, InMemoryEvents, withAuditStamping } from '../events'
@@ -93,7 +94,8 @@ export class AuthEngine<
   }
 
   constructor(cfg: Engine.Cfg<Profile, Tenant, OrgMeta>) {
-    this.cfg = cfg
+    // As `createAuth` does: every emailed link is `${baseUrl}${path}`, so a trailing slash mailed `//path`.
+    this.cfg = { ...cfg, baseUrl: normaliseBaseUrl(cfg.baseUrl) }
     // Installed before any facet exists, so the very first write an engine makes
     // is already attributable. Only when the caller asked for one: passing
     // `undefined` here would clear a resolver someone set directly.
@@ -138,7 +140,7 @@ export class AuthEngine<
       (tenantId) => ({
         stores: cfg.stores,
         tenant: tenantId !== undefined ? { tenantId } : {},
-        baseUrl: cfg.baseUrl,
+        baseUrl: this.cfg.baseUrl,
         limiter: this.limiter,
         events: this.events,
         crypto: {
