@@ -22,6 +22,7 @@ export class OrgsImpl<OrgMeta = unknown> {
 
   /** Every org this identity is a member of. */
   async listForIdentity(identityId: string, ctx: TenantContext): Promise<Org.Me<OrgMeta>[]> {
+    if (!isId(identityId)) return []
     return (await this._store.listOrgsForIdentity(identityId, ctx)).map((org) => inScope(org, ctx))
   }
 
@@ -36,6 +37,11 @@ export class OrgsImpl<OrgMeta = unknown> {
     input: { orgId: string; identityId: string; roles?: string[] },
     ctx: TenantContext,
   ): Promise<Org.Membership> {
+    if (!isId(input.orgId) || !isId(input.identityId)) {
+      throw new AuthError('AUTH_INVALID_PARAMETERS', {
+        detail: 'addMember: orgId and identityId must be non-empty strings',
+      })
+    }
     if ((await this.listMembers(input.orgId, ctx)).some((m) => m.identityId === input.identityId)) {
       throw new AuthError('AUTH_ALREADY_EXISTS', { detail: 'identity already a member of this org' })
     }
@@ -58,22 +64,34 @@ export class OrgsImpl<OrgMeta = unknown> {
   }
 
   /** Marks `leftAt`, answering the membership as it stands left. An identity that was not a member
-   *  rejects; `orNull()` is how an idempotent caller reads that as having done nothing. */
+   *  rejects; `orNull()` is how an idempotent caller reads that as having done nothing. Removing again
+   *  answers the left row, and only the call that ended the membership emits `org.member.removed`. */
   removeMember(orgId: string, identityId: string, ctx: TenantContext): Answer.Me<Org.Membership> {
     return answer(async () => {
+      if (!isId(orgId) || !isId(identityId)) {
+        throw new AuthError('AUTH_INVALID_PARAMETERS', {
+          detail: 'removeMember: orgId and identityId must be non-empty strings',
+        })
+      }
+      const wasLive = (await this.listMembers(orgId, ctx)).some((m) => m.identityId === identityId)
       const m = inScope(await this._store.removeMember(orgId, identityId, ctx), ctx)
-      await this._events.emit('org.member.removed', { orgId, identityId })
+      if (wasLive) await this._events.emit('org.member.removed', { orgId, identityId })
       return m
     })
   }
 
-  /** Answers the membership carrying the sanitized set actually stored, not the one passed in.
-   *  NOTE: the store decides whether a membership marked `leftAt` can still be given roles. The
-   *  shipped memory store allows it, and the write is unreadable - `listMembers` and
-   *  `resolveMembership` skip left rows, and re-adding overwrites the roles wholesale. */
+  /** Answers the membership carrying the sanitized set actually stored, not the one passed in. Rejects
+   *  `AUTH_MEMBERSHIP_NOT_FOUND` for an identity that is not a live member. */
   setRoles(orgId: string, identityId: string, roles: string[], ctx: TenantContext): Answer.Me<Org.Membership> {
     return answer(async () => {
+      if (!isId(orgId) || !isId(identityId)) {
+        throw new AuthError('AUTH_INVALID_PARAMETERS', {
+          detail: 'setRoles: orgId and identityId must be non-empty strings',
+        })
+      }
       const m = inScope(await this._store.setRoles(orgId, identityId, sanitizeRoles(roles), ctx), ctx)
+      // A host store may write roles onto a membership that has ended, and the event would grant them again.
+      if (m.leftAt) throw new AuthError('AUTH_MEMBERSHIP_NOT_FOUND')
       await this._events.emit('org.roles.set', { orgId, identityId, roles: m.roles })
       return m
     })
@@ -82,7 +100,11 @@ export class OrgsImpl<OrgMeta = unknown> {
   /** Rejects `AUTH_MEMBERSHIP_NOT_FOUND` when the identity is not a live member. */
   resolveMembership(orgId: string, identityId: string, ctx: TenantContext): Answer.Me<Org.Membership> {
     return answer(async () => {
-      const live = (await this.listMembers(orgId, ctx)).find((m) => m.identityId === identityId)
+      // A guest session's `identityId` is null, which a membership written from an unchecked body matched.
+      const live =
+        isId(orgId) && isId(identityId)
+          ? (await this.listMembers(orgId, ctx)).find((m) => m.identityId === identityId)
+          : undefined
       if (!live) {
         throw new AuthError('AUTH_MEMBERSHIP_NOT_FOUND')
       }
@@ -99,6 +121,11 @@ export class OrgsImpl<OrgMeta = unknown> {
 function inScope<T extends { tenantId: string | null }>(row: T, ctx: TenantContext): T {
   if (ctx.tenantId === undefined || row.tenantId === ctx.tenantId) return row
   throw new AuthError('AUTH_TENANT_SCOPE_VIOLATION', { asked: ctx.tenantId, got: row.tenantId })
+}
+
+/** A non-empty string. A JSON `null` or `""` from a request body names no one. */
+function isId(v: unknown): v is string {
+  return typeof v === 'string' && v.length > 0
 }
 
 /** Bounds `roles` on `addMember` and `setRoles`, dropping each bad entry rather than throwing. */

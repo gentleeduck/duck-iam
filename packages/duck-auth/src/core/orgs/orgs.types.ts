@@ -44,7 +44,8 @@ export namespace Org {
      *  row carrying its new roles. No such membership raises, as every other store's miss does; a caller
      *  wanting absence as a value asks for `orNull()`. */
     removeMember(orgId: string, identityId: string, ctx: TenantContext): Promise<Membership>
-    /** Replaces the member's roles. */
+    /** Replaces the member's roles. A membership marked `leftAt` raises as a missing one does; the facet
+     *  refuses one answered left. */
     setRoles(orgId: string, identityId: string, roles: string[], ctx: TenantContext): Promise<Membership>
   }
 }

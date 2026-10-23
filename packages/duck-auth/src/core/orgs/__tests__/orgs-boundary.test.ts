@@ -102,7 +102,7 @@ describe('granting roles cannot create a membership', () => {
     await orgs.addMember({ identityId: 'u1', orgId: ORG, roles: ['member'] }, {})
     await orgs.removeMember(ORG, 'u1', {})
 
-    await orgs.setRoles(ORG, 'u1', ['owner'], {})
+    await orgs.setRoles(ORG, 'u1', ['owner'], {}).orNull()
     await expect(orgs.resolveMembership(ORG, 'u1', {})).rejects.toMatchObject({ code: 'AUTH_MEMBERSHIP_NOT_FOUND' })
   })
 
@@ -301,5 +301,102 @@ describe('listing an identity’s orgs', () => {
     await orgs.addMember({ identityId: 'u1', orgId: ORG, roles: [] }, {})
     await orgs.removeMember(ORG, 'u1', {})
     expect(await orgs.listForIdentity('u1', {})).toEqual([])
+  })
+})
+
+describe('events name only memberships that are live', () => {
+  function withEvents(store: Org.Store = new MemoryAdapter().orgs) {
+    const events = new InMemoryEvents()
+    const seen: string[] = []
+    events.on('org.member.added', (p) => void seen.push(`added ${p.identityId} ${p.roles.join(',')}`))
+    events.on('org.roles.set', (p) => void seen.push(`roles ${p.identityId} ${p.roles.join(',')}`))
+    events.on('org.member.removed', (p) => void seen.push(`removed ${p.identityId}`))
+    return { orgs: new OrgsImpl(store, events), seen }
+  }
+
+  it('refuses roles for a member who left, and emits no org.roles.set that would grant them again', async () => {
+    const { orgs, seen } = withEvents()
+    await orgs.addMember({ identityId: 'u1', orgId: ORG, roles: ['admin'] }, {})
+    await orgs.removeMember(ORG, 'u1', {})
+
+    await expect(orgs.setRoles(ORG, 'u1', ['owner'], {})).rejects.toMatchObject({ code: 'AUTH_MEMBERSHIP_NOT_FOUND' })
+    expect(seen).toEqual(['added u1 admin', 'removed u1'])
+
+    await orgs.addMember({ identityId: 'u2', orgId: ORG, roles: [] }, {})
+    await orgs.setRoles(ORG, 'u2', ['owner'], {})
+    expect(seen.at(-1)).toBe('roles u2 owner')
+  })
+
+  it('refuses roles a host store wrote onto a membership that had ended', async () => {
+    const adapter = new MemoryAdapter()
+    const left: Org.Membership = {
+      identityId: 'u1',
+      invitedAt: null,
+      joinedAt: new Date(),
+      leftAt: new Date(),
+      orgId: ORG,
+      roles: ['owner'],
+      tenantId: null,
+    }
+    const { orgs, seen } = withEvents({ ...adapter.orgs, setRoles: async () => left })
+
+    await expect(orgs.setRoles(ORG, 'u1', ['owner'], {})).rejects.toMatchObject({ code: 'AUTH_MEMBERSHIP_NOT_FOUND' })
+    expect(seen).toEqual([])
+  })
+
+  it('emits org.member.removed once, for the call that ended the membership', async () => {
+    const { orgs, seen } = withEvents()
+    await orgs.addMember({ identityId: 'u1', orgId: ORG, roles: [] }, {})
+    await orgs.removeMember(ORG, 'u1', {})
+    expect((await orgs.removeMember(ORG, 'u1', {})).leftAt).toBeInstanceOf(Date)
+    expect(seen.filter((e) => e === 'removed u1')).toHaveLength(1)
+
+    await orgs.addMember({ identityId: 'u1', orgId: ORG, roles: [] }, {})
+    await orgs.removeMember(ORG, 'u1', {})
+    expect(seen.filter((e) => e === 'removed u1')).toHaveLength(2)
+  })
+})
+
+describe('an id from an unchecked request body', () => {
+  const body: { orgId: string; identityId: string } = JSON.parse('{"orgId":"org-1","identityId":null}')
+  const empty = { identityId: '', orgId: ORG }
+
+  it('refuses a null or empty orgId or identityId on every write', async () => {
+    const orgs = makeOrgs()
+    for (const ids of [body, empty, { identityId: 'u1', orgId: '' }]) {
+      await expect(orgs.addMember({ ...ids, roles: ['admin'] }, {})).rejects.toMatchObject({
+        code: 'AUTH_INVALID_PARAMETERS',
+      })
+      await expect(orgs.removeMember(ids.orgId, ids.identityId, {})).rejects.toMatchObject({
+        code: 'AUTH_INVALID_PARAMETERS',
+      })
+      await expect(orgs.setRoles(ids.orgId, ids.identityId, ['admin'], {})).rejects.toMatchObject({
+        code: 'AUTH_INVALID_PARAMETERS',
+      })
+    }
+    expect(await orgs.listMembers(ORG, {})).toEqual([])
+  })
+
+  it('answers no membership for a null identity, as a guest session carries, even where a store holds one', async () => {
+    const adapter = new MemoryAdapter()
+    const orgs = new OrgsImpl(adapter.orgs, new InMemoryEvents())
+    await orgs.addMember({ identityId: 'u1', orgId: ORG, roles: ['viewer'] }, {})
+    const planted: Org.Membership = {
+      ...body,
+      invitedAt: null,
+      joinedAt: new Date(),
+      leftAt: null,
+      roles: ['admin'],
+      tenantId: null,
+    }
+    adapter.raw.memberships.set('planted', planted)
+    adapter.seedOrg({ createdAt: new Date(), domain: null, id: ORG, metadata: null, name: ORG, tenantId: null })
+
+    await expect(orgs.resolveMembership(ORG, body.identityId, {})).rejects.toMatchObject({
+      code: 'AUTH_MEMBERSHIP_NOT_FOUND',
+    })
+    expect(await orgs.listForIdentity(body.identityId, {})).toEqual([])
+    expect((await orgs.resolveMembership(ORG, 'u1', {})).roles).toEqual(['viewer'])
+    expect(await orgs.listForIdentity('u1', {})).toHaveLength(1)
   })
 })
