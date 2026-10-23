@@ -129,7 +129,7 @@ describe('createAuth', () => {
           allowStateReplay: true,
         }),
         passkey({
-          expectedOrigins: 'http://x',
+          expectedOrigins: 'http://localhost',
           findIdentityByEmail: (email) => storage.identities.find({ email }),
           rpID: 'localhost',
           rpName: 'demo',

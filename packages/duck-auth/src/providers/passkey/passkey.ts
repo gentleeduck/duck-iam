@@ -35,6 +35,29 @@ export async function loadWebAuthn(
   }
 }
 
+/** Refuses a relying party no browser completes a ceremony against: `rpID` a bare host, and each origin exactly as a
+ *  browser sends it, on `rpID`. A trailing slash, a default port or a capital failed every ceremony as
+ *  `AUTH_PASSKEY_MISMATCH`, the verifier's reason swallowed with it. WebAuthn MFA calls it too. */
+export function refuseUnusableRelyingParty(rpID: string, expectedOrigins: string | string[]): void {
+  if (typeof rpID !== 'string' || !/^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*$/.test(rpID)) {
+    throw new AuthError('AUTH_MISCONFIGURED', {
+      detail: `passkey: rpID must be a bare host, no scheme, port or path (got ${JSON.stringify(rpID)})`,
+    })
+  }
+  const origins = Array.isArray(expectedOrigins) ? expectedOrigins : [expectedOrigins]
+  const domain = rpID.toLowerCase()
+  for (const origin of origins.length > 0 ? origins : [undefined]) {
+    // An Android app's origin, which the verifier accepts and which has no host.
+    if (typeof origin === 'string' && origin.startsWith('android:apk-key-hash:')) continue
+    const url = typeof origin === 'string' && URL.canParse(origin) ? new URL(origin) : null
+    if (!url || url.origin !== origin || (url.hostname !== domain && !url.hostname.endsWith(`.${domain}`))) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: `passkey: each of expectedOrigins must be an origin as a browser sends it, on ${rpID}, such as https://${domain} (got ${JSON.stringify(origin)})`,
+      })
+    }
+  }
+}
+
 /** sha-256 of the identity id, a stable 32-byte WebAuthn `user.id`. The spec allows 1-64 bytes, and a
  *  long id would otherwise be truncated into a collision. */
 function userIdBytes(identityId: string): Uint8Array<ArrayBuffer> {
@@ -79,6 +102,7 @@ export class PasskeyImpl<Profile extends Identities.ProfileMetadataBase = Identi
         detail: `passkey: challengeTtlMs must be a finite positive number (got ${this.challengeTtlMs})`,
       })
     }
+    refuseUnusableRelyingParty(opts.rpID, opts.expectedOrigins)
     this.uv = opts.userVerification ?? DEFAULT_PASSKEY_CONFIG.userVerification
     this.prefix = opts.limiterKeyPrefix ?? DEFAULT_PASSKEY_CONFIG.limiterKeyPrefix
     this.__requestsDirectAttestation = (opts.attestationType ?? DEFAULT_PASSKEY_CONFIG.attestationType) === 'direct'
@@ -323,6 +347,7 @@ export async function beginPasskeyRegistration(
       detail: `passkey: challengeTtlMs must be a finite positive number (got ${challengeTtlMs})`,
     })
   }
+  refuseUnusableRelyingParty(opts.rpID, opts.expectedOrigins)
   const webauthn = await loadWebAuthn(opts.webauthnModule)
   // A revoked passkey is one the user asked to be rid of, so it is not excluded: re-enrolling the same
   // authenticator is the documented way back.

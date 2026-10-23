@@ -700,6 +700,56 @@ describe('passkey provider - the challenge lifetime', () => {
   })
 })
 
+describe('passkey provider - a relying party no browser can satisfy', () => {
+  const opts = { findIdentityByEmail: async () => null, rpName: 'Test App' }
+  const registration = (rp: { rpID: string; expectedOrigins: string | string[] }) =>
+    beginPasskeyRegistration(
+      { ...opts, ...rp, challengeStore: new AuthMemoryPasskeyChallengeStore(), webauthnModule: makeMockWebAuthn() },
+      {
+        credentialStore: new MemoryAdapter<ProfileShape>().credentials,
+        identityId: 'id-1',
+        sessionId: 's1',
+        tenant: {},
+        userName: 'a@b.com',
+      },
+    )
+
+  it.each(['https://app.test', 'app.test:443', 'app.test/', ''])(
+    'refuses rpID %o at construction and before registering, naming it',
+    async (rpID) => {
+      const refusal = { code: 'AUTH_MISCONFIGURED', meta: { detail: expect.stringContaining('rpID') } }
+      expect(() => passkey<ProfileShape>({ ...opts, rpID, expectedOrigins: 'https://app.test' })).toThrow(
+        expect.objectContaining(refusal),
+      )
+      await expect(registration({ rpID, expectedOrigins: 'https://app.test' })).rejects.toMatchObject(refusal)
+    },
+  )
+
+  it.each([
+    { rpID: 'app.test', expectedOrigins: 'https://app.test/' },
+    { rpID: 'app.test', expectedOrigins: 'app.test' },
+    { rpID: 'app.test', expectedOrigins: 'https://APP.test' },
+    { rpID: 'app.test', expectedOrigins: 'https://app.test:443' },
+    { rpID: 'app.test', expectedOrigins: ['https://app.test', 'https://other.test'] },
+    { rpID: 'app.test', expectedOrigins: [] },
+  ])('refuses $rpID with $expectedOrigins at construction and before registering', async (rp) => {
+    expect(() => passkey<ProfileShape>({ ...opts, ...rp })).toThrow(
+      expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
+    )
+    await expect(registration(rp)).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
+  })
+
+  it.each([
+    { rpID: 'app.test', expectedOrigins: 'https://app.test' },
+    { rpID: 'app.test', expectedOrigins: ['https://app.test', 'https://admin.app.test:8443'] },
+    { rpID: 'localhost', expectedOrigins: 'http://localhost:3000' },
+    { rpID: 'app.test', expectedOrigins: ['https://app.test', 'android:apk-key-hash:abc'] },
+  ])('takes $rpID with $expectedOrigins', async (rp) => {
+    expect(() => passkey<ProfileShape>({ ...opts, ...rp })).not.toThrow()
+    await expect(registration(rp)).resolves.toMatchObject({ challenge: expect.any(String) })
+  })
+})
+
 describe('AuthMemoryPasskeyChallengeStore', () => {
   it('take returns the stored challenge once, then rejects because it consumed it', async () => {
     const store = new AuthMemoryPasskeyChallengeStore()
