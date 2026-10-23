@@ -485,7 +485,6 @@
   },
   "files": [
     "dist",
-    "src",
     "public",
     "CHANGELOG.md",
     "README.md",

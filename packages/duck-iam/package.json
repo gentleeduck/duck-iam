@@ -285,7 +285,6 @@
   },
   "files": [
     "dist",
-    "src",
     "public",
     "docs",
     "CHANGELOG.md",
