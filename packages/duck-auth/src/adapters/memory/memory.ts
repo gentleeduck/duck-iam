@@ -1,7 +1,7 @@
 import { type Adapter, AdapterStore } from '~/adapters/adapter'
 import { actorId } from '~/core/actor'
 import { getCredentialPurpose, isRevoked } from '~/core/credentials/credentials'
-import { AUTH_CREDENTIAL_KINDS } from '~/core/credentials/credentials.constants'
+import { AUTH_CREDENTIAL_KINDS, assertCredentialDates } from '~/core/credentials/credentials.constants'
 import type { Credential } from '~/core/credentials/credentials.types'
 import { authUuidV7, timingSafeEqual } from '~/core/crypto'
 import { AuthError } from '~/core/errors'
@@ -93,6 +93,7 @@ function assertCredentialAllowed(
   if (tenantId === '') {
     throw new AuthError('AUTH_INVALID_PARAMETERS', { detail: 'tenant is blank' })
   }
+  assertCredentialDates(input)
   if (input.expiresAt !== null && input.expiresAt.getTime() < createdAt.getTime()) {
     throw new AuthError('AUTH_INVALID_PARAMETERS', { detail: 'expiresAt precedes createdAt' })
   }
@@ -256,7 +257,7 @@ export class MemoryAdapter<
             hit.add(id)
           }
         }
-        if (hit.size === 0) return { deleted: 0 }
+        if (hit.size === 0) return { deleted: 0, ids: [] }
 
         // The cascade, by hand, exactly as `eraseMany` does it.
         for (const [key, row] of this._credentials) if (hit.has(row.identityId)) this._credentials.delete(key)
@@ -265,7 +266,7 @@ export class MemoryAdapter<
         }
         for (const [key, row] of this._memberships) if (hit.has(row.identityId)) this._memberships.delete(key)
 
-        return { deleted: hit.size }
+        return { deleted: hit.size, ids: [...hit] }
       }),
 
     link: (identityId, link) =>
@@ -282,10 +283,14 @@ export class MemoryAdapter<
             throw new AuthError('AUTH_PROVIDER_TAKEN', { providerId: link.providerId })
           }
         }
-        // Re-linking a provider this row already holds adds no second entry: a retried OAuth callback is the
+        // Re-linking the sub this row already holds adds no second entry: a retried OAuth callback is the
         // ordinary way this is reached, and it is what the SQL unique enforces. The version still moves, as
-        // on every dialect: the write was accepted.
-        if (cur.providers.some((p) => p.providerId === link.providerId)) {
+        // on every dialect: the write was accepted. Another sub at that provider is refused, as every dialect does.
+        const held = cur.providers.find((p) => p.providerId === link.providerId)
+        if (held) {
+          if (held.providerSub !== link.providerSub) {
+            throw new AuthError('AUTH_PROVIDER_TAKEN', { providerId: link.providerId })
+          }
           return put(this._identities, identityId, { ...cur, updatedAt: new Date(), version: cur.version + 1 })
         }
 
@@ -790,7 +795,7 @@ export class MemoryAdapter<
       this.run(async () => {
         const key = this._memberKey(ctx.tenantId ?? null, orgId, identityId)
         const cur = this._memberships.get(key)
-        if (!cur || !this._inTenant(cur, ctx)) throw new AuthError('AUTH_MEMBERSHIP_NOT_FOUND')
+        if (!cur || cur.leftAt || !this._inTenant(cur, ctx)) throw new AuthError('AUTH_MEMBERSHIP_NOT_FOUND')
 
         return put(this._memberships, key, { ...cur, roles: [...roles] })
       }),

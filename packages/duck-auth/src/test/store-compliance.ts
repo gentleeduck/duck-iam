@@ -44,6 +44,15 @@ function profileOf<P>(email: string, username: string): P {
 /** Same idea for session compliance, whose identity ids come from the caller. */
 const ABSENT = '00000000-0000-4000-8000-000000000000'
 
+/** Ids some database cannot hold: not a `uuid` for Postgres, not ASCII for MySQL's key columns. A store that can
+ *  hold one misses, and a database that cannot refuses the value, `AUTH_INVALID_PARAMETERS`. Neither is a failure. */
+const MALFORMED_IDS = ['not-a-uuid', 'ünïcödé', '']
+
+/** The code a call rejected with, so a list one store answers `[]` and another refuses is one assertion. */
+function codeOf(err: unknown): unknown {
+  return Reflect.get(Object(err), 'code')
+}
+
 /** `withClient` is the adapter's, not a facet's: one rebind puts every store on the caller's transaction, since
  *  they share the one connection. For an adapter with a transactional driver; one without omits `withClient`.
  *  `factory` runs inside the test, where the e2e suites' `beforeAll` has built the adapter. */
@@ -503,6 +512,23 @@ export function runIdentityStoreCompliance<P extends Identities.ProfileMetadataB
       }
     })
 
+    it('refuses a second sub at a provider the identity already holds, and writes nothing', async () => {
+      const store = factory()
+      const i = await store.create(identityInput({ profile: profileOf<P>('two@x', 'two') }))
+      const held = await store.link(i.id, { addedAt: new Date(), providerId: 'oauth:google', providerSub: 'second-held-sub' })
+
+      // Kept silently, the second was answered as linked while every sign-in under it found nobody.
+      await expect(
+        store.link(i.id, { addedAt: new Date(), providerId: 'oauth:google', providerSub: 'second-other-sub' }),
+      ).rejects.toMatchObject({ code: 'AUTH_PROVIDER_TAKEN' })
+      const reread = await store.find({ id: i.id })
+      expect(reread.providers.map((l) => l.providerSub)).toEqual(['second-held-sub'])
+      expect(reread.version).toBe(held.version)
+      await expect(store.find({ providerId: 'oauth:google', providerSub: 'second-other-sub' })).rejects.toMatchObject({
+        code: 'AUTH_IDENTITY_NOT_FOUND',
+      })
+    })
+
     it('refuses to link a provider sub that already belongs to a different identity', async () => {
       const store = factory()
       const first = await store.create(identityInput({ profile: profileOf<P>('o1@x', 'o1') }))
@@ -631,6 +657,45 @@ export function runIdentityStoreCompliance<P extends Identities.ProfileMetadataB
       expect(reused.id).not.toBe(live.id)
     })
 
+    it('an id the database cannot hold is a miss or a refused value, never a failure, alone or in a set', async () => {
+      const store = factory()
+      const gone = await store.create(identityInput({ profile: profileOf<P>('malformed-b@x', 'malformedb') }))
+      const hidden = await store.create(identityInput({ profile: profileOf<P>('malformed-c@x', 'malformedc') }))
+      for (const id of MALFORMED_IDS) {
+        for (const call of [
+          () => store.find({ id }),
+          () => store.softDelete(id, 60_000),
+          () => store.restore(id),
+          () => store.erase(id),
+          () => store.link(id, { providerId: 'p', providerSub: 's' }),
+          () => store.unlink(id, 'p'),
+        ]) {
+          expect(await call().then(() => 'resolved', codeOf)).toBeOneOf([
+            'AUTH_IDENTITY_NOT_FOUND',
+            'AUTH_INVALID_PARAMETERS',
+          ])
+        }
+        expect(await store.update(id, { emailVerified: true }, 1).then(() => 'resolved', codeOf)).toBeOneOf([
+          'AUTH_STALE_WRITE',
+          'AUTH_INVALID_PARAMETERS',
+        ])
+      }
+
+      // A set holding one acts on the real id in it, or refuses whole and touches nothing.
+      const hid = await store
+        .softDeleteMany([...MALFORMED_IDS, hidden.id], 60_000)
+        .then((rows) => rows.map((r) => r.id), codeOf)
+      expect(hid).toBeOneOf([[hidden.id], 'AUTH_INVALID_PARAMETERS'])
+      expect(await store.find({ id: hidden.id }).then(() => 'live', codeOf)).toBe(
+        hid === 'AUTH_INVALID_PARAMETERS' ? 'live' : 'AUTH_IDENTITY_NOT_FOUND',
+      )
+      const erased = await store.eraseMany([...MALFORMED_IDS, gone.id]).then((rows) => rows.map((r) => r.id), codeOf)
+      expect(erased).toBeOneOf([[gone.id], 'AUTH_INVALID_PARAMETERS'])
+      expect(await store.find({ id: gone.id }).then(() => 'live', codeOf)).toBe(
+        erased === 'AUTH_INVALID_PARAMETERS' ? 'live' : 'AUTH_IDENTITY_NOT_FOUND',
+      )
+    })
+
     it('a bulk call with no ids touches nothing', async () => {
       const store = factory()
       const kept = await store.create(identityInput({ profile: profileOf<P>('bulk0@x', 'bulk0') }))
@@ -652,7 +717,8 @@ export function runIdentityStoreCompliance<P extends Identities.ProfileMetadataB
       await store.softDelete(waiting.id, 60_000)
       await store.softDelete(over.id, -1000)
 
-      expect((await store.gc(Date.now())).deleted).toBe(1)
+      expect(await store.gc(Date.now())).toEqual({ deleted: 1, ids: [over.id] })
+      expect(await store.gc(Date.now())).toEqual({ deleted: 0, ids: [] })
 
       // Gone for real, not hidden: the address is free again, which a soft-deleted row would still hold.
       const reused = await store.create(identityInput({ profile: profileOf<P>('gco@x', 'gco') }))
@@ -1120,6 +1186,42 @@ export function runSessionStoreCompliance(factory: () => Sessions.Store, ids: Co
       expect(await store.listByIdentity(OWNER)).toEqual([])
     })
 
+    it('an identity id the database cannot hold is a miss or a refused value, alone or in a set', async () => {
+      const store = factory()
+      const now = new Date()
+      const exp = new Date(now.getTime() + 60_000)
+      await store.create(
+        sessionInput({
+          id: sid('malformed-1'),
+          identityId: OWNER,
+          kind: 'user',
+          aal: 1,
+          factors: [],
+          createdAt: now,
+          rotatedAt: now,
+          expiresAt: exp,
+          absoluteExpiresAt: exp,
+          fresh: true,
+        }),
+      )
+      for (const id of MALFORMED_IDS) {
+        expect(await store.listByIdentity(id).catch(codeOf)).toBeOneOf([[], 'AUTH_INVALID_PARAMETERS'])
+        expect(await store.deleteAllForIdentity(id).catch(codeOf)).toBeOneOf([undefined, 'AUTH_INVALID_PARAMETERS'])
+        expect(await store.getByHash(id).then(() => 'resolved', codeOf)).toBeOneOf([
+          'AUTH_SESSION_REVOKED',
+          'AUTH_INVALID_PARAMETERS',
+        ])
+      }
+      expect(await store.deleteMany([...MALFORMED_IDS]).catch(codeOf)).toBeOneOf([[], 'AUTH_INVALID_PARAMETERS'])
+
+      // A set holding one acts on the real id in it, or refuses whole and touches nothing.
+      const gone = await store.deleteAllForIdentities([...MALFORMED_IDS, OWNER]).catch(codeOf)
+      expect(gone).toBeOneOf([[{ id: sid('malformed-1'), identityId: OWNER }], 'AUTH_INVALID_PARAMETERS'])
+      expect(await store.getByHash(sid('malformed-1')).then(() => 'live', codeOf)).toBe(
+        gone === 'AUTH_INVALID_PARAMETERS' ? 'live' : 'AUTH_SESSION_REVOKED',
+      )
+    })
+
     it('a bulk call with no ids touches nothing', async () => {
       const store = factory()
       const now = new Date()
@@ -1464,6 +1566,41 @@ export function runCredentialStoreCompliance(factory: () => Credential.Store, id
       expect(revoked?.revokedAt).toBeInstanceOf(Date)
     })
 
+    it('an id the database cannot hold is a miss or a refused value, never a failure', async () => {
+      const store = factory()
+      const kept = await store.create(
+        credentialInput({ identityId: OWNER, kind: 'password', metadata: {}, secret: 'malformed-pw' }),
+        {},
+      )
+      for (const id of MALFORMED_IDS) {
+        for (const call of [
+          () => store.findById(id, {}),
+          () => store.revoke(id, {}),
+          () => store.delete(id, {}),
+          () => store.patchMetadata(id, { step: 1 }, {}),
+          () => store.findByHashedSecret(id, 'password', {}),
+        ]) {
+          expect(await call().then(() => 'resolved', codeOf)).toBeOneOf([
+            'AUTH_CREDENTIAL_NOT_FOUND',
+            'AUTH_INVALID_PARAMETERS',
+          ])
+        }
+        expect(await store.rotate(id, 'next', 1, {}).then(() => 'resolved', codeOf)).toBeOneOf([
+          'AUTH_STALE_WRITE',
+          'AUTH_INVALID_PARAMETERS',
+        ])
+        for (const call of [
+          () => store.listByIdentity(id, null, {}),
+          () => store.revokeByKind(id, 'password', {}),
+          () => store.deleteByKind(id, 'password', {}),
+          () => store.deleteByKindAndPurpose(id, 'recovery', 'reset', {}),
+        ]) {
+          expect(await call().catch(codeOf)).toBeOneOf([[], 'AUTH_INVALID_PARAMETERS'])
+        }
+      }
+      expect((await store.findById(kept.id, {})).revokedAt).toBeNull()
+    })
+
     it('every write that touches the row moves updatedAt', async () => {
       const store = factory()
       const c = await store.create(
@@ -1533,6 +1670,17 @@ export function runCredentialStoreCompliance(factory: () => Credential.Store, id
           {},
         ),
       ).rejects.toMatchObject(invalid)
+      // sqlite binds an unreadable date as NULL, which on `expiresAt` is a credential that never expires.
+      for (const dates of [
+        { expiresAt: new Date(Number.NaN) },
+        { expiresAt: new Date(Date.UTC(10_000, 0, 1)) },
+        { revokedAt: new Date(Number.NaN) },
+        { lastUsedAt: new Date(Number.NaN) },
+      ]) {
+        await expect(
+          store.create(credentialInput({ identityId: OWNER, kind: 'api-key', secret: 'k', ...dates }), {}),
+        ).rejects.toMatchObject(invalid)
+      }
     })
 
     it('a credential row records who wrote it, from the ambient actor', async () => {

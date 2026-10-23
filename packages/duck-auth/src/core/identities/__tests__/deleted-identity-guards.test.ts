@@ -193,6 +193,18 @@ describe('a deleted identity cannot be authenticated', () => {
 })
 
 describe('the identities facet answers with the row or rejects', () => {
+  it('finds by email every address create stores, up to its 320-character cap', async () => {
+    const { auth } = build()
+    const email = `${'a'.repeat(64)}@${'b'.repeat(251)}.com`
+    expect(email).toHaveLength(320)
+    const created = await auth.identities.create({ profile: { email, username: 'long-address' }, providers: [] })
+    expect((await auth.identities.getByEmail(email)).id).toBe(created.id)
+    await expect(auth.identities.getByEmail(`a${email}`)).rejects.toMatchObject({ code: 'AUTH_INVALID_PARAMETERS' })
+    await expect(
+      auth.identities.create({ profile: { email: `a${email}`, username: 'too-long' }, providers: [] }),
+    ).rejects.toMatchObject({ code: 'AUTH_INVALID_PARAMETERS' })
+  })
+
   it('rejects a missing identity, and orNull reads that back as null', async () => {
     const { auth } = build()
     await expect(auth.identities.getById('nope')).rejects.toMatchObject({ code: 'AUTH_IDENTITY_NOT_FOUND' })
@@ -204,7 +216,7 @@ describe('the identities facet answers with the row or rejects', () => {
     // AUTH_INVALID_PARAMETERS is not in ABSENT, so it stays loud even through the escape hatch.
     for (const call of [
       () => auth.identities.getByEmail(''),
-      () => auth.identities.getByEmail('x'.repeat(255)),
+      () => auth.identities.getByEmail('x'.repeat(321)),
       () => auth.identities.getByProviderSub('', 'sub'),
     ]) {
       await expect(call()).rejects.toMatchObject({ code: 'AUTH_INVALID_PARAMETERS' })

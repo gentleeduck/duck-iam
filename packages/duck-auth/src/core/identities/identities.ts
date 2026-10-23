@@ -7,7 +7,7 @@ import type { Events } from '../events'
 import { getProfileString, isRecord } from '../predicates/predicates'
 import type { Sessions } from '../sessions/sessions.types'
 import type { TenantContext } from '../tenant/tenant.types'
-import { canonicalEmail, DEFAULT_IDENTITIES_CONFIG } from './identities.constants'
+import { canonicalEmail, DEFAULT_IDENTITIES_CONFIG, PROFILE_LOGIN_CAPS } from './identities.constants'
 import type { Identities } from './identities.types'
 
 export function isSoftDeleted(row: { deletedAt?: Date | number | null }): boolean {
@@ -50,8 +50,8 @@ export class IdentitiesImpl<Profile extends Identities.ProfileMetadataBase = Ide
   /** The identity holding this email address. */
   getByEmail(email: string): Answer.Me<Identities.Me<Profile>> {
     return answer(() => {
-      // RFC 5321 cap, so a multi-MB or non-string lookup never reaches the adapter.
-      assertKey(email, 254, 'email')
+      // The cap `create` stores to, so a multi-MB or non-string lookup never reaches the adapter.
+      assertKey(email, PROFILE_LOGIN_CAPS.email, 'email')
 
       return this._store.find({ email })
     })
@@ -220,8 +220,8 @@ export class IdentitiesImpl<Profile extends Identities.ProfileMetadataBase = Ide
   }
 
   /** `skipExisting` passes over an address already present, `merge` folds the new logins into it, `replace`
-   *  erases it and creates the row fresh. A refusal met after that erase is raised, not counted: run a
-   *  replace inside `withTransaction` for the erase to roll back with it. */
+   *  erases it, emitting `identity.erased`, and creates the row fresh. A refusal met after that erase is
+   *  raised, not counted: run a replace inside `withTransaction` for the erase to roll back with it. */
   async bulkCreate(
     rows: Array<{
       profile: Profile
@@ -257,6 +257,7 @@ export class IdentitiesImpl<Profile extends Identities.ProfileMetadataBase = Ide
           this.assertProfileWithinCap(row.profile)
           await this._store.erase(existing.id)
           erased = true
+          await this._events.emit('identity.erased', { identityId: existing.id, reason: 'bulkCreate replace' })
         }
         await this.create(row)
         created++
@@ -331,9 +332,12 @@ export class IdentitiesImpl<Profile extends Identities.ProfileMetadataBase = Ide
   }
 
   /** The caller schedules it, under a leader lock in a distributed deployment. Until it runs, a row whose
-   *  window closed is hidden but still there, which is not what a deletion promised. */
+   *  window closed is hidden but still there, which is not what a deletion promised. Emits `identity.erased`
+   *  with `reason: 'gc'` for each row erased. */
   async gc(): Promise<{ deleted: number }> {
-    return this._store.gc(Date.now())
+    const { deleted, ids } = await this._store.gc(Date.now())
+    for (const identityId of ids) await this._events.emit('identity.erased', { identityId, reason: 'gc' })
+    return { deleted }
   }
 
   /** Every patch is cap-checked up front, so one oversized patch fails the whole batch. A lost version

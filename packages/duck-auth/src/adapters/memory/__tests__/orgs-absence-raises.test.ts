@@ -26,4 +26,19 @@ describe('the orgs store raises on a miss', () => {
       await expect(orNull(call())).resolves.toBeNull()
     }
   })
+
+  it('setRoles raises for a membership that has ended, and writes nothing to it', async () => {
+    const a = new MemoryAdapter()
+    const member = { identityId: 'u1', invitedAt: null, leftAt: null, orgId: 'org-1', roles: ['admin'], tenantId: null }
+    await a.orgs.addMember(member, {})
+    await a.orgs.removeMember('org-1', 'u1', {})
+
+    await expect(a.orgs.setRoles('org-1', 'u1', ['owner'], {})).rejects.toMatchObject({
+      code: 'AUTH_MEMBERSHIP_NOT_FOUND',
+    })
+    expect([...a.raw.memberships.values()].map((m) => m.roles)).toEqual([['admin']])
+
+    await a.orgs.addMember({ ...member, identityId: 'u2' }, {})
+    await expect(a.orgs.setRoles('org-1', 'u2', ['owner'], {})).resolves.toMatchObject({ roles: ['owner'] })
+  })
 })

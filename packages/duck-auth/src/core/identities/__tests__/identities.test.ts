@@ -691,4 +691,41 @@ describe('IdentitiesFacet', () => {
       expect(handler.mock.calls[0]?.[0]).toMatchObject({ identityId: spare.id })
     })
   })
+
+  describe('identity.erased names every row erased, however it went', () => {
+    function erasedIds(): string[] {
+      const seen: string[] = []
+      events.on('identity.erased', (p) => void seen.push(`${p.identityId} ${p.reason}`))
+      return seen
+    }
+
+    it('gc emits one per row whose grace window closed, and none for a row still inside it', async () => {
+      const seen = erasedIds()
+      const over = await facet.create({ profile: { username: 'o@x.com', email: 'o@x.com' } })
+      const waiting = await facet.create({ profile: { username: 'w@x.com', email: 'w@x.com' } })
+      await adapter.identities.softDelete(over.id, -1000)
+      await facet.softDelete(waiting.id)
+
+      expect(await facet.gc()).toEqual({ deleted: 1 })
+      expect(seen).toEqual([`${over.id} gc`])
+
+      expect(await facet.gc()).toEqual({ deleted: 0 })
+      expect(seen).toHaveLength(1)
+    })
+
+    it('a bulkCreate replace emits one for the row it erased, and a fresh row none', async () => {
+      const seen = erasedIds()
+      const before = await facet.create({ profile: { username: 'a@x.com', email: 'a@x.com' } })
+
+      await facet.bulkCreate(
+        [
+          { profile: { username: 'a@x.com', email: 'a@x.com' } },
+          { profile: { username: 'n@x.com', email: 'n@x.com' } },
+        ],
+        { mode: 'replace' },
+      )
+
+      expect(seen).toEqual([`${before.id} bulkCreate replace`])
+    })
+  })
 })
