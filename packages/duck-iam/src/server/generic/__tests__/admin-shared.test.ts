@@ -120,6 +120,36 @@ describe('iamRunAdminAuthz', () => {
     expect(csrf).toHaveBeenCalledWith(req)
     expect(authorize).toHaveBeenCalledWith(req)
   })
+
+  it('awaits an async csrfCheck instead of treating its pending Promise as truthy', async () => {
+    // A Promise is truthy, so a csrfCheck that resolves to false must still be awaited to be refused.
+    const authorize = vi.fn(() => true)
+    const res = await iamRunAdminAuthz({}, async () => false, authorize)
+    expect(res).toEqual({ phase: 'forbidden' })
+    expect(authorize).not.toHaveBeenCalled()
+  })
+
+  it('refuses when an async csrfCheck rejects, matching a synchronous throw', async () => {
+    const authorize = vi.fn(() => true)
+    const res = await iamRunAdminAuthz(
+      {},
+      async () => {
+        throw new Error('boom')
+      },
+      authorize,
+    )
+    expect(res).toEqual({ phase: 'forbidden' })
+    expect(authorize).not.toHaveBeenCalled()
+  })
+
+  it('proceeds when an async csrfCheck resolves to true', async () => {
+    const res = await iamRunAdminAuthz(
+      {},
+      async () => true,
+      () => ({ id: 'admin' }),
+    )
+    expect(res).toEqual({ phase: 'ok', actor: { id: 'admin' } })
+  })
 })
 
 describe('iamWithAdminAudit', () => {
