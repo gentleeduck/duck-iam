@@ -5,8 +5,9 @@
  * else, and `metadata.google.internal`, which is how GCP's metadata server is actually reached and what
  * every SSRF payload targeting GCP uses, passed.
  *
- * The loopback aliases are the same shape: `localhost6` and `ip6-localhost` are in the `/etc/hosts` that
- * ships on Debian-family images, which is most containers this library runs in.
+ * The loopback aliases are the same shape: `ip6-localhost` is in the `/etc/hosts` that ships on Debian-family
+ * images, which is most containers this library runs in, and `localhost6` and the `localdomain` forms are in
+ * the RHEL-family one.
  *
  * The DNS-resolution cases are deliberately absent. A wildcard resolver like `127.0.0.1.nip.io` cannot be
  * caught by spelling, and `assertResolvedHostIsPublic` is the layer that exists for it.
@@ -31,12 +32,17 @@ describe('the outbound host guard refuses internal names, not only internal addr
     },
   )
 
-  it.each(['localhost6', 'localhost4', 'ip6-localhost', 'ip6-loopback'])(
-    'refuses the /etc/hosts loopback alias %s',
-    (host) => {
-      expect(refuses(host)).toBe(true)
-    },
-  )
+  it.each([
+    'localhost6',
+    'localhost4',
+    'ip6-localhost',
+    'ip6-loopback',
+    'localhost.localdomain',
+    'localhost4.localdomain4',
+    'localhost6.localdomain6',
+  ])('refuses the /etc/hosts loopback alias %s', (host) => {
+    expect(refuses(host)).toBe(true)
+  })
 
   it.each(['localhost', 'LOCALHOST', 'localhost.', 'x.localhost', 'local', 'printer.local'])(
     'still refuses %s',
@@ -52,12 +58,16 @@ describe('the outbound host guard refuses internal names, not only internal addr
     },
   )
 
-  it.each(['example.com', 'hooks.slack.com', 'fcm.googleapis.com', 'metadata.example.com', 'internalise.com'])(
-    'still allows %s',
-    (host) => {
-      expect(refuses(host)).toBe(false)
-    },
-  )
+  it.each([
+    'example.com',
+    'hooks.slack.com',
+    'fcm.googleapis.com',
+    'metadata.example.com',
+    'internalise.com',
+    'localhost.localdomain.example.com',
+  ])('still allows %s', (host) => {
+    expect(refuses(host)).toBe(false)
+  })
 
   it('leaves a name that only resolves inward to the resolution guard', () => {
     // Spelling says nothing about where this points; `assertResolvedHostIsPublic` is the layer for it.

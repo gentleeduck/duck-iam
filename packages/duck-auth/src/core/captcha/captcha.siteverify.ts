@@ -13,6 +13,9 @@ import {
 } from './captcha.constants'
 import type { AuthCaptcha } from './captcha.types'
 
+/** A hostname as the providers report one: no scheme, port, path or wildcard, which would never match. */
+const BARE_HOST = /^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*$/
+
 /** A siteverify body, with the wire's `error-codes` and `challenge_ts` renamed and everything a
  *  provider does not send left off. */
 export interface SiteVerifyResponse {
@@ -65,9 +68,9 @@ export function resolveCaptchaCfg(
     })
   }
   const hosts = cfg.expectedHostname === undefined ? null : [cfg.expectedHostname].flat()
-  if (hosts !== null && (hosts.length === 0 || hosts.some((h) => typeof h !== 'string' || h.length === 0))) {
+  if (hosts !== null && (hosts.length === 0 || hosts.some((h) => typeof h !== 'string' || !BARE_HOST.test(h)))) {
     throw new AuthError('AUTH_MISCONFIGURED', {
-      detail: `${verifier} expectedHostname must be a non-empty host or list of hosts`,
+      detail: `${verifier} expectedHostname must be a bare host or list of hosts, such as app.example.com (got ${JSON.stringify(cfg.expectedHostname)})`,
     })
   }
   if (cfg.expectedAction !== undefined && (typeof cfg.expectedAction !== 'string' || cfg.expectedAction.length === 0)) {
@@ -102,7 +105,8 @@ export async function siteVerify(
   if (input.token.length > CAPTCHA_TOKEN_MAX_LENGTH) return fail(['invalid-input-response', 'token-too-large'])
   // SECURITY: `''` would match the `''` a response without a hostname falls back to, turning the check off.
   const host = input.expectedHostname
-  if (host !== undefined && (typeof host !== 'string' || host.length === 0)) return fail(['invalid-expected-hostname'])
+  if (host !== undefined && (typeof host !== 'string' || !BARE_HOST.test(host)))
+    return fail(['invalid-expected-hostname'])
   // SECURITY: `''` would replace the configured action and match a widget mounted without one.
   if (input.expectedAction === '') return fail(['invalid-expected-action'])
 

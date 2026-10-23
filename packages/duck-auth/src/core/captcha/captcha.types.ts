@@ -62,8 +62,8 @@ export namespace AuthCaptcha {
     endpoint?: string
     /** Wall-clock ceiling on the provider call. Default 5s, at most 2^31-1ms. */
     timeoutMs?: number
-    /** Host the widget is expected to have run on. Unset means the result reports it unchecked.
-     *  Compared case-insensitively, since a hostname is. */
+    /** Host the widget is expected to have run on, bare, as the provider reports it: `app.example.com`. Unset
+     *  means the result reports it unchecked. Compared case-insensitively, since a hostname is. */
     expectedHostname?: string | string[]
     /** Ceiling on `challenge_ts` age. Default 5 minutes; 0 disables the check. */
     maxChallengeAgeMs?: number

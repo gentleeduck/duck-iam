@@ -184,6 +184,34 @@ describe('the fields a siteverify response carries beyond success', () => {
     }
   })
 
+  it('refuses an expected hostname no provider reports, such as a URL, a port or a wildcard', () => {
+    for (const expectedHostname of [
+      'https://app.test',
+      'app.test:8443',
+      'app.test/',
+      '*.app.test',
+      ['app.test', 'https://app.test'],
+    ]) {
+      expect(() => new AuthTurnstileVerifier({ expectedHostname, secret: 'sk' })).toThrow(
+        expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
+      )
+    }
+    for (const expectedHostname of ['app.test', 'localhost', '127.0.0.1', ['app.test', 'www.app.test']]) {
+      expect(() => new AuthTurnstileVerifier({ expectedHostname, secret: 'sk' })).not.toThrow()
+    }
+  })
+
+  it('refuses a per-call expected hostname no provider reports unsent, and checks a bare one', async () => {
+    const s = stub({ hostname: 'app.test', success: true })
+    const verifier = new AuthTurnstileVerifier({ fetch: s.fetch, secret: 'sk' })
+    expect(await verifier.verify({ expectedHostname: 'app.test:3000', token: 't' })).toEqual({
+      errorCodes: ['invalid-expected-hostname'],
+      success: false,
+    })
+    expect(s.calls).toHaveLength(0)
+    expect((await verifier.verify({ expectedHostname: 'app.test', token: 't' })).success).toBe(true)
+  })
+
   it('refuses a wired expected action of nothing, which a widget mounted without one would match', () => {
     expect(() => new AuthTurnstileVerifier({ expectedAction: '', secret: 'sk' })).toThrow(
       expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
