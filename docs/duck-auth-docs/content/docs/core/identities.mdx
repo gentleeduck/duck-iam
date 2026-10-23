@@ -46,7 +46,7 @@ await auth.identities.getByEmail('ada@example.com').orNull()
 await auth.identities.getByProviderSub('oauth:github', '583231').orNull()
 ```
 
-Each answers an `Answer`: awaiting it throws `AUTH_IDENTITY_NOT_FOUND` for a missing or soft-deleted row, and `.orNull()` answers `null` instead. Email lookups are case-insensitive.
+Each answers an `Answer`: awaiting it throws `AUTH_IDENTITY_NOT_FOUND` for a missing or soft-deleted row, and `.orNull()` answers `null` instead. An id the database cannot hold, such as one that is not a uuid on Postgres, is refused with `AUTH_INVALID_PARAMETERS`, which `.orNull()` does not turn into `null`. Email lookups are case-insensitive, and take any address `create` stores, up to 320 characters.
 
 ## Writing
 
@@ -80,7 +80,7 @@ await auth.identities.unlink(ada.id, 'oauth:github')
 | `softDelete(id)` | Hides the row for the grace period (7 days by default, `identities.softDeleteGracePeriodMs`). |
 | `restore(id)` | Clears a soft delete; after the window it throws `AUTH_GRACE_EXPIRED`. |
 | `erase(id, { reason, operatorId })` | Removes the row and everything under it for good, and emits `identity.erased`. |
-| `gc()` | Erases every row whose grace window has closed. Schedule it yourself. |
+| `gc()` | Erases every row whose grace window has closed, and emits `identity.erased` with `reason: 'gc'` for each. Schedule it yourself. |
 
 A soft delete does not end sessions; `flows.completeAccountDeletion` does both, and mails an undo link if asked.
 
@@ -94,6 +94,6 @@ const blob = await auth.identities.exportAll(ada.id, auth.cfg.stores.credentials
 // { identity, credentials, sessions, schemaVersion: '1', exportedAt }
 ```
 
-`bulkCreate` matches existing rows by email: `skipExisting` passes over them, `merge` links the new logins onto them, `replace` erases and recreates them. `exportAll` is the GDPR right-of-access export, with every credential secret and session CSRF hash removed.
+`bulkCreate` matches existing rows by email: `skipExisting` passes over them, `merge` links the new logins onto them, `replace` erases and recreates them, emitting `identity.erased` with `reason: 'bulkCreate replace'` for each row it erased. `exportAll` is the GDPR right-of-access export, with every credential secret and session CSRF hash removed.
 
 `softDeleteMany`, `restoreMany`, `eraseMany`, `updateProfileMany`, `linkMany` and `unlinkMany` do the same over a set.

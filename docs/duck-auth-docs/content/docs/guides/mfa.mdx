@@ -107,7 +107,7 @@ await auth.flows.completeStepUp({ currentSid: sid, method: 'webauthn', webauthn:
 
 The browser side is `startRegistration` and `startAuthentication` from `@simplewebauthn/browser`, given the options each `begin` answers.
 
-TOTP enrollment is refused while a WebAuthn factor exists, but a WebAuthn enrollment adds a key beside whatever the account has, which is how a backup key is added. Once the account has any factor, put this enrollment behind `checkStepUp`, or a password alone can add a key and step up with it.
+TOTP enrollment is refused while a WebAuthn factor exists, at the confirm as well as the begin, so one begun before the key was added cannot be finished after it. A WebAuthn enrollment adds a key beside whatever the account has, which is how a backup key is added. Once the account has any factor, put this enrollment behind `checkStepUp`, or a password alone can add a key and step up with it.
 
 ## Remembered devices
 

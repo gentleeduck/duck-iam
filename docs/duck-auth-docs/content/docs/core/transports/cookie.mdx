@@ -21,8 +21,8 @@ Without a `transport`, `createAuth` uses `cookieTransport({ name: 'duck-sid' })`
 | `name` | `__Host-duck-sid`, or `duck-sid` with a `domain` | The `__Host-` prefix makes browsers insist on Secure, `Path=/` and no Domain. |
 | `secure` | `true` | Set `false` only for plain-http local development; `strict()` refuses it in production. |
 | `sameSite` | `'lax'` | `'none'` requires `secure`. |
-| `path` | `/` | The `__Host-` prefix requires `/`. |
-| `domain` | none | Shares the cookie across subdomains; forbidden with a `__Host-` name. |
+| `path` | `/` | Starts with `/`. The `__Host-` prefix requires `/` itself. |
+| `domain` | none | A bare host, such as `example.com`, with no scheme or port. Shares the cookie across subdomains; forbidden with a `__Host-` name. |
 | `maxAgeSec` | the session's absolute deadline | Ends the cookie earlier than the session. |
 
 A contradiction, such as a `__Host-` name with a `domain`, throws `AUTH_MISCONFIGURED` at construction.

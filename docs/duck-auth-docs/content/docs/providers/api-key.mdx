@@ -48,7 +48,9 @@ await auth.apiKeys.revoke(key.id)
 await auth.apiKeys.revokeAll(identityId)
 ```
 
-`rotate` revokes the key and answers a new one with the same name, scopes and expiry. Revoking, rotating or revoking all also ends every `apikey` session of that identity.
+`rotate` revokes the key and answers a new one with the same name, scopes, expiry and tenant. Revoking, rotating or revoking all also ends every `apikey` session of that identity.
+
+`revoke` and `rotate` act on the key the id names, whoever holds it, and `rotate` answers a working key for its owner. Check the id is in the caller's `list` before either. A key's id is also its m2m client id, which a client sends in the clear.
 
 ## Client credentials
 

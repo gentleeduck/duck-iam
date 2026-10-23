@@ -49,6 +49,7 @@ Every provider takes these, plus its own extras:
 | `onSignIn` | Replaces the lookup below entirely. |
 | `stateCookie` | The pre-auth cookie, `__Host-duck-oauth` by default. On plain-http development, pass `{ name: 'duck-oauth', secure: false }`. |
 | `scopes` | Replaces the default scopes. |
+| `timeoutMs` | How long one request to the IdP may take, its body included. Default 10 seconds. An IdP that does not answer in time fails the sign-in with `AUTH_PROVIDER_FAILED`, like one that refuses. |
 
 ## The routes
 
@@ -135,6 +136,8 @@ An existing account whose email matches is not linked by default. Linking on the
 | `'link-if-verified'` | The IdP marks the address verified and the existing identity proved it too. |
 | `(conflict) => 'link' \| 'reject'` | Your function says `'link'`; anything else refuses. |
 
+An identity holds one account per provider, so a link is refused, `AUTH_PROVIDER_TAKEN`, when the identity already holds another account at this provider, and the sign-in fails.
+
 A signed-in user can link a provider deliberately with [`auth.flows.linkProvider`](/duck-auth/core/flows#linking-a-provider).
 
 ## Any other IdP
@@ -176,6 +179,6 @@ const gitlab = oProvider({
 | --- | --- |
 | `AUTH_OAUTH_STATE_MISMATCH` | The `state` does not verify, is over ten minutes old, or reached a browser without the pre-auth cookie. |
 | `AUTH_OAUTH_NONCE_REPLAY` | The callback was already used. |
-| `AUTH_PROVIDER_FAILED` | The IdP refused the code, the profile had no subject, a conflict was refused, or `profileToIdentityProfile` answered `null`. |
+| `AUTH_PROVIDER_FAILED` | The IdP refused the code or could not be reached within `timeoutMs`, the profile had no subject, a conflict was refused, or `profileToIdentityProfile` answered `null`. |
 
 When a sign-in is refused after the code was exchanged, the tokens are revoked at the IdP where it supports revocation.

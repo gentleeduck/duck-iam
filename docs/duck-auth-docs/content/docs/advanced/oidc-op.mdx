@@ -34,12 +34,18 @@ const { client_secret } = await op.registerClient({
 | `POST /token` | `op.token(body, headers)` | The tokens, or `{ error }` |
 | `GET /userinfo` | `op.userinfo(headers)` | The claims, or `{ error }` |
 | `POST /introspect` | `op.introspect(body, headers)` | `{ active, ... }` |
-| `POST /revoke` | `op.revoke(body, headers)` | Nothing |
+| `POST /revoke` | `op.revoke(body, headers)` | `{ error: 'invalid_client' }` to send as a 401, or nothing, a 200 |
 | `POST /register` | `op.register(body, headers)` | `{ status, body }` |
 
-`headers` is a Fetch `Headers`. `authorize` finds the signed-in person through the engine's transport, so `login_required` means sending them to your sign-in page and back.
+`headers` is a Fetch `Headers`. `authorize` finds the signed-in person through the engine's transport, so `login_required` means sending them to your sign-in page and back. It also answers `prompt=login`, and a `max_age` that has passed since the person's last factor, with `reason` saying which. `max_age=0` is `prompt=login`. Resume the request without `login` in `prompt` and without `max_age`, which that sign-in answered, or it asks again.
 
-A code lives 10 minutes and works once. Access and ID tokens live an hour and refresh tokens 30 days; `config` changes each. A refresh token rotates on every use, and presenting a spent one revokes its whole family. Tokens are stored as SHA-256 hashes.
+`completeConsent` checks the scope and PKCE again, as `authorize` did, because its input comes back through your form.
+
+`/introspect` and `/revoke` take a client's credentials as `/token` does: Basic, or `client_id` and `client_secret` in the body. A public client names itself with `client_id`. A client can revoke only the tokens issued to it. Another client's token is left alone and answered with a 200, as an unknown token is, so the answer never tells a client that someone else's token is live. RFC 7009 has the server answer an error there instead.
+
+A code lives 10 minutes and works once. Access and ID tokens live an hour and refresh tokens 30 days; `config` changes each. A refresh token rotates on every use, and presenting a spent one revokes its whole family. Presenting it as another client is refused without spending it. Tokens are stored as SHA-256 hashes.
+
+Erasing or soft-deleting an identity ends its grants: its codes and refresh tokens answer `invalid_grant`, and its tokens introspect as `{ active: false }`.
 
 ## Stores
 
@@ -66,6 +72,10 @@ const op = createOidcOP({
 })
 ```
 
-Without `initialAccessToken` anyone can register a client, so keep that behind a private network. Advertise the endpoint with `registrationEndpoint` in the [discovery document](/duck-auth/advanced/oidc).
+Leave `initialAccessToken` out and anyone can register a client, so keep that behind a private network. The key present but `undefined`, as an unset environment variable gives, throws `AUTH_MISCONFIGURED` rather than opening registration. So does a blank token, or a `maxRedirectUris` that is not a whole number of 1 or more.
+
+A consent screen links `client_uri` and shows `logo_uri`, so each must be an `http` or `https` URL of at most 2048 characters, without a username or password. A field of the wrong type, or a URI that breaks this, answers 400 `invalid_client_metadata`. `registerClient` refuses the same URIs with `AUTH_INVALID_PARAMETERS`.
+
+Advertise the endpoint with `registrationEndpoint` in the [discovery document](/duck-auth/advanced/oidc).
 
 A working provider with a consent page is in [`examples/oidc-op`](https://github.com/gentleeduck/duck-iam/tree/main/examples/oidc-op).

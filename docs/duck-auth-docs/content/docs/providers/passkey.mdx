@@ -23,7 +23,7 @@ const auth = createAuth({
 })
 ```
 
-`rpID` is the domain a passkey is bound to, which every origin in `expectedOrigins` must be on. A passkey made for one `rpID` never works on another.
+`rpID` is the domain a passkey is bound to, which every origin in `expectedOrigins` must be on. A passkey made for one `rpID` never works on another. Write each origin as a browser sends it, `https://app.example.com`, with no trailing slash or default port. A bare-host `rpID` and such origins are checked when the provider is built and when a registration begins, and anything else throws `AUTH_MISCONFIGURED`, since no browser could complete a ceremony against it.
 
 ## Registering a passkey
 

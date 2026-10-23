@@ -101,9 +101,12 @@ A plugin bundles providers, event listeners, an install hook and a facet under o
 ```ts
 await auth.use({
   id: 'audit',
+  delivery: 'origin',
   events: { 'signin.success': (p) => console.log('signed in', p.identity.id) },
 })
 ```
+
+`delivery` sets where the `events` handlers run, as [`on`](/duck-auth/core/events#where-a-handler-runs) does. `'fleet'`, the default, runs them on every server. `'origin'` runs each one once, on the server that emitted, which is what an audit write or an alert needs.
 
 Installing is all or nothing: a failure part-way unwinds what landed.
 

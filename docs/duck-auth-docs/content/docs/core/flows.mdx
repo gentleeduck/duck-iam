@@ -56,6 +56,7 @@ await auth.flows.completePasswordReset({ token, newPassword })
 - The request answers `{ ok: true }` whether or not the address exists, and mails a `password-reset` link through [Delivery](/duck-auth/core/delivery) when it does.
 - Completing it spends the token, revokes every session of the account, then sets the password. A bad token throws `AUTH_RECOVERY_TOKEN_INVALID`, an old one `AUTH_RECOVERY_TOKEN_EXPIRED`.
 - When the account has TOTP or WebAuthn MFA, a mailed link alone is not enough: it throws `AUTH_RECOVERY_REQUIRES_MFA` with the `methods`, until the call carries `currentSid` of a fresh AAL 2 session of the same account. That session is rotated rather than revoked, and its replacement comes back in `intents`.
+- The link proves the address, so an account whose address was not verified is marked `emailVerified`. Unless the call carries a session of that account, whatever else is attached to it is removed first: its linked providers and its credentials, in every tenant. Until then, anyone could have signed up with that address.
 
 ## Email verification
 
@@ -80,6 +81,7 @@ const deleted = await auth.flows.completeAccountDeletion({ token, sendUndoLink: 
 await auth.flows.cancelAccountDeletion({ token: deleted.cancellationToken })
 ```
 
+- The link is refused, `AUTH_RECOVERY_TOKEN_INVALID`, if the account's email has changed since it was sent.
 - `completeAccountDeletion` soft-deletes the identity and revokes its sessions. With `sendUndoLink` it mails an `account-deletion-cancel` link; without it, deliver `cancellationToken` yourself or drop it to turn undo off.
 - `cancelAccountDeletion` takes either the undo token (the user's route) or `{ identityId, authorize }` (an operator's). Both or neither throws `AUTH_MISCONFIGURED`.
 - Once the window closes, `identities.gc()` erases the row.
@@ -100,7 +102,7 @@ await auth.flows.advanceSignUp({ flowToken, stage: 'terms-accepted', profilePatc
 const { session, intents } = await auth.flows.completeSignUp({ flowToken })
 ```
 
-- Stages are `email-collected`, `email-verified`, `profile-completed`, `mfa-enrolled`, `terms-accepted` and `completed`. Your code proves each one before advancing it; `advanceSignUp` records it.
+- Stages are `email-collected`, `email-verified`, `profile-completed`, `mfa-enrolled`, `terms-accepted` and `completed`. Your code proves each one before advancing it; `advanceSignUp` records it. Any other name, in `required` or in `advanceSignUp`, throws `AUTH_MISCONFIGURED`.
 - `completeSignUp` throws `AUTH_SIGNUP_INCOMPLETE` with the `missing` stages, otherwise merges the collected profile and signs the user in.
 - The flow expires 30 minutes after its last step and 24 hours after it began. A dead or spent token throws `AUTH_SIGNUP_TOKEN_INVALID`. `getSignUpFlow(flowToken)` reads the flow, and `.orNull()` answers `null` for a dead one.
 - `profilePatch` cannot change the email the flow began with.
@@ -123,6 +125,7 @@ const back = await auth.flows.releaseImpersonation(acting.sid)
 
 - `authorize` is mandatory and decides; with [duck-iam](/duck-auth/guides/iam-bridge) it wraps `engine.authorize()`. Never pass `async () => true`.
 - The session lives at most an hour, emits `identity.impersonated`, and cannot impersonate again or target the operator.
+- It is in the tenant of the operator's session, and so is the session `releaseImpersonation` hands back. A `tenantId` naming another tenant throws `AUTH_UNAUTHENTICATED`.
 - `releaseImpersonation` ends it and mints the operator a session of their own, or answers `session: null` when the operator's account went away meanwhile.
 
 ## Linking a provider
@@ -138,4 +141,4 @@ await auth.flows.linkProvider({
 await auth.flows.unlinkProvider({ identityId: identity.id, providerId: 'oauth:github' })
 ```
 
-A link is a permanent way to sign in, so `authorize` must answer `false` unless `providerSub` came from a token exchange your own code performed. `unlinkProvider` refuses the last way in unless `allowLockout` is set, which is for deletion and admin overrides.
+A link is a permanent way to sign in, so `authorize` must answer `false` unless `providerSub` came from a token exchange your own code performed. Linking a second account at a provider the identity already holds throws `AUTH_PROVIDER_TAKEN`; unlink the first. `unlinkProvider` refuses the last way in unless `allowLockout` is set, which is for deletion and admin overrides.

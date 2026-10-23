@@ -18,7 +18,7 @@ const deliver: Deliver = async ({ kind, identity, vars, tenant }) => {
 }
 ```
 
-`vars.url` is the full link, already carrying its token, built as `baseUrl + callbackPath + '?token=...'`. `vars.ttlMin` is how long it stays good.
+`vars.url` is the full link, already carrying its token: `baseUrl + callbackPath` with `token` set in its query, beside any query `callbackPath` has of its own. `vars.ttlMin` is how long it stays good.
 
 | `kind` | Sent by | Extra `vars` | Default path, TTL |
 | --- | --- | --- | --- |

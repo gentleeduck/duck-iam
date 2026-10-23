@@ -38,7 +38,7 @@ createAuth({
 
 - `resolveSession` slides `expiresAt` forward once less than half the idle window is left, never past `absoluteExpiresAt`.
 - Nothing moves `absoluteExpiresAt`. Once it passes, the user signs in again.
-- Over `maxSessionsPerIdentity`, a new sign-in revokes that identity's oldest session. Guests are not counted.
+- Over `maxSessionsPerIdentity`, a new sign-in revokes that identity's oldest session of the same kind, so the sessions an API key opens never sign its owner out of a device. Guests are not counted.
 
 An expired session reads as `AUTH_SESSION_EXPIRED`, which `orNull()` answers as `null`. The row stays until a sweep removes it; schedule `auth.sessions.gc()` yourself.
 

@@ -22,7 +22,7 @@ An account needs more than a password: a proven address, a way back in when the 
     MAIL --> U["the person clicks"]
     U --> C["auth.flows.complete... with the token"]`} />
 
-The engine mints the token, builds `baseUrl + callbackPath + '?token=...'`, and hands it to `deliver`. What happens next is your mailer's business.
+The engine mints the token, builds `baseUrl + callbackPath` with `token` set in its query, and hands it to `deliver`. What happens next is your mailer's business.
 
 ## Step by step
 
