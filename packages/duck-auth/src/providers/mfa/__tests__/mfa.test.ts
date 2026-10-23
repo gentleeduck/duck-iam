@@ -6,6 +6,7 @@ import { AuthError } from '~/core/errors'
 import { InMemoryEvents } from '~/core/events'
 import type { Passkey } from '~/providers/passkey/passkey.types'
 import { type SoftAuthenticator, softAuthenticator } from '~/test/soft-authenticator'
+import { credentialInput } from '~/test/store-inputs'
 import { totpAt } from '../internal/totp'
 import { MfaImpl } from '../mfa'
 import { DEFAULT_MFA_CONFIG } from '../mfa.constants'
@@ -89,6 +90,61 @@ describe('MfaFacet - TOTP', () => {
     it('confirmTotpEnrollment without prior begin throws AUTH_MFA_REQUIRED', async () => {
       await expect(facet.confirmTotpEnrollment('user-1', '123456')).rejects.toMatchObject({
         code: 'AUTH_MFA_REQUIRED',
+      })
+    })
+
+    it('confirmTotpEnrollment answers ok:false for a code that is not a string, and the enrollment stays pending', async () => {
+      const challenge = await facet.beginTotpEnrollment('user-1', 'alice@x.com')
+
+      for (const code of [undefined, null, 123456, {}]) {
+        await expect(Reflect.apply(facet.confirmTotpEnrollment, facet, ['user-1', code])).resolves.toEqual({
+          ok: false,
+        })
+      }
+      const code = totpAt(challenge.secret, Math.floor(Date.now() / 1000 / 30))
+      await expect(facet.confirmTotpEnrollment('user-1', code)).resolves.toMatchObject({ ok: true })
+    })
+
+    describe('beside a WebAuthn factor', () => {
+      const nowStep = () => Math.floor(Date.now() / 1000 / 30)
+      /** The security key, as `confirmWebauthnMfaEnrollment` stores it. */
+      const addKey = () =>
+        adapter.credentials.create(
+          credentialInput({
+            identityId: 'user-1',
+            kind: 'webauthn-mfa',
+            secret: 'wa-1',
+            metadata: { publicKey: 'AQ', counter: 0, transports: [] },
+          }),
+          {},
+        )
+
+      it('refuses to begin one', async () => {
+        await addKey()
+        await expect(facet.beginTotpEnrollment('user-1', 'alice@x.com')).rejects.toMatchObject({
+          code: 'AUTH_MFA_REQUIRED',
+          meta: { methods: ['webauthn'] },
+        })
+      })
+
+      it('refuses to confirm one begun before the key was added, and mints no backup codes', async () => {
+        const planted = await facet.beginTotpEnrollment('user-1', 'alice@x.com')
+        await addKey()
+
+        await expect(facet.confirmTotpEnrollment('user-1', totpAt(planted.secret, nowStep()))).rejects.toMatchObject({
+          code: 'AUTH_MFA_REQUIRED',
+          meta: { methods: ['webauthn'] },
+        })
+        expect(await facet.hasTotp('user-1')).toBe(false)
+        expect(await facet.remainingBackupCodes('user-1')).toBe(0)
+        expect(await facet.verifyTotp('user-1', totpAt(planted.secret, nowStep() + 1))).toBe(false)
+      })
+
+      it('confirms the same enrollment when no key was added', async () => {
+        const pending = await facet.beginTotpEnrollment('user-1', 'alice@x.com')
+        await expect(facet.confirmTotpEnrollment('user-1', totpAt(pending.secret, nowStep()))).resolves.toMatchObject({
+          ok: true,
+        })
       })
     })
   })
@@ -774,6 +830,51 @@ describe('MfaFacet - WebAuthn-MFA', () => {
       await enroll(store, 60_000)
       await verify(store, 60_000)
       expect(store.ttls).toEqual([60_000, 60_000])
+    })
+  })
+
+  describe('a relying party no browser can satisfy', () => {
+    const challenges = new Map<string, string>()
+    const challengeStore: Passkey.ChallengeStore = {
+      async put(key, challenge) {
+        challenges.set(key, challenge)
+      },
+      async take(key) {
+        const challenge = challenges.get(key)
+        if (challenge === undefined) throw new AuthError('AUTH_CREDENTIAL_NOT_FOUND')
+        challenges.delete(key)
+        return challenge
+      },
+    }
+    const rp = (expectedOrigins: string) => ({
+      challengeKey: 's1',
+      challengeStore,
+      expectedOrigins,
+      rpID: 'app.test',
+      webauthnModule: makeMockWebauthn(),
+    })
+
+    beforeEach(() => challenges.clear())
+
+    it('refuses to begin an enrollment, and stores no challenge', async () => {
+      const enrollment = { ...rp('https://app.test/'), rpName: 'app', userName: 'a@x.com' }
+      await expect(facet.beginWebauthnMfaEnrollment(identityId, enrollment)).rejects.toMatchObject({
+        code: 'AUTH_MISCONFIGURED',
+      })
+      expect(challenges.size).toBe(0)
+    })
+
+    it('refuses a verification before it spends the challenge, where a usable one answers', async () => {
+      await challengeStore.put('mfa-auth:s1', 'c', 60_000)
+      await expect(
+        facet.verifyWebauthnMfa(identityId, { ...rp('https://app.test/'), response: { id: 'x' } }),
+      ).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
+      expect(challenges.get('mfa-auth:s1')).toBe('c')
+
+      await expect(
+        facet.verifyWebauthnMfa(identityId, { ...rp('https://app.test'), response: { id: 'x' } }),
+      ).resolves.toBe(false)
+      expect(challenges.size).toBe(0)
     })
   })
 })

@@ -132,7 +132,8 @@ export function verifyTotp(
 ): boolean {
   const params = opts.params ?? TOTP_DEFAULTS
   const nowMs = opts.nowMs ?? Date.now()
-  if (code.length !== params.digits) return false
+  // A request body's missing field arrives as `undefined`, whose `.length` threw a raw TypeError.
+  if (typeof code !== 'string' || code.length !== params.digits) return false
   if (!/^\d+$/.test(code)) return false
   if (!usableSecret(secretB32)) return false
 
@@ -159,7 +160,7 @@ export function matchTotpStep(
 ): number | null {
   const params = opts.params ?? TOTP_DEFAULTS
   const nowMs = opts.nowMs ?? Date.now()
-  if (code.length !== params.digits) return null
+  if (typeof code !== 'string' || code.length !== params.digits) return null
   if (!/^\d+$/.test(code)) return null
   if (!usableSecret(secretB32)) return null
 

@@ -117,6 +117,15 @@ describe('RememberMeFacet', () => {
     vi.setSystemTime(Date.now() + 20)
     await expect(tiny.verify(token)).rejects.toMatchObject({ code: 'AUTH_CREDENTIAL_NOT_FOUND' })
   })
+
+  it('refuses at construction a ttl whose deadline no store holds, where a long one issues', async () => {
+    const crypto = { authRandomToken: randomToken, authSha256: sha256 }
+    expect(() => new RememberMeFacet(adapter.credentials, crypto, { ttlMs: 1e15, byteLength: 32 })).toThrow(
+      expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
+    )
+    const decade = new RememberMeFacet(adapter.credentials, crypto, { ttlMs: 10 * 365 * 86_400_000, byteLength: 32 })
+    await expect(decade.issue(identityId)).resolves.toMatchObject({ token: expect.any(String) })
+  })
 })
 
 describe('a remembered device goes with the factor it skipped', () => {

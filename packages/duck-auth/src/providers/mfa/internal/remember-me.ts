@@ -10,7 +10,7 @@ import {
   isRevoked,
   toCredentialCreate,
 } from '~/core/credentials/credentials'
-import { RECOVERY_PURPOSES } from '~/core/credentials/credentials.constants'
+import { LATEST_STORABLE_MS, RECOVERY_PURPOSES } from '~/core/credentials/credentials.constants'
 import type { Credential } from '~/core/credentials/credentials.types'
 import { AuthError } from '~/core/errors'
 import type { TenantContext } from '~/core/tenant/tenant.types'
@@ -65,9 +65,10 @@ export class RememberMeFacet {
         detail: `rememberMe: byteLength must be a whole number between 16 and 128, got ${String(this._cfg.byteLength)}`,
       })
     }
-    if (!Number.isFinite(this._cfg.ttlMs) || this._cfg.ttlMs < 1) {
+    // A deadline past what the stores hold failed every `issue` with the caller's error, AUTH_INVALID_PARAMETERS.
+    if (!Number.isFinite(this._cfg.ttlMs) || this._cfg.ttlMs < 1 || Date.now() + this._cfg.ttlMs > LATEST_STORABLE_MS) {
       throw new AuthError('AUTH_MISCONFIGURED', {
-        detail: `rememberMe: ttlMs must be a positive number, got ${String(this._cfg.ttlMs)}`,
+        detail: `rememberMe: ttlMs must be a positive number whose deadline a store can hold, got ${String(this._cfg.ttlMs)}`,
       })
     }
   }

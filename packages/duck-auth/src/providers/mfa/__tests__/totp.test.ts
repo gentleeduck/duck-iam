@@ -127,3 +127,13 @@ describe('a secret that does not decode', () => {
     expect(matchTotpStep(secret, totpAt(secret, step))).toBe(step)
   })
 })
+
+// A request body's missing or mistyped field reaches these as whatever JSON gave it.
+describe('a code that is not a string', () => {
+  const secret = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ'
+
+  it.each([undefined, null, 123456, {}])('verifies %s as false and matches no step, without throwing', (code) => {
+    expect(Reflect.apply(verifyTotp, undefined, [secret, code])).toBe(false)
+    expect(Reflect.apply(matchTotpStep, undefined, [secret, code])).toBeNull()
+  })
+})

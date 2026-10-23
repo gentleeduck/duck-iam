@@ -17,7 +17,12 @@ import type { Identities } from '~/core/identities'
 import { getProfileNumber, isProfileBooleanFalse, isProfileBooleanTrue, isRecord } from '~/core/predicates/predicates'
 import type { Provider } from '~/core/provider/provider.types'
 import type { TenantContext } from '~/core/tenant/tenant.types'
-import { knownTransports, loadWebAuthn, parsePasskeyMetadata } from '~/providers/passkey/passkey'
+import {
+  knownTransports,
+  loadWebAuthn,
+  parsePasskeyMetadata,
+  refuseUnusableRelyingParty,
+} from '~/providers/passkey/passkey'
 import { DEFAULT_PASSKEY_CONFIG } from '~/providers/passkey/passkey.constants'
 import type { Passkey } from '~/providers/passkey/passkey.types'
 import { buildOtpAuthUri, generateSecret, matchTotpStep } from './internal/totp'
@@ -126,6 +131,11 @@ export class MfaImpl {
       (r) => !isRevoked(r) && !isCredentialExpired(r) && isProfileBooleanFalse(r.metadata, 'confirmed'),
     )
     if (!row) throw new AuthError('AUTH_MFA_REQUIRED', { methods: ['totp'] })
+    // SECURITY: `beginTotpEnrollment`'s guard again, since an enrollment begun before a WebAuthn factor was added
+    // would otherwise confirm beside it.
+    if (await this.hasWebauthnMfa(identityId, ctx)) {
+      throw new AuthError('AUTH_MFA_REQUIRED', { methods: ['webauthn'] })
+    }
     const step = matchTotpStep(row.secret, code)
     if (step === null) return { ok: false }
 
@@ -295,6 +305,7 @@ export class MfaImpl {
         detail: `mfa: challengeTtlMs must be a finite positive number (got ${challengeTtlMs})`,
       })
     }
+    refuseUnusableRelyingParty(opts.rpID, opts.expectedOrigins)
     const webauthn = await loadWebAuthn(opts.webauthnModule)
     const existing = await this._credentials.listByIdentity(identityId, 'webauthn-mfa', ctx)
     const options = await webauthn.generateRegistrationOptions({
@@ -402,6 +413,8 @@ export class MfaImpl {
     opts: Mfa.WebauthnMfaVerifyOpts,
     ctx: TenantContext = {},
   ): Promise<boolean> {
+    // Before the challenge is spent: a configuration no browser can satisfy is not a failed factor.
+    refuseUnusableRelyingParty(opts.rpID, opts.expectedOrigins)
     const challenge = await orNull(opts.challengeStore.take(`mfa-auth:${opts.challengeKey}`))
     if (!challenge) return false
     if (!isRecord(opts.response)) return false
