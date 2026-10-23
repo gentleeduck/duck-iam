@@ -130,6 +130,12 @@ describe.each([
     expect(refusal(auth)).toBe(detail(`\`authz.revoked\` ${FLEET_RULE}`))
   })
 
+  it("passes a plugin whose handlers are 'origin', as the docs' audit plugin is", async () => {
+    const auth = makeAuth(bus())
+    await auth.use({ delivery: 'origin', events: { lockout: noop, 'signin.success': noop }, id: 'audit' })
+    expect(refusal(auth)).toBe('')
+  })
+
   it('passes a webhook deliverer, which posts from the server that emitted', () => {
     const auth = makeAuth(bus())
     new WebhookDeliverer({

@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
+import { FakeRedis } from '~/core/drivers/redis-like'
+import { RedisEvents } from '~/core/events'
+import type { Events } from '~/core/events/events.types'
 import { MemoryLimiter } from '~/limiters/memory'
 import { AuthEngine } from '../engine'
 import { CookieTransport } from '../transport/cookie.transport'
@@ -145,5 +148,55 @@ describe('Plugin system', () => {
     auth.plugins.dispose()
     await auth.events.emit('lockout', { identityId: 'u', until: 0 })
     expect(handler).not.toHaveBeenCalled()
+  })
+
+  it('refuses a delivery that is neither origin nor fleet, wiring none of its events', async () => {
+    const auth = buildAuth()
+    const handler = vi.fn()
+    await expect(
+      auth.use({ delivery: JSON.parse('"orign"'), events: { lockout: handler }, id: 'typo' }),
+    ).rejects.toMatchObject({
+      code: 'AUTH_MISCONFIGURED',
+      meta: { detail: `@gentleduck/auth: plugin "typo" delivery must be 'origin' or 'fleet'` },
+    })
+    expect(auth.plugins.installed.has('typo')).toBe(false)
+    expect(auth.events.listenerCount?.('lockout')).toBe(0)
+  })
+})
+
+describe('Plugin events on a fleet', () => {
+  /** The audit rows one lockout on server `a` writes, with the plugin installed on `a` and `b` over one Redis. */
+  async function rowsForOneLockout(delivery?: Events.Delivery): Promise<string[]> {
+    const redis = new FakeRedis()
+    const rows: string[] = []
+    const servers: AuthEngine[] = []
+    for (const name of ['a', 'b']) {
+      const adapter = new MemoryAdapter()
+      const auth = new AuthEngine({
+        baseUrl: 'https://x',
+        events: new RedisEvents({ prefix: 'auth:events', redis }),
+        stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
+        transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+      })
+      await auth.use({
+        ...(delivery && { delivery }),
+        events: { lockout: ({ identityId }) => void rows.push(`${name}:${identityId}`) },
+        id: 'audit',
+      })
+      servers.push(auth)
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await servers[0]?.events.emit('lockout', { identityId: 'u1', until: 0 })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    return rows.sort()
+  }
+
+  it("runs an 'origin' plugin's handlers once, on the server that emitted", async () => {
+    expect(await rowsForOneLockout('origin')).toEqual(['a:u1'])
+  })
+
+  it('runs them on every server by default, as it does for fleet', async () => {
+    expect(await rowsForOneLockout()).toEqual(['a:u1', 'b:u1'])
+    expect(await rowsForOneLockout('fleet')).toEqual(['a:u1', 'b:u1'])
   })
 })

@@ -2,6 +2,7 @@
  *  adapter "at most one live subscription per channel", and the adapter's unsubscribe is channel-global. */
 import { describe, expect, it, vi } from 'vitest'
 import type { ValkeySubscriberClient } from '~/core/drivers/valkey-like'
+import { SUBSCRIBE_RETRY_MS } from '~/core/events/events.constants'
 import { valkeyEvents } from '~/core/events/events.valkey'
 import { FakeValkey } from '~/test/fake-valkey'
 
@@ -276,5 +277,136 @@ describe('RedisEvents on valkey: origin handlers hold no channel', () => {
 
     expect(fleet).toHaveBeenCalledOnce()
     expect(origin).not.toHaveBeenCalled()
+  })
+})
+
+describe('RedisEvents: a subscribe that failed is retried until it lands', () => {
+  /** A subscriber that refuses its first `failures` subscribes, as while Redis is unreachable. */
+  function refusing(failures: number): { bus: ReturnType<typeof valkeyEvents>; sub: FakeSubscriber } {
+    const sub = new FakeSubscriber()
+    const original = sub.subscribe.bind(sub)
+    let left = failures
+    sub.subscribe = async (...channels: string[]) => {
+      if (left-- <= 0) return original(...channels)
+      sub.subscribeCalls++
+      throw new Error('connect ECONNREFUSED')
+    }
+    return { bus: valkeyEvents({ cmd: new FakeValkey(), prefix: 'test', sub }), sub }
+  }
+
+  it('hears the fleet once Redis answers, with no later on() to prompt it, and logs the failure', async () => {
+    vi.useFakeTimers()
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const { bus, sub } = refusing(1)
+      const seen: unknown[] = []
+      bus.on('lockout', () => {
+        seen.push(1)
+      })
+      await vi.advanceTimersByTimeAsync(0)
+      expect(sub.channels.has(CHANNEL)).toBe(false)
+      expect(logged.mock.calls.map(([line]) => line)).toEqual([
+        '[@gentleduck/auth] RedisEvents could not subscribe to "lockout", retrying:',
+      ])
+
+      await vi.advanceTimersByTimeAsync(SUBSCRIBE_RETRY_MS)
+      sub.deliver(CHANNEL, fromPeer())
+      await vi.advanceTimersByTimeAsync(0)
+      expect(seen).toHaveLength(1)
+      expect(logged).toHaveBeenCalledOnce()
+    } finally {
+      logged.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
+  it('subscribes once, logs nothing and holds no timer when Redis answers the first time', async () => {
+    vi.useFakeTimers()
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const { bus, sub } = refusing(0)
+      bus.on('lockout', () => {})
+      await vi.advanceTimersByTimeAsync(0)
+      expect(sub.subscribeCalls).toBe(1)
+      expect(sub.channels.has(CHANNEL)).toBe(true)
+      expect(vi.getTimerCount()).toBe(0)
+      expect(logged).not.toHaveBeenCalled()
+    } finally {
+      logged.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+  it('backs off, doubling from a second to at most thirty', async () => {
+    vi.useFakeTimers()
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const { bus, sub } = refusing(Number.POSITIVE_INFINITY)
+      bus.on('lockout', () => {})
+      let now = 0
+      const callsAt = async (ms: number): Promise<number> => {
+        await vi.advanceTimersByTimeAsync(ms - now)
+        now = ms
+        return sub.subscribeCalls
+      }
+      expect(await callsAt(0)).toBe(1)
+      expect(await callsAt(999)).toBe(1)
+      expect(await callsAt(1_000)).toBe(2)
+      expect(await callsAt(3_000)).toBe(3)
+      expect(await callsAt(7_000)).toBe(4)
+      expect(await callsAt(15_000)).toBe(5)
+      expect(await callsAt(31_000)).toBe(6)
+      expect(await callsAt(60_999)).toBe(6)
+      expect(await callsAt(61_000)).toBe(7)
+      expect(await callsAt(91_000)).toBe(8)
+      expect(logged).toHaveBeenCalledTimes(8)
+    } finally {
+      logged.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
+  it('stops once the event has no fleet handler, leaving no timer to hold the process', async () => {
+    vi.useFakeTimers()
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const { bus, sub } = refusing(Number.POSITIVE_INFINITY)
+      bus.on('lockout', () => {}, { delivery: 'origin' })
+      const off = bus.on('lockout', () => {})
+      await vi.advanceTimersByTimeAsync(0)
+      expect(sub.subscribeCalls).toBe(1)
+
+      off()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(vi.getTimerCount()).toBe(0)
+      await vi.advanceTimersByTimeAsync(120_000)
+      expect(sub.subscribeCalls).toBe(1)
+    } finally {
+      logged.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps retrying while another fleet handler remains', async () => {
+    vi.useFakeTimers()
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const { bus, sub } = refusing(1)
+      const seen: unknown[] = []
+      const off = bus.on('lockout', () => {})
+      bus.on('lockout', () => {
+        seen.push(1)
+      })
+      await vi.advanceTimersByTimeAsync(0)
+      off()
+      await vi.advanceTimersByTimeAsync(SUBSCRIBE_RETRY_MS)
+      expect(sub.subscribeCalls).toBe(2)
+
+      sub.deliver(CHANNEL, fromPeer())
+      await vi.advanceTimersByTimeAsync(0)
+      expect(seen).toHaveLength(1)
+    } finally {
+      logged.mockRestore()
+      vi.useRealTimers()
+    }
   })
 })
