@@ -1,4 +1,6 @@
+import { orNull } from '../answer'
 import { AuthError } from '../errors'
+import type { Identities } from '../identities/identities.types'
 import { isExpiredAt } from '../predicates/predicates'
 import type { Provider } from '../provider/provider.types'
 import type { TenantContext } from '../tenant/tenant.types'
@@ -69,5 +71,22 @@ export async function burnCredential(
   } catch (err) {
     if (err instanceof AuthError && err.code === 'AUTH_STALE_WRITE') throw new AuthError('AUTH_RECOVERY_TOKEN_INVALID')
     throw err
+  }
+}
+
+/** Unlinks every provider and revokes every live credential but `keepId` on a row whose address was never
+ *  proven, twice, so a write already in flight when its sessions went is caught. A row gone in between counts as
+ *  revoked. */
+export async function evictUnproven<Profile extends Identities.ProfileMetadataBase>(
+  stores: Pick<Provider.Stores<Profile>, 'credentials' | 'identities'>,
+  identityId: string,
+  keepId: string,
+): Promise<void> {
+  for (let pass = 0; pass < 2; pass++) {
+    const held = await stores.identities.find({ id: identityId })
+    for (const p of held.providers) await stores.identities.unlink(identityId, p.providerId)
+    for (const c of await stores.credentials.listByIdentity(identityId, null, {})) {
+      if (!isRevoked(c) && c.id !== keepId) await orNull(stores.credentials.revoke(c.id, {}))
+    }
   }
 }

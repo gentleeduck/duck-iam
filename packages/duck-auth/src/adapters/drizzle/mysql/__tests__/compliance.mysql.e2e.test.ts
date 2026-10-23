@@ -165,6 +165,46 @@ suite('DrizzleMysql compliance matrix (real MySQL)', () => {
     })
   })
 
+  describe('a value a column cannot hold', () => {
+    it('refuses a session or credential naming a missing identity, or one no key could hold', async () => {
+      const now = new Date()
+      for (const [identityId, code] of [
+        [randomUUID(), 'AUTH_IDENTITY_NOT_FOUND'],
+        // The `ascii` key cannot hold it, which Postgres's `uuid` answers the same way.
+        ['ünïcödé', 'AUTH_INVALID_PARAMETERS'],
+      ] as const) {
+        await expect(
+          stores.sessions.create(
+            sessionInput({
+              aal: 1,
+              absoluteExpiresAt: new Date(now.getTime() + 600_000),
+              createdAt: now,
+              expiresAt: new Date(now.getTime() + 60_000),
+              factors: [],
+              fresh: true,
+              id: sessionId(`orphan-${identityId}`),
+              identityId,
+              kind: 'user',
+              rotatedAt: now,
+            }),
+          ),
+        ).rejects.toMatchObject({ code })
+        await expect(
+          stores.credentials.create(credentialInput({ identityId, kind: 'password', metadata: {}, secret: 'h' }), {}),
+        ).rejects.toMatchObject({ code })
+      }
+    })
+
+    it('refuses a provider subject longer than its column as a bad value', async () => {
+      await expect(
+        stores.identities.link(OWNER, { providerId: 'saml:long', providerSub: 's'.repeat(256) }),
+      ).rejects.toMatchObject({ code: 'AUTH_INVALID_PARAMETERS' })
+      await expect(
+        stores.identities.link(OWNER, { providerId: 'saml:long', providerSub: 's'.repeat(255) }),
+      ).resolves.toMatchObject({ id: OWNER })
+    })
+  })
+
   describe('datetime(3) precision', () => {
     it('keeps millisecond precision on a session round trip', async () => {
       // datetime(3) is the whole reason the schema does not use plain datetime:

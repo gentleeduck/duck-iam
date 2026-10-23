@@ -141,18 +141,18 @@ describe('DrizzleSqlite store-contract divergences', () => {
       expect(again?.providers).toHaveLength(1)
     })
 
-    it('keeps the sub it holds when a second one arrives for the same providerId', async () => {
+    it('keeps the sub it holds, and refuses a second one for the same providerId', async () => {
       const i = await stores.identities.create(identityInput({ profile: profile('two') }))
       await stores.identities.link(i.id, { addedAt: new Date(), providerId: 'oauth:google', providerSub: 'sub-a' })
 
       // `uq_auth_identity_providers_owned` holds one row per provider, and `unlink` takes no sub, so a
-      // second row at the same provider would be one nothing could address.
-      const both = await stores.identities.link(i.id, {
-        addedAt: new Date(),
-        providerId: 'oauth:google',
-        providerSub: 'sub-b',
-      })
-      expect(both?.providers.map((p) => p.providerSub)).toEqual(['sub-a'])
+      // second row at the same provider would be one nothing could address. Refused, not kept silently,
+      // or the caller reads the second as linked.
+      await expect(
+        stores.identities.link(i.id, { addedAt: new Date(), providerId: 'oauth:google', providerSub: 'sub-b' }),
+      ).rejects.toMatchObject({ code: 'AUTH_PROVIDER_TAKEN' })
+      const kept = await stores.identities.find({ id: i.id })
+      expect(kept.providers.map((p) => p.providerSub)).toEqual(['sub-a'])
     })
   })
 

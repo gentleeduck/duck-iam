@@ -8,6 +8,7 @@ import type { MySql2Database } from 'drizzle-orm/mysql2'
 import { type Adapter, AdapterStore } from '~/adapters/adapter'
 import { inTenant, jsonMerged, rowsWithLinks } from '~/adapters/drizzle/drizzle.rows'
 import { actorId } from '~/core/actor'
+import { assertCredentialDates } from '~/core/credentials/credentials.constants'
 import { authUuidV7 } from '~/core/crypto'
 import { AuthError, type SqlFault, STORE_RAISES } from '~/core/errors'
 import { toEmailList, withNormalisedEmail } from '~/core/identities/identities.constants'
@@ -284,9 +285,19 @@ export class DrizzleMysqlAdapter<
         if (!isFiniteNumber(now)) {
           throw new AuthError('AUTH_INVALID_PARAMETERS', { detail: 'gc(now) requires a finite epoch-ms cutoff' })
         }
-        const [result] = await this._db.delete(authIdentities).where(lt(authIdentities.deletedAt, new Date(now)))
 
-        return { deleted: result.affectedRows }
+        // MySQL has no `RETURNING`, so the ids are read under the lock the delete then takes them by.
+        return this._db.transaction(async (tx) => {
+          const going = await tx
+            .select({ id: authIdentities.id })
+            .from(authIdentities)
+            .where(lt(authIdentities.deletedAt, new Date(now)))
+            .for('update')
+          const ids = going.map((r) => r.id)
+          if (ids.length > 0) await tx.delete(authIdentities).where(inArray(authIdentities.id, ids))
+
+          return { deleted: ids.length, ids }
+        })
       }),
 
     /** The holder is the insert's own source row, so one that is gone or hidden writes nothing and the
@@ -329,6 +340,10 @@ export class DrizzleMysqlAdapter<
 
           const linked = await this._find({ id: identityId }, tx)
           if (!linked) throw new AuthError('AUTH_IDENTITY_NOT_FOUND')
+          // One login per provider: the insert kept the one held, and `unlink` is the only way to replace it.
+          if (!linked.providers.some((p) => p.providerId === link.providerId && p.providerSub === link.providerSub)) {
+            throw new AuthError('AUTH_PROVIDER_TAKEN', { providerId: link.providerId })
+          }
 
           return linked
         }),
@@ -568,6 +583,7 @@ export class DrizzleMysqlAdapter<
 
     create: (input, ctx) =>
       this.run(async () => {
+        assertCredentialDates(input)
         const id = authUuidV7()
         await this._db.insert(authCredentials).values({
           ...input,

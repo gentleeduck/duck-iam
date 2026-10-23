@@ -5,6 +5,7 @@ import { alias, type PgDatabase, type PgUpdateSetSource, type WithSubqueryWithSe
 import { type Adapter, AdapterStore } from '~/adapters/adapter'
 import { inTenant, rowsWithLinks, rowWithLinks } from '~/adapters/drizzle/drizzle.rows'
 import { actorId } from '~/core/actor'
+import { assertCredentialDates } from '~/core/credentials/credentials.constants'
 import type { Credential } from '~/core/credentials/credentials.types'
 import { authUuidV7 } from '~/core/crypto'
 import { AuthError, type SqlFault, STORE_RAISES } from '~/core/errors'
@@ -262,9 +263,12 @@ export class DrizzlePgAdapter<
         if (!isFiniteNumber(now)) {
           throw new AuthError('AUTH_INVALID_PARAMETERS', { detail: 'gc(now) requires a finite epoch-ms cutoff' })
         }
-        const { rowCount } = await this._db.delete(authIdentities).where(lt(authIdentities.deletedAt, new Date(now)))
+        const gone = await this._db
+          .delete(authIdentities)
+          .where(lt(authIdentities.deletedAt, new Date(now)))
+          .returning({ id: authIdentities.id })
 
-        return { deleted: rowCount ?? 0 }
+        return { deleted: gone.length, ids: gone.map((r) => r.id) }
       }),
 
     find: (by) =>
@@ -314,6 +318,10 @@ export class DrizzlePgAdapter<
           )
           const [linked] = await this._linkedTo(written, tx)
           if (!linked) throw new AuthError('AUTH_IDENTITY_NOT_FOUND')
+          // One login per provider: the insert kept the one held, and `unlink` is the only way to replace it.
+          if (!linked.providers.some((p) => p.providerId === link.providerId && p.providerSub === link.providerSub)) {
+            throw new AuthError('AUTH_PROVIDER_TAKEN', { providerId: link.providerId })
+          }
 
           return linked
         }),
@@ -564,6 +572,7 @@ export class DrizzlePgAdapter<
 
     create: (input, context) =>
       this.run(async () => {
+        assertCredentialDates(input)
         const [created] = await this._db
           .insert(authCredentials)
           .values({

@@ -7,6 +7,7 @@ import { alias, type BaseSQLiteDatabase, type SQLiteUpdateSetSource } from 'driz
 import { type Adapter, AdapterStore } from '~/adapters/adapter'
 import { inTenant, jsonMerged, rowsWithLinks, rowWithLinks } from '~/adapters/drizzle/drizzle.rows'
 import { actorId } from '~/core/actor'
+import { assertCredentialDates } from '~/core/credentials/credentials.constants'
 import { authUuidV7 } from '~/core/crypto'
 import { AuthError, type SqlFault, STORE_RAISES } from '~/core/errors'
 import { toEmailList, withNormalisedEmail } from '~/core/identities/identities.constants'
@@ -273,7 +274,7 @@ export class DrizzleSqliteAdapter<
           .where(lt(authIdentities.deletedAt, new Date(now)))
           .returning({ id: authIdentities.id })
 
-        return { deleted: gone.length }
+        return { deleted: gone.length, ids: gone.map((r) => r.id) }
       }),
 
     /** The holder is the insert's own source row, so one that is gone or hidden writes nothing and the
@@ -296,7 +297,7 @@ export class DrizzleSqliteAdapter<
           ]
 
           // SECURITY: (provider_id, provider_sub) refuses a login another identity holds; (identity_id,
-          // provider_id) makes a repeat a no-op, so a caller racing a different sub is told, not given both.
+          // provider_id) makes a repeat a no-op.
           await tx
             .insert(authIdentityProviders)
             .select(
@@ -307,14 +308,19 @@ export class DrizzleSqliteAdapter<
 
           // A login is part of what a read of the identity answers, so its version moves with one. The bump
           // returns the row it wrote, which is the answer; re-reading it would be a third statement.
-          const [linked] = await tx
+          const [bumped] = await tx
             .update(authIdentities)
             .set({ version: sql`${authIdentities.version} + 1` })
             .where(and(eq(authIdentities.id, identityId), isNull(authIdentities.deletedAt)))
             .returning()
-          if (!linked) throw new AuthError('AUTH_IDENTITY_NOT_FOUND')
+          if (!bumped) throw new AuthError('AUTH_IDENTITY_NOT_FOUND')
+          const linked = rowWithLinks<Profile>(bumped, await this._links(identityId, tx))
+          // One login per provider: the insert kept the one held, and `unlink` is the only way to replace it.
+          if (!linked.providers.some((p) => p.providerId === link.providerId && p.providerSub === link.providerSub)) {
+            throw new AuthError('AUTH_PROVIDER_TAKEN', { providerId: link.providerId })
+          }
 
-          return rowWithLinks<Profile>(linked, await this._links(identityId, tx))
+          return linked
         }),
       ),
 
@@ -549,6 +555,7 @@ export class DrizzleSqliteAdapter<
 
     create: (input, ctx) =>
       this.run(async () => {
+        assertCredentialDates(input)
         const [created] = await this._db
           .insert(authCredentials)
           .values({
