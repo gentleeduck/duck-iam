@@ -32,12 +32,19 @@ describe.each(limiters)('$name config bounds', ({ make }) => {
     expect(refusal(() => make({ max }))).toContain('max')
   })
 
-  it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, 0, -1, 1e16])(
+  // `1500.5` is in range, and Redis refuses a fractional expiry, so the Redis limiter threw out of every consume.
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, 0, -1, 1e16, 1500.5])(
     'refuses windowMs %o',
     (windowMs) => {
       expect(refusal(() => make({ windowMs }))).toContain('windowMs')
     },
   )
+
+  it('accepts a whole windowMs that is not whole seconds', async () => {
+    const limiter = make({ max: 1, windowMs: 1500 })
+    expect((await limiter.consume('k')).ok).toBe(true)
+    expect((await limiter.consume('k')).ok).toBe(false)
+  })
 
   it('accepts the defaults, and still refuses over budget', async () => {
     expect(() => make({})).not.toThrow()
