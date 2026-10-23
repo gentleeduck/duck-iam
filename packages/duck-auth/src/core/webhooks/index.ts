@@ -19,6 +19,7 @@ import {
   jitterSource,
   MAX_ATTEMPTS,
   PAYLOAD_MAX_BYTES,
+  RESERVED_HEADERS,
   sanitiseEndpointUrl,
   TIMEOUT_DEFAULT_MS,
   TOLERANCE_DEFAULT_MS,
@@ -69,10 +70,15 @@ export class WebhookDeliverer {
       // The SSRF guard: non-HTTPS, loopback, private, link-local and metadata hosts are refused.
       assertSafeOutboundUrl(e.url, { allowInsecure: cfg.allowInsecure ?? false, label: 'webhook url' })
       // The name reaches `fetch` as a header key, so a typo carrying a space or a colon throws on
-      // every request for every event, forever. Refused once here instead.
-      if (e.signatureHeader !== undefined && !HEADER_TOKEN.test(e.signatureHeader)) {
+      // every request for every event, forever, and one the request already carries breaks that header.
+      // Refused once here instead.
+      const header = e.signatureHeader
+      if (
+        header !== undefined &&
+        (typeof header !== 'string' || !HEADER_TOKEN.test(header) || RESERVED_HEADERS.has(header.toLowerCase()))
+      ) {
         throw new AuthError('AUTH_MISCONFIGURED', {
-          detail: `AuthWebhookDeliverer signatureHeader must be a valid header name (got ${JSON.stringify(e.signatureHeader)})`,
+          detail: `AuthWebhookDeliverer signatureHeader must be a valid header name the request does not already carry (got ${JSON.stringify(header)})`,
         })
       }
       // A name the bus never emits subscribes to nothing, and a string other than `'*'` to each of its characters.
@@ -257,7 +263,9 @@ export class WebhookDeliverer {
 
   private async _assertEndpointResolvesOutward(url: string): Promise<void> {
     if (!this._resolveHost) return
-    const addresses = await this._resolveHost(new URL(url).hostname)
+    const { hostname } = new URL(url)
+    // An IPv6 host keeps its brackets in `hostname`, and `lookup` reads `[::1]` as a name it cannot find.
+    const addresses = await this._resolveHost(hostname.startsWith('[') ? hostname.slice(1, -1) : hostname)
     // No address vets nothing, and `fetch` then resolves the name on its own.
     if (addresses.length === 0) {
       throw new AuthError('AUTH_MISCONFIGURED', { detail: 'webhook url resolved to no address - refused (SSRF guard)' })
@@ -316,6 +324,9 @@ export class WebhookDeliverer {
         redirect: 'error',
         signal: controller.signal,
       })
+      // Only the status is read. An unread body holds its connection until the receiver ends it, so one
+      // that never does, or answers a large page, kept a socket open for every delivery.
+      await res.body?.cancel().catch(() => {})
       if (res.ok) return { state: 'delivered' }
       return {
         reason: `non-2xx response (${res.status})`,
@@ -366,6 +377,8 @@ export function verifyWebhookSignature(
     if (!Number.isFinite(opts.timestamp)) return false
     if (Math.abs(Date.now() - opts.timestamp) > tolerance) return false
   }
+  // A header the request did not carry arrives as undefined, which `startsWith` throws on.
+  if (typeof signature !== 'string') return false
   const prefix = ACCEPTED_PREFIXES.find((p) => signature.startsWith(p))
   if (prefix === undefined) return false
   const supplied = Buffer.from(signature.slice(prefix.length))
@@ -417,7 +430,7 @@ export namespace WebhookDeliverer {
      *  The SSRF guard still blocks loopback, private, link-local and cloud-metadata hosts regardless. */
     allowInsecure?: boolean
     /** Resolves an endpoint hostname to its addresses, checked against the same ranges before each
-     *  attempt; no address is a refusal. Without it the guard sees only the host's spelling, so a name
+     *  attempt; no address is a refusal. An IPv6 host arrives without its brackets. Without it the guard sees only the host's spelling, so a name
      *  pointing at 127.0.0.1 is accepted. In Node: `(await lookup(hostname, { all: true })).map((a) => a.address)`.
      *  WARN: this closes the name, not the race, since `fetch` resolves again when it connects. */
     resolveHost?: (hostname: string) => Promise<string[]>

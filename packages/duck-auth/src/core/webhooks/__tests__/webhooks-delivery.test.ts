@@ -4,6 +4,7 @@
  * it is attached to the event bus, which makes its latency the authentication
  * flow's latency. Both of those are pinned here.
  */
+import { lookup } from 'node:dns/promises'
 import { describe, expect, it, vi } from 'vitest'
 import { InMemoryEvents } from '~/core/events'
 import { makeIdentity, makeSession } from '~/test/store-inputs'
@@ -68,6 +69,15 @@ describe('the ssrf guard is a deny-list over the written form of the host', () =
     }
   })
 
+  it('refuses the ipv4-translated form a SIIT translator carries inward, and site-local, as it refuses nat64', () => {
+    for (const host of ['[::ffff:0:127.0.0.1]', '[::ffff:0:a9fe:a9fe]', '[fec0::1]', '[feff:ffff::1]']) {
+      expect(() => construct(`https://${host}/hook`)).toThrow()
+    }
+    for (const host of ['[2606:4700:4700::1111]', '[2001:4860:4860::8888]']) {
+      expect(() => construct(`https://${host}/hook`)).not.toThrow()
+    }
+  })
+
   it('refuses the fully qualified and subdomain spellings of a reserved name', () => {
     for (const host of ['localhost.', 'api.localhost', 'printer.local', 'db.local.']) {
       expect(() => construct(`https://${host}/hook`)).toThrow()
@@ -106,6 +116,44 @@ describe('the ssrf guard is a deny-list over the written form of the host', () =
     const [outcome] = await deliverer.deliverOne('authz.revoked', { at: 0, identityId: 'u' })
     expect(calls).toHaveLength(1)
     expect(outcome?.delivered).toBe(true)
+  })
+
+  it('hands the resolver an ipv6 host without its brackets, so the documented lookup delivers to it', async () => {
+    const seen: string[] = []
+    const { deliverer, calls } = makeDeliverer({
+      endpoints: [{ secret: SECRET, url: 'https://[2606:4700:4700::1111]/hook' }],
+      maxAttempts: 1,
+      resolveHost: async (hostname) => {
+        seen.push(hostname)
+        return (await lookup(hostname, { all: true })).map((a) => a.address)
+      },
+    })
+    const [outcome] = await deliverer.deliverOne('authz.revoked', { at: 0, identityId: 'u' })
+    expect(seen).toEqual(['2606:4700:4700::1111'])
+    expect(calls).toHaveLength(1)
+    expect(outcome?.delivered).toBe(true)
+  })
+
+  it('still asks the resolver about an ipv6 host and refuses an inward answer, and hands it a name as written', async () => {
+    const seen: string[] = []
+    const { deliverer, calls } = makeDeliverer({
+      endpoints: [
+        { secret: SECRET, url: 'https://[2606:4700:4700::1111]/hook' },
+        { secret: SECRET, url: URL_OK },
+      ],
+      maxAttempts: 1,
+      resolveHost: async (hostname) => {
+        seen.push(hostname)
+        return ['::1']
+      },
+    })
+    const outcomes = await deliverer.deliverOne('authz.revoked', { at: 0, identityId: 'u' })
+    expect(seen.sort()).toEqual(['2606:4700:4700::1111', 'hooks.example.com'])
+    expect(calls).toHaveLength(0)
+    expect(outcomes.map((o) => o.lastError)).toEqual([
+      expect.stringMatching(/SSRF guard/),
+      expect.stringMatching(/SSRF guard/),
+    ])
   })
 
   it('retries a lookup that fails, as it retries a request that does', async () => {
@@ -520,6 +568,36 @@ describe('what actually goes on the wire', () => {
     expect(calls[0]?.init.redirect).toBe('error')
   })
 
+  it('cancels every answer it does not read, so a receiver that never ends one holds no connection', async () => {
+    // A body that never closes. Left unread, its socket stayed open: 40 deliveries to such a receiver held 40.
+    const cancelled: number[] = []
+    const { deliverer } = makeDeliverer(
+      {},
+      (n) =>
+        new Response(new ReadableStream({ cancel: () => void cancelled.push(n) }), { status: n === 1 ? 503 : 200 }),
+    )
+    const [outcome] = await deliverer.deliverOne('authz.revoked', { at: 0, identityId: 'u' })
+    expect(outcome).toMatchObject({ attempts: 2, delivered: true })
+    expect(cancelled).toEqual([1, 2])
+  })
+
+  it('a body that fails as it is cancelled does not undo the status it came with', async () => {
+    const { deliverer } = makeDeliverer(
+      {},
+      () =>
+        new Response(
+          new ReadableStream({
+            cancel: () => {
+              throw new Error('connection reset')
+            },
+          }),
+          { status: 200 },
+        ),
+    )
+    const [outcome] = await deliverer.deliverOne('authz.revoked', { at: 0, identityId: 'u' })
+    expect(outcome).toMatchObject({ attempts: 1, delivered: true })
+  })
+
   it('sends the signature and the timestamp it was computed over', async () => {
     const { deliverer, calls } = makeDeliverer()
     await deliverer.deliverOne('authz.revoked', { at: 0, identityId: 'hi' })
@@ -650,6 +728,38 @@ describe('what actually goes on the wire', () => {
     ).not.toThrow()
   })
 
+  it('refuses a signature header the request already carries, in any case', () => {
+    // The signature was merged into that header's value, dropped, or refused by fetch, on every delivery.
+    for (const signatureHeader of [
+      'X-Duck-Timestamp',
+      'x-duck-delivery-id',
+      'Content-Type',
+      'User-Agent',
+      'Host',
+      'Content-Length',
+      'Transfer-Encoding',
+      'Connection',
+      'Keep-Alive',
+      'Upgrade',
+      'Expect',
+    ]) {
+      expect(
+        () =>
+          new WebhookDeliverer({
+            endpoints: [{ secret: SECRET, signatureHeader, url: URL_OK }],
+            fetch: globalThis.fetch,
+          }),
+      ).toThrow(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
+    }
+    expect(
+      () =>
+        new WebhookDeliverer({
+          endpoints: [{ secret: SECRET, signatureHeader: 'X-Duck-Signature-256', url: URL_OK }],
+          fetch: globalThis.fetch,
+        }),
+    ).not.toThrow()
+  })
+
   it('records the endpoint without the part of the url that authorises a request to it', async () => {
     const entries: Array<{ endpointId: string; endpointUrl: string }> = []
     const deliverer = new WebhookDeliverer({
@@ -723,6 +833,16 @@ describe('signature verification', () => {
     const ts = Date.now()
     const offContract = JSON.parse(`{ "timestamp": "${ts}" }`)
     expect(verifyWebhookSignature(SECRET, BODY, signWebhookBody(SECRET, BODY, ts), offContract)).toBe(false)
+    expect(verifyWebhookSignature(SECRET, BODY, signWebhookBody(SECRET, BODY, ts), { timestamp: ts })).toBe(true)
+  })
+
+  it('answers false for a signature that is not a string, such as a header the request did not carry', () => {
+    // An absent header reads as undefined, which threw a TypeError the receiving route answered 500.
+    const ts = Date.now()
+    const absent = JSON.parse('{}').signature
+    for (const signature of [absent, ...JSON.parse('[null, ["authSha256=a", "authSha256=b"], 42]')]) {
+      expect(verifyWebhookSignature(SECRET, BODY, signature, { timestamp: ts })).toBe(false)
+    }
     expect(verifyWebhookSignature(SECRET, BODY, signWebhookBody(SECRET, BODY, ts), { timestamp: ts })).toBe(true)
   })
 

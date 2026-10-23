@@ -3,6 +3,22 @@ import { randomBytes } from 'node:crypto'
 /** RFC 7230 token: what `fetch` will accept as a header name. */
 export const HEADER_TOKEN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/
 
+/** Headers a delivery already carries, or the transport owns. A signature named after one is merged into its
+ *  value, dropped, or refused by `fetch`, on every request. */
+export const RESERVED_HEADERS: ReadonlySet<string> = new Set([
+  'connection',
+  'content-length',
+  'content-type',
+  'expect',
+  'host',
+  'keep-alive',
+  'transfer-encoding',
+  'upgrade',
+  'user-agent',
+  'x-duck-delivery-id',
+  'x-duck-timestamp',
+])
+
 export const MAX_ATTEMPTS = 20
 export const BACKOFF_DEFAULT_MS = 500
 /**
