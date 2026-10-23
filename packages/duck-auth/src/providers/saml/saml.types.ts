@@ -66,7 +66,9 @@ export namespace Saml {
     callbackUrl: string
     /** Check the relay state the IdP echoed back against the one `begin` issued and the tenant consuming it.
      *  SECURITY: without it, an assertion the attacker obtained for their own account and POSTed into a victim's
-     *  browser is indistinguishable from one the victim asked for, under any tenant the instance serves. */
+     *  browser is indistinguishable from one the victim asked for, under any tenant the instance serves. Issued
+     *  is not enough, since anyone can call `begin` for one: the host also holds it to the browser `begin`
+     *  answered, such as with a `SameSite=None` cookie compared at the callback. */
     verifyRelayState?: (input: { relayState: string; tenantId?: string }) => Promise<boolean>
     /** Accepts a response carrying no relay state, the IdP-initiated flow. Default false, since nothing
      *  binds an unsolicited assertion to a request or a tenant. */
@@ -100,7 +102,8 @@ export namespace Saml {
   export interface BeginInput {
     /** The CSRF guard, echoed back by the IdP. */
     relayState: string
-    /** The app's own origin, which the IdP redirects to. */
+    /** Handed to the client's `getAuthorizeUrlAsync`. node-saml 5 does not read it: the IdP posts back to the
+     *  client's `callbackUrl`. */
     host: string
   }
 
