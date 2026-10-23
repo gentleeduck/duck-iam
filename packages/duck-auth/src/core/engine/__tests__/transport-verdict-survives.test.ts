@@ -12,6 +12,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { createAuth } from '~/core/config/config'
 import { AuthError } from '~/core/errors'
+import { BearerTransport } from '~/core/transport/bearer.transport'
 import { CompositeTransport } from '~/core/transport/composite.transport'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { JwtTransport } from '~/core/transport/jwt.transport'
@@ -195,5 +196,38 @@ describe('a composite hands its members verdict up', () => {
       code: 'AUTH_SESSION_REVOKED',
       meta: { reason: 'no transport vouched for the token' },
     })
+  })
+})
+
+describe('an authoritative refusal through the engine', () => {
+  const strict: Transport.ITransport = {
+    authoritative: true,
+    extract: () => null,
+    issue: () => [],
+    revoke: () => [],
+    verify: () => Promise.reject(new AuthError('AUTH_SESSION_REVOKED', { reason: 'token is not bound to a key' })),
+  }
+
+  async function signedIn(transport: Transport.ITransport) {
+    const { adapter, auth } = build(transport)
+    const identity = await adapter.identities.create(
+      identityInput({ profile: { email: 'a@b.test', username: 'a' }, providers: [] }),
+    )
+    const { sid } = await auth.sessions.create({ aal: 1, factors: [], identityId: identity.id, kind: 'user' })
+    return { auth, sid }
+  }
+
+  it('is not resolved from the store, which is the plain bearer path the veto closes', async () => {
+    const { auth, sid } = await signedIn(new CompositeTransport([strict, new BearerTransport()]))
+
+    await expect(auth.resolveSession(bearer(sid))).rejects.toMatchObject({ code: 'AUTH_INVALID_CREDENTIALS' })
+    await expect(auth.resolveSession(bearer(sid)).orNull()).rejects.toMatchObject({ code: 'AUTH_INVALID_CREDENTIALS' })
+  })
+
+  it('leaves a refusal that is not a veto to the store, as before', async () => {
+    const { authoritative: _, ...declines } = strict
+    const { auth, sid } = await signedIn(new CompositeTransport([declines, new BearerTransport()]))
+
+    await expect(auth.resolveSession(bearer(sid))).resolves.toMatchObject({ session: { kind: 'user' } })
   })
 })

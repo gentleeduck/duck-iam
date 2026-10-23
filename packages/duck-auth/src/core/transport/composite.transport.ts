@@ -114,9 +114,11 @@ export class CompositeTransport implements Transport.ITransport {
           continue
         }
         if (session) return session
-        // A refusal from a transport that claims the last word is a veto, not a pass to the next one.
+        // A refusal from a transport that claims the last word is a veto, not a pass to the next one. Outside
+        // the absent set: read as absence, the engine falls through to the session store and resolves the
+        // same token there, which is the unbound path the veto exists to close.
         if (t.authoritative) {
-          throw new AuthError('AUTH_SESSION_REVOKED', { reason: 'an authoritative transport refused the token' })
+          throw new AuthError('AUTH_INVALID_CREDENTIALS', { detail: 'an authoritative transport refused the token' })
         }
       }
       // `!== undefined`, not a truthiness test: a transport that threw `''` still threw.

@@ -194,7 +194,7 @@ describe('verify accepts a token any one transport will vouch for', () => {
     })
     const lenient = stub('jwt', { verify: async () => SESSION })
     await expect(new CompositeTransport([strict, lenient]).verify('unbound-token')).rejects.toMatchObject({
-      code: 'AUTH_SESSION_REVOKED',
+      code: 'AUTH_INVALID_CREDENTIALS',
     })
 
     // Without it the disjunction stands, which is what composing two equally-trusted transports is.
@@ -420,7 +420,11 @@ describe('verify tells a negative verdict from a broken transport', () => {
     const permissive = stub('permissive', { verify: async () => SESSION })
 
     await expect(new CompositeTransport([strict, permissive]).verify('tok')).rejects.toMatchObject({
-      code: 'AUTH_SESSION_REVOKED',
+      code: 'AUTH_INVALID_CREDENTIALS',
+    })
+    // Not absence, which `orNull` would read as an anonymous request.
+    await expect(new CompositeTransport([strict, permissive]).verify('tok').orNull()).rejects.toMatchObject({
+      code: 'AUTH_INVALID_CREDENTIALS',
     })
     // Order is what makes it a veto: behind the permissive transport it never gets asked.
     await expect(new CompositeTransport([permissive, strict]).verify('tok')).resolves.toMatchObject({

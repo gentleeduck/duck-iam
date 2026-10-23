@@ -52,7 +52,7 @@ export namespace Transport {
     /** SECURITY: a refusal here ends verification instead of falling through. A composite verifies by
      *  disjunction, so putting DPoP beside a plain bearer adds nothing on its own, the unbound path still
      *  answering for every token the bound one rejects. Set this and the strict transport's refusal is a
-     *  veto. */
+     *  veto, raised as `AUTH_INVALID_CREDENTIALS` so the session store is not asked after it. */
     authoritative?: boolean
   }
 
