@@ -95,7 +95,9 @@ export class PasswordsImpl<Profile extends Identities.ProfileMetadataBase = Iden
     const rows = await credentials.listByIdentity(identityId, 'password', ctx)
     // The same row `verify` accepts, expiry included, so a rehash cannot rewrite one a sign-in refused.
     const row = rows.find((c) => !isRevoked(c) && !isCredentialExpired(c))
-    if (!row) return
+    // SECURITY: and only while it still holds this password. A reset landing inside the hash above wrote a new
+    // row, and rotating that one to this hash put the old password back and the new one out.
+    if (!row || !(await this.cfg.hasher.verify(plaintext, row.secret))) return
     await credentials.rotate(row.id, newSecret, row.version, ctx)
   }
 
