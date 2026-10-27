@@ -22,6 +22,13 @@ export function isSafeCallbackPath(value: unknown): value is string {
   return true
 }
 
+/** `value` without its trailing slashes. A loop, since `/\/+$/` backtracks quadratically over a long run of them. */
+export function withoutTrailingSlashes(value: string): string {
+  let end = value.length
+  while (end > 0 && value[end - 1] === '/') end--
+  return value.slice(0, end)
+}
+
 function hasControlChar(s: string): boolean {
   for (let i = 0; i < s.length; i++) {
     const c = s.charCodeAt(i)

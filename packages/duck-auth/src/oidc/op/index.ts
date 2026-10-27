@@ -6,6 +6,7 @@ import type { AuthEngine } from '~/core/engine'
 import { isProduction } from '~/core/env'
 import { AuthError } from '~/core/errors'
 import { getProfileString, isFiniteNumber } from '~/core/predicates/predicates'
+import { withoutTrailingSlashes } from '~/core/url-validators'
 import {
   AuthMemoryAccessTokenStore,
   AuthMemoryClientStore,
@@ -912,7 +913,7 @@ function parseIssuer(input: string): string {
       detail: `AuthOidcOP: issuer must use HTTPS (${parsed.protocol}); plain http is admitted only outside production`,
     })
   }
-  return `${parsed.origin}${parsed.pathname.replace(/\/+$/, '')}`
+  return `${parsed.origin}${withoutTrailingSlashes(parsed.pathname)}`
 }
 
 function assertValidRedirect(uri: string): void {

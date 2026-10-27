@@ -1,1 +1,6 @@
-export { assertResolvedHostIsPublic, assertSafeOutboundUrl, isSafeCallbackPath } from './url-validators'
+export {
+  assertResolvedHostIsPublic,
+  assertSafeOutboundUrl,
+  isSafeCallbackPath,
+  withoutTrailingSlashes,
+} from './url-validators'

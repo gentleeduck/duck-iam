@@ -83,6 +83,23 @@ describe('AuthOidcOP - the issuer scheme follows NODE_ENV', () => {
   })
 })
 
+describe('AuthOidcOP - the issuer loses its trailing slashes in linear time', () => {
+  it('trims them, and a long run of slashes inside the path costs no backtracking', () => {
+    const auth = buildAuth()
+    const op = (issuer: string) =>
+      createOidcOP<ProfileShape>({
+        auth,
+        config: { issuer, supportedScopes: ['openid'] },
+        signIdToken: () => 'unsigned',
+      })
+    expect(op('https://op.example.com/auth///').issuer).toBe('https://op.example.com/auth')
+    const issuer = `https://op.example.com/${'/'.repeat(100_000)}x`
+    const started = performance.now()
+    expect(op(issuer).issuer).toBe(issuer)
+    expect(performance.now() - started).toBeLessThan(250)
+  })
+})
+
 function decodeJwt(token: string): Record<string, unknown> {
   const parts = token.split('.')
   if (parts.length !== 3) throw new Error('not a JWT')

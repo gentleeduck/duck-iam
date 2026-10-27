@@ -199,6 +199,11 @@ but a list parsed from a config file or an environment variable reached the docu
 casing is now `AUTH_MISCONFIGURED` at build time. The default (`['HS256']`) and every real algorithm are
 unaffected.
 
+**A discovery document cannot stall the event loop.** `authFetchOidcDiscovery` trimmed the `issuer` it fetched with
+a backtracking regex, quadratic over a run of slashes that does not end the string, so a 64 KB document held the
+thread for about a second on every fetch, and a mismatch is never cached. The fetched and configured issuers, the
+discovery prefix and the OP's issuer are now trimmed in one pass.
+
 **Every production check reads `NODE_ENV`, and an unset one is production.** Each relaxation had a switch of
 its own, and a deploy could run development pieces in production without setting any of them. `createAuth` ran
 `strict()` for `NODE_ENV`, falling back to `development`, so a runtime that never set it skipped every

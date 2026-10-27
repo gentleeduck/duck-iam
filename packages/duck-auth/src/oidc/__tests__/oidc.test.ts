@@ -649,3 +649,43 @@ describe('authConfigureOidcDiscoveryCache', () => {
     expect(authCfgureOidcDiscoveryCache).toBe(authConfigureOidcDiscoveryCache)
   })
 })
+
+describe('trailing slashes are trimmed in linear time', () => {
+  /** A run of slashes that does not end the string, which `/\/+$/` backtracks over from every start. */
+  const run = (n: number) => '/'.repeat(n)
+
+  it('trims them off an issuer and a prefix', () => {
+    const d = authBuildOidcDiscovery({ issuer: 'https://app.test/t///', prefix: '/auth//' })
+    expect(d.issuer).toBe('https://app.test/t')
+    expect(d.token_endpoint).toBe('https://app.test/t/auth/oauth/token')
+  })
+
+  it('builds discovery for an issuer and a prefix holding a long run of slashes', () => {
+    const issuer = `https://app.test/${run(100_000)}x`
+    const started = performance.now()
+    const d = authBuildOidcDiscovery({ issuer, prefix: `/${run(100_000)}x` })
+    expect(performance.now() - started).toBeLessThan(250)
+    expect(d.issuer).toBe(issuer)
+  })
+
+  it('answers a fetched issuer holding a long run of slashes as a mismatch, without stalling', async () => {
+    const issuer = `https://idp.test/${run(60_000)}y`
+    const fetch: typeof globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify({
+          authorization_endpoint: 'https://idp.test/auth',
+          id_token_signing_alg_values_supported: ['RS256'],
+          issuer,
+          jwks_uri: 'https://idp.test/jwks',
+          response_types_supported: ['code'],
+          subject_types_supported: ['public'],
+          token_endpoint: 'https://idp.test/token',
+        }),
+      )
+    const started = performance.now()
+    await expect(
+      authFetchOidcDiscovery(`https://idp.test/${run(100_000)}x`, { bypassCache: true, fetch }),
+    ).rejects.toMatchObject({ code: 'AUTH_PROVIDER_FAILED' })
+    expect(performance.now() - started).toBeLessThan(250)
+  })
+})

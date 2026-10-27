@@ -56,7 +56,7 @@ for (const key of order) {
     // Suite titles carry the real subject matter; a handful is enough to place the file.
     const suites = f.suites
       .slice(0, 3)
-      .map((s) => s.replace(/\|/g, '\\|'))
+      .map((s) => s.replace(/[\\|]/g, '\\$&'))
       .join('; ')
     const more = f.suites.length > 3 ? ` (+${f.suites.length - 3})` : ''
     const gated = f.runtimeSkips > 0 ? ' **[env-gated]**' : ''

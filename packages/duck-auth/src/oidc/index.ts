@@ -2,6 +2,7 @@
 
 import { isProduction } from '../core/env'
 import { AuthError } from '../core/errors'
+import { withoutTrailingSlashes } from '../core/url-validators'
 
 /** How long the discovery request may take, its body included, unless `timeoutMs` says otherwise. */
 const DISCOVERY_TIMEOUT_DEFAULT_MS = 10_000
@@ -30,9 +31,9 @@ export function authBuildOidcDiscovery(cfg: AuthOidcDiscovery.Cfg): AuthOidcDisc
       detail: `authBuildOidcDiscovery: issuer must use HTTPS (${parsed.protocol}); plain http is admitted only outside production`,
     })
   }
-  const canonicalPath = parsed.pathname.replace(/\/+$/, '')
+  const canonicalPath = withoutTrailingSlashes(parsed.pathname)
   const issuer = `${parsed.origin}${canonicalPath}`
-  const prefix = (cfg.prefix ?? '/auth').replace(/\/+$/, '')
+  const prefix = withoutTrailingSlashes(cfg.prefix ?? '/auth')
   const jwks = cfg.jwksPath ?? '/.well-known/jwks.json'
   // Appended to the issuer as text, so a path without its leading slash lands on another host.
   for (const [key, path] of [
@@ -129,7 +130,7 @@ export async function authFetchOidcDiscovery(
       detail: `authFetchOidcDiscovery: timeoutMs must be a number of milliseconds from 1 to 2147483647 (got ${String(timeoutMs)})`,
     })
   }
-  const canonical = `${parsed.origin}${parsed.pathname.replace(/\/+$/, '')}`
+  const canonical = `${parsed.origin}${withoutTrailingSlashes(parsed.pathname)}`
   const cacheKey = canonical
   if (!opts.bypassCache) {
     const hit = _discoveryCache.get(cacheKey)
@@ -165,7 +166,7 @@ export async function authFetchOidcDiscovery(
   // the upstream's `issuer` claim MUST equal the requested issuer
   // (RFC 8414 section 3.3). Defeats an attacker who can hijack the well-known
   // endpoint from redirecting RPs to an attacker-controlled JWKS.
-  if (doc.issuer.replace(/\/+$/, '') !== canonical) {
+  if (withoutTrailingSlashes(doc.issuer) !== canonical) {
     throw new AuthError('AUTH_PROVIDER_FAILED', {
       providerId: 'oidc',
       detail: `authFetchOidcDiscovery: issuer mismatch (requested ${canonical}, got ${doc.issuer})`,
