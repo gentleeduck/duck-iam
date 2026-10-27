@@ -383,6 +383,86 @@ describe('IamHttpAdapter', () => {
       ).toBe(true)
     })
 
+    it('rejects the other IPv4 ranges outside the public internet', () => {
+      for (const baseUrl of [
+        'http://100.64.0.1/iam',
+        'http://100.100.100.200/iam',
+        'http://100.127.255.255/iam',
+        'http://192.0.0.1/iam',
+        'http://192.0.2.1/iam',
+        'http://198.18.0.1/iam',
+        'http://198.19.255.255/iam',
+        'http://198.51.100.1/iam',
+        'http://203.0.113.1/iam',
+        'http://224.0.0.1/iam',
+        'http://239.255.255.255/iam',
+        'http://240.0.0.1/iam',
+        'http://255.255.255.255/iam',
+      ]) {
+        expect(
+          throwsBaseUrlInvalid(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl }), 'private-host'),
+          baseUrl,
+        ).toBe(true)
+      }
+    })
+
+    it('rejects the other IPv6 ranges outside the public internet', () => {
+      for (const baseUrl of [
+        'http://[fec0::1]/iam',
+        'http://[feff::1]/iam',
+        'http://[ff02::1]/iam',
+        'http://[100::1]/iam',
+        'http://[2001:0:4136:e378:8000:63bf:3fff:fdd2]/iam',
+        'http://[2001:2::1]/iam',
+        'http://[2001:db8::1]/iam',
+        'http://[3fff::1]/iam',
+        'http://[5f00::1]/iam',
+      ]) {
+        expect(
+          throwsBaseUrlInvalid(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl }), 'private-host'),
+          baseUrl,
+        ).toBe(true)
+      }
+    })
+
+    it('rejects an IPv6 form that carries an IPv4, whichever IPv4 it carries', () => {
+      // The SIIT form `::ffff:0:a.b.c.d` first: a translator carries it inward as NAT64 does.
+      for (const baseUrl of [
+        'http://[::ffff:0:7f00:1]/iam',
+        'http://[::ffff:0:808:808]/iam',
+        'http://[::ffff:808:808]/iam',
+        'http://[::808:808]/iam',
+        'http://[2002:808:808::]/iam',
+        'http://[64:ff9b::808:808]/iam',
+        'http://[64:ff9b:1::808:808]/iam',
+      ]) {
+        expect(
+          throwsBaseUrlInvalid(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl }), 'private-host'),
+          baseUrl,
+        ).toBe(true)
+      }
+    })
+
+    it('accepts the public addresses at the edges of those ranges', () => {
+      for (const baseUrl of [
+        'http://100.63.255.255/iam',
+        'http://100.128.0.0/iam',
+        'http://198.17.255.255/iam',
+        'http://198.20.0.0/iam',
+        'http://223.255.255.255/iam',
+        'http://[2001:4860:4860::8888]/iam',
+        'http://[2606:4700:4700::1111]/iam',
+      ]) {
+        expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl }), baseUrl).not.toThrow()
+      }
+    })
+
+    it('accepts a CGNAT or site-local literal when allowPrivateHosts: true', () => {
+      for (const baseUrl of ['http://100.64.0.1/iam', 'http://[fec0::1]/iam']) {
+        expect(() => new IamHttpAdapter<A, R, Ro, S>({ allowPrivateHosts: true, baseUrl }), baseUrl).not.toThrow()
+      }
+    })
+
     it('matches allowedHosts when URL has trailing FQDN dot', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse([]))
       const adapter = new IamHttpAdapter<A, R, Ro, S>({
