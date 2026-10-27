@@ -1,11 +1,11 @@
 ---
 title: "Class: AuthMemoryClientStore"
-description: "In-memory AuthOidcOP.ClientStore. Maps client_id → registered client."
+description: "In-memory OidcOP.ClientStore. Maps client_id → registered client."
 ---
 
-Defined in: [packages/duck-auth/src/oidc/op/stores.ts:11](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/stores.ts#L11)
+Defined in: [packages/duck-auth/src/oidc/op/stores.ts:21](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/op/stores.ts#L21)
 
-In-memory `AuthOidcOP.ClientStore`. Maps `client_id` → registered client.
+In-memory `OidcOP.ClientStore`. Maps `client_id` → registered client.
 
 ## Implements
 
@@ -17,6 +17,8 @@ In-memory `AuthOidcOP.ClientStore`. Maps `client_id` → registered client.
 
 > **new AuthMemoryClientStore**(): `AuthMemoryClientStore`
 
+Defined in: [packages/duck-auth/src/oidc/op/stores.ts:23](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/op/stores.ts#L23)
+
 #### Returns
 
 `AuthMemoryClientStore`
@@ -27,7 +29,7 @@ In-memory `AuthOidcOP.ClientStore`. Maps `client_id` → registered client.
 
 > **findById**(`client_id`: `string`): `Promise`\<[`Client`](../namespaces/AuthOidcOP/type-aliases/Client) \| `null`\>
 
-Defined in: [packages/duck-auth/src/oidc/op/stores.ts:13](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/stores.ts#L13)
+Defined in: [packages/duck-auth/src/oidc/op/stores.ts:26](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/op/stores.ts#L26)
 
 The client, or `null`.
 
@@ -51,7 +53,7 @@ The client, or `null`.
 
 > **insert**(`c`: [`Client`](../namespaces/AuthOidcOP/type-aliases/Client)): `Promise`\<`void`\>
 
-Defined in: [packages/duck-auth/src/oidc/op/stores.ts:16](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/stores.ts#L16)
+Defined in: [packages/duck-auth/src/oidc/op/stores.ts:29](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/op/stores.ts#L29)
 
 Registers a client; rejects a taken `client_id`.
 

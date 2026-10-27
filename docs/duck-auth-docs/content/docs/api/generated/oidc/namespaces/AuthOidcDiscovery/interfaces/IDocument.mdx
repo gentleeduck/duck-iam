@@ -1,11 +1,15 @@
 ---
 title: "Interface: IDocument"
-description: "The /.well-known/openid-configuration document."
+description: "The /.well-known/openid-configuration document authBuildOidcDiscovery builds, every endpoint in it."
 ---
 
-Defined in: [packages/duck-auth/src/oidc/index.ts:285](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/index.ts#L285)
+Defined in: [packages/duck-auth/src/oidc/index.ts:390](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/index.ts#L390)
 
-The `/.well-known/openid-configuration` document.
+The `/.well-known/openid-configuration` document `authBuildOidcDiscovery` builds, every endpoint in it.
+
+## Extends
+
+- [`IPublishedDocument`](IPublishedDocument)
 
 ## Indexable
 
@@ -17,7 +21,11 @@ The `/.well-known/openid-configuration` document.
 
 > **authorization\_endpoint**: `string`
 
-Defined in: [packages/duck-auth/src/oidc/index.ts:287](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/index.ts#L287)
+Defined in: [packages/duck-auth/src/oidc/index.ts:371](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/index.ts#L371)
+
+#### Inherited from
+
+[`IPublishedDocument`](IPublishedDocument).[`authorization_endpoint`](IPublishedDocument#authorization_endpoint)
 
 ***
 
@@ -25,7 +33,11 @@ Defined in: [packages/duck-auth/src/oidc/index.ts:287](https://github.com/gentle
 
 > **code\_challenge\_methods\_supported**: `string`[]
 
-Defined in: [packages/duck-auth/src/oidc/index.ts:301](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/index.ts#L301)
+Defined in: [packages/duck-auth/src/oidc/index.ts:385](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/index.ts#L385)
+
+#### Inherited from
+
+[`IPublishedDocument`](IPublishedDocument).[`code_challenge_methods_supported`](IPublishedDocument#code_challenge_methods_supported)
 
 ***
 
@@ -33,7 +45,11 @@ Defined in: [packages/duck-auth/src/oidc/index.ts:301](https://github.com/gentle
 
 > **end\_session\_endpoint**: `string`
 
-Defined in: [packages/duck-auth/src/oidc/index.ts:291](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/index.ts#L291)
+Defined in: [packages/duck-auth/src/oidc/index.ts:392](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/index.ts#L392)
+
+#### Overrides
+
+[`IPublishedDocument`](IPublishedDocument).[`end_session_endpoint`](IPublishedDocument#end_session_endpoint)
 
 ***
 
@@ -41,7 +57,11 @@ Defined in: [packages/duck-auth/src/oidc/index.ts:291](https://github.com/gentle
 
 > **grant\_types\_supported**: `string`[]
 
-Defined in: [packages/duck-auth/src/oidc/index.ts:297](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/index.ts#L297)
+Defined in: [packages/duck-auth/src/oidc/index.ts:381](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/index.ts#L381)
+
+#### Inherited from
+
+[`IPublishedDocument`](IPublishedDocument).[`grant_types_supported`](IPublishedDocument#grant_types_supported)
 
 ***
 
@@ -49,7 +69,11 @@ Defined in: [packages/duck-auth/src/oidc/index.ts:297](https://github.com/gentle
 
 > **id\_token\_signing\_alg\_values\_supported**: `string`[]
 
-Defined in: [packages/duck-auth/src/oidc/index.ts:299](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/index.ts#L299)
+Defined in: [packages/duck-auth/src/oidc/index.ts:383](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/index.ts#L383)
+
+#### Inherited from
+
+[`IPublishedDocument`](IPublishedDocument).[`id_token_signing_alg_values_supported`](IPublishedDocument#id_token_signing_alg_values_supported)
 
 ***
 
@@ -57,7 +81,11 @@ Defined in: [packages/duck-auth/src/oidc/index.ts:299](https://github.com/gentle
 
 > `optional` **introspection\_endpoint?**: `string`
 
-Defined in: [packages/duck-auth/src/oidc/index.ts:292](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/index.ts#L292)
+Defined in: [packages/duck-auth/src/oidc/index.ts:376](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/index.ts#L376)
+
+#### Inherited from
+
+[`IPublishedDocument`](IPublishedDocument).[`introspection_endpoint`](IPublishedDocument#introspection_endpoint)
 
 ***
 
@@ -65,7 +93,11 @@ Defined in: [packages/duck-auth/src/oidc/index.ts:292](https://github.com/gentle
 
 > **issuer**: `string`
 
-Defined in: [packages/duck-auth/src/oidc/index.ts:286](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/index.ts#L286)
+Defined in: [packages/duck-auth/src/oidc/index.ts:370](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/index.ts#L370)
+
+#### Inherited from
+
+[`IPublishedDocument`](IPublishedDocument).[`issuer`](IPublishedDocument#issuer)
 
 ***
 
@@ -73,7 +105,11 @@ Defined in: [packages/duck-auth/src/oidc/index.ts:286](https://github.com/gentle
 
 > **jwks\_uri**: `string`
 
-Defined in: [packages/duck-auth/src/oidc/index.ts:290](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/index.ts#L290)
+Defined in: [packages/duck-auth/src/oidc/index.ts:374](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/index.ts#L374)
+
+#### Inherited from
+
+[`IPublishedDocument`](IPublishedDocument).[`jwks_uri`](IPublishedDocument#jwks_uri)
 
 ***
 
@@ -81,7 +117,11 @@ Defined in: [packages/duck-auth/src/oidc/index.ts:290](https://github.com/gentle
 
 > `optional` **registration\_endpoint?**: `string`
 
-Defined in: [packages/duck-auth/src/oidc/index.ts:294](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/index.ts#L294)
+Defined in: [packages/duck-auth/src/oidc/index.ts:378](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/index.ts#L378)
+
+#### Inherited from
+
+[`IPublishedDocument`](IPublishedDocument).[`registration_endpoint`](IPublishedDocument#registration_endpoint)
 
 ***
 
@@ -89,7 +129,11 @@ Defined in: [packages/duck-auth/src/oidc/index.ts:294](https://github.com/gentle
 
 > **response\_types\_supported**: `string`[]
 
-Defined in: [packages/duck-auth/src/oidc/index.ts:296](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/index.ts#L296)
+Defined in: [packages/duck-auth/src/oidc/index.ts:380](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/index.ts#L380)
+
+#### Inherited from
+
+[`IPublishedDocument`](IPublishedDocument).[`response_types_supported`](IPublishedDocument#response_types_supported)
 
 ***
 
@@ -97,7 +141,11 @@ Defined in: [packages/duck-auth/src/oidc/index.ts:296](https://github.com/gentle
 
 > `optional` **revocation\_endpoint?**: `string`
 
-Defined in: [packages/duck-auth/src/oidc/index.ts:293](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/index.ts#L293)
+Defined in: [packages/duck-auth/src/oidc/index.ts:377](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/index.ts#L377)
+
+#### Inherited from
+
+[`IPublishedDocument`](IPublishedDocument).[`revocation_endpoint`](IPublishedDocument#revocation_endpoint)
 
 ***
 
@@ -105,7 +153,11 @@ Defined in: [packages/duck-auth/src/oidc/index.ts:293](https://github.com/gentle
 
 > **scopes\_supported**: `string`[]
 
-Defined in: [packages/duck-auth/src/oidc/index.ts:295](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/index.ts#L295)
+Defined in: [packages/duck-auth/src/oidc/index.ts:379](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/index.ts#L379)
+
+#### Inherited from
+
+[`IPublishedDocument`](IPublishedDocument).[`scopes_supported`](IPublishedDocument#scopes_supported)
 
 ***
 
@@ -113,7 +165,11 @@ Defined in: [packages/duck-auth/src/oidc/index.ts:295](https://github.com/gentle
 
 > **subject\_types\_supported**: `string`[]
 
-Defined in: [packages/duck-auth/src/oidc/index.ts:298](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/index.ts#L298)
+Defined in: [packages/duck-auth/src/oidc/index.ts:382](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/index.ts#L382)
+
+#### Inherited from
+
+[`IPublishedDocument`](IPublishedDocument).[`subject_types_supported`](IPublishedDocument#subject_types_supported)
 
 ***
 
@@ -121,7 +177,11 @@ Defined in: [packages/duck-auth/src/oidc/index.ts:298](https://github.com/gentle
 
 > **token\_endpoint**: `string`
 
-Defined in: [packages/duck-auth/src/oidc/index.ts:288](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/index.ts#L288)
+Defined in: [packages/duck-auth/src/oidc/index.ts:372](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/index.ts#L372)
+
+#### Inherited from
+
+[`IPublishedDocument`](IPublishedDocument).[`token_endpoint`](IPublishedDocument#token_endpoint)
 
 ***
 
@@ -129,7 +189,11 @@ Defined in: [packages/duck-auth/src/oidc/index.ts:288](https://github.com/gentle
 
 > **token\_endpoint\_auth\_methods\_supported**: `string`[]
 
-Defined in: [packages/duck-auth/src/oidc/index.ts:300](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/index.ts#L300)
+Defined in: [packages/duck-auth/src/oidc/index.ts:384](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/index.ts#L384)
+
+#### Inherited from
+
+[`IPublishedDocument`](IPublishedDocument).[`token_endpoint_auth_methods_supported`](IPublishedDocument#token_endpoint_auth_methods_supported)
 
 ***
 
@@ -137,5 +201,9 @@ Defined in: [packages/duck-auth/src/oidc/index.ts:300](https://github.com/gentle
 
 > **userinfo\_endpoint**: `string`
 
-Defined in: [packages/duck-auth/src/oidc/index.ts:289](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/index.ts#L289)
+Defined in: [packages/duck-auth/src/oidc/index.ts:391](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/index.ts#L391)
+
+#### Overrides
+
+[`IPublishedDocument`](IPublishedDocument).[`userinfo_endpoint`](IPublishedDocument#userinfo_endpoint)
 

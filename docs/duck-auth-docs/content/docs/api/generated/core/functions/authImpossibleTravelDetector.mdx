@@ -5,7 +5,7 @@ description: "Emits impossible-travel when the distance from the last position o
 
 > **authImpossibleTravelDetector**(`opts`: \{ `config?`: `Partial`\<[`Cfg`](../namespaces/AuthImpossibleTravel/interfaces/Cfg)\>; `getLastSeen`: (`identityId`: `string`) => `Promise`\<\{ `at`: `number`; `lat`: `number`; `lon`: `number`; \} \| `null`\>; \}): [`Detector`](../../index/namespaces/Anomaly/type-aliases/Detector)
 
-Defined in: [packages/duck-auth/src/core/anomaly/impossible-travel.detector.ts:32](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/anomaly/impossible-travel.detector.ts#L32)
+Defined in: [packages/duck-auth/src/core/anomaly/impossible-travel.detector.ts:32](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/anomaly/impossible-travel.detector.ts#L32)
 
 Emits `impossible-travel` when the distance from the last position over the time since implies a
 speed above `maxKmPerHour`. It reads positions and never writes them: `getLastSeen` answers from

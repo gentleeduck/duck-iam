@@ -3,7 +3,7 @@ title: "Interface: Cfg"
 description: "Input shape for createAuth. Flat, ergonomic alternative to constructing AuthEngine directly."
 ---
 
-Defined in: [packages/duck-auth/src/core/config/config.types.ts:38](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/config/config.types.ts#L38)
+Defined in: [packages/duck-auth/src/core/config/config.types.ts:38](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/config/config.types.ts#L38)
 
 Input shape for `createAuth`. Flat, ergonomic alternative to constructing
 [AuthEngine](../../../../index/classes/AuthEngine) directly.
@@ -38,7 +38,7 @@ Shape of organization metadata.
 
 > `optional` **\_\_tenantBrand?**: `Tenant`
 
-Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:89](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.types.ts#L89)
+Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:92](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/engine/engine.types.ts#L92)
 
 Phantom field carrying the tenant type through inference; never assign it a value.
 
@@ -52,7 +52,7 @@ Phantom field carrying the tenant type through inference; never assign it a valu
 
 > `optional` **anomaly?**: `Partial`\<[`Cfg`](../../../../index/namespaces/Anomaly/type-aliases/Cfg)\>
 
-Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:87](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.types.ts#L87)
+Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:90](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/engine/engine.types.ts#L90)
 
 Scoring thresholds and per-signal reactions, merged over the defaults the way `hijack` is.
 
@@ -66,7 +66,7 @@ Scoring thresholds and per-signal reactions, merged over the defaults the way `h
 
 > **baseUrl**: `string`
 
-Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:46](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.types.ts#L46)
+Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:47](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/engine/engine.types.ts#L47)
 
 The deployment's public origin; links and redirects are built against it.
 
@@ -80,7 +80,7 @@ The deployment's public origin; links and redirects are built against it.
 
 > `optional` **captcha?**: [`IVerifier`](../../AuthCaptcha/interfaces/IVerifier)
 
-Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:66](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.types.ts#L66)
+Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:67](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/engine/engine.types.ts#L67)
 
 Surfaced as `auth.captcha`, so a host has one place to reach for it. Turnstile, hCaptcha and reCAPTCHA
 v3 ship in `core/captcha`. Omitted, every call answers
@@ -101,7 +101,7 @@ A missing secret must not read as a solved challenge either, which is what the d
 
 > `optional` **compliance?**: [`Preset`](../../../../index/namespaces/Compliance/type-aliases/Preset) \| [`Preset`](../../../../index/namespaces/Compliance/type-aliases/Preset)[]
 
-Defined in: [packages/duck-auth/src/core/config/config.types.ts:50](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/config/config.types.ts#L50)
+Defined in: [packages/duck-auth/src/core/config/config.types.ts:51](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/config/config.types.ts#L51)
 
 Compliance preset(s) to shorten the session lifetimes to and hold `strict()` to.
 
@@ -111,7 +111,7 @@ Compliance preset(s) to shorten the session lifetimes to and hold `strict()` to.
 
 > `optional` **deliver?**: [`Deliver`](../../../../index/type-aliases/Deliver)
 
-Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:68](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.types.ts#L68)
+Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:69](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/engine/engine.types.ts#L69)
 
 How the host sends every outbound token. Forwarded to provider thunks, magic-link among them.
 
@@ -125,7 +125,7 @@ How the host sends every outbound token. Forwarded to provider thunks, magic-lin
 
 > `optional` **events?**: [`IBus`](../../../../index/namespaces/Events/interfaces/IBus)
 
-Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:70](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.types.ts#L70)
+Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:71](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/engine/engine.types.ts#L71)
 
 Where lifecycle events are published; some `strict()` checks need a bus to be reachable.
 
@@ -139,7 +139,7 @@ Where lifecycle events are published; some `strict()` checks need a bus to be re
 
 > `optional` **hijack?**: [`Cfg`](../../../../index/namespaces/Hijack/interfaces/Cfg)
 
-Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:85](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.types.ts#L85)
+Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:88](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/engine/engine.types.ts#L88)
 
 Session-hijack policy: what counts as drift, and what to do about it.
 
@@ -153,7 +153,7 @@ Session-hijack policy: what counts as drift, and what to do about it.
 
 > `optional` **identities?**: \{ `profileMaxBytes?`: `number`; `softDeleteGracePeriodMs?`: `number`; \}
 
-Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:74](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.types.ts#L74)
+Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:77](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/engine/engine.types.ts#L77)
 
 Identity lifecycle: soft-delete grace and the profile size cap.
 
@@ -179,7 +179,7 @@ How long a soft-deleted identity stays recoverable before erasure, in ms.
 
 > `optional` **limiter?**: [`Me`](../../../../limiters/memory/namespaces/Limiter/type-aliases/Me)
 
-Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:52](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.types.ts#L52)
+Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:53](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/engine/engine.types.ts#L53)
 
 The budget the flows spend against. Default a `MemoryLimiter`, which `strict()` refuses in production.
 
@@ -193,7 +193,7 @@ The budget the flows spend against. Default a `MemoryLimiter`, which `strict()` 
 
 > `optional` **providers?**: [`IProviderEntry`](../type-aliases/IProviderEntry)\<`Profile`, `Tenant`, `OrgMeta`\>[]
 
-Defined in: [packages/duck-auth/src/core/config/config.types.ts:46](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/config/config.types.ts#L46)
+Defined in: [packages/duck-auth/src/core/config/config.types.ts:46](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/config/config.types.ts#L46)
 
 Provider array — falsy entries silently skipped.
 
@@ -203,7 +203,7 @@ Provider array — falsy entries silently skipped.
 
 > `optional` **resolveActor?**: [`Resolver`](../../../../index/namespaces/Actor/type-aliases/Resolver)
 
-Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:83](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.types.ts#L83)
+Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:86](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/engine/engine.types.ts#L86)
 
 Fills `created_by`, `updated_by` and `deleted_by` when no `withActor` scope is active; wire it to the
  request context the host framework already has. Answering `null` or `undefined` records no actor,
@@ -219,7 +219,7 @@ Fills `created_by`, `updated_by` and `deleted_by` when no `withActor` scope is a
 
 > `optional` **session?**: `Partial`\<[`Cfg`](../../../../index/namespaces/Sessions/type-aliases/Cfg)\>
 
-Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:72](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.types.ts#L72)
+Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:75](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/engine/engine.types.ts#L75)
 
 The session windows and the per-identity cap. See [Sessions.Cfg](../../../../index/namespaces/Sessions/type-aliases/Cfg).
 
@@ -233,7 +233,7 @@ The session windows and the per-identity cap. See [Sessions.Cfg](../../../../ind
 
 > **stores**: [`Stores`](../../../../index/namespaces/Engine/type-aliases/Stores)\<`Profile`, `OrgMeta`\>
 
-Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:50](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.types.ts#L50)
+Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:51](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/engine/engine.types.ts#L51)
 
 The persistence contracts the engine reads and writes through.
 
@@ -245,11 +245,12 @@ The persistence contracts the engine reads and writes through.
 
 ### strict?
 
-> `optional` **strict?**: `false` \| `"development"` \| `"production"` \| `"test"`
+> `optional` **strict?**: `false`
 
-Defined in: [packages/duck-auth/src/core/config/config.types.ts:48](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/config/config.types.ts#L48)
+Defined in: [packages/duck-auth/src/core/config/config.types.ts:49](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/config/config.types.ts#L49)
 
-Which environment's checks `auth.strict({ env })` runs at the end of construction.
+`false` defers the checks `createAuth` runs as it returns, for `NODE_ENV`, to the app's own
+ `auth.strict()`, called once its `lockout` listener is subscribed.
 
 ***
 
@@ -257,7 +258,21 @@ Which environment's checks `auth.strict({ env })` runs at the end of constructio
 
 > `optional` **transport?**: [`ITransport`](../../../../index/namespaces/Transport/type-aliases/ITransport)
 
-Defined in: [packages/duck-auth/src/core/config/config.types.ts:44](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/config/config.types.ts#L44)
+Defined in: [packages/duck-auth/src/core/config/config.types.ts:44](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/config/config.types.ts#L44)
 
-Default a `duck-sid` cookie.
+Default a `__Host-duck-sid` cookie, `duck-sid` outside production.
+
+***
+
+### webhooks?
+
+> `optional` **webhooks?**: [`AuthWebhookDeliverer`](../../../classes/AuthWebhookDeliverer)
+
+Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:73](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/engine/engine.types.ts#L73)
+
+Posts every event its endpoints name, attached to `events` here.
+
+#### Inherited from
+
+`Omit.webhooks`
 

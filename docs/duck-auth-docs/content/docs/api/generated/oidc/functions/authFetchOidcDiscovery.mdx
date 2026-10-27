@@ -1,13 +1,13 @@
 ---
 title: "Function: authFetchOidcDiscovery()"
-description: "RP-side OIDC discovery fetcher; in-process LRU (TTL 1h, capacity 32); rejects non-HTTPS unless allowHttp."
+description: "RP-side OIDC discovery fetcher; in-process LRU (TTL 1h, capacity 32); rejects plain http in production."
 ---
 
-> **authFetchOidcDiscovery**(`issuer`: `string`, `opts?`: \{ `allowHttp?`: `boolean`; `bypassCache?`: `boolean`; `fetch?`: \{(`input`: `RequestInfo` \| `URL`, `init?`: `RequestInit`): `Promise`\<`Response`\>; (`input`: `string` \| `Request` \| `URL`, `init?`: `RequestInit`): `Promise`\<`Response`\>; \}; `ttlMs?`: `number`; \}): `Promise`\<[`IDocument`](../namespaces/AuthOidcDiscovery/interfaces/IDocument)\>
+> **authFetchOidcDiscovery**(`issuer`: `string`, `opts?`: \{ `bypassCache?`: `boolean`; `fetch?`: \{(`input`: `RequestInfo` \| `URL`, `init?`: `RequestInit`): `Promise`\<`Response`\>; (`input`: `string` \| `Request` \| `URL`, `init?`: `RequestInit`): `Promise`\<`Response`\>; \}; `timeoutMs?`: `number`; `ttlMs?`: `number`; \}): `Promise`\<[`IPublishedDocument`](../namespaces/AuthOidcDiscovery/interfaces/IPublishedDocument)\>
 
-Defined in: [packages/duck-auth/src/oidc/index.ts:72](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/index.ts#L72)
+Defined in: [packages/duck-auth/src/oidc/index.ts:99](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/index.ts#L99)
 
-RP-side OIDC discovery fetcher; in-process LRU (TTL 1h, capacity 32); rejects non-HTTPS unless `allowHttp`.
+RP-side OIDC discovery fetcher; in-process LRU (TTL 1h, capacity 32); rejects plain http in production.
 
 ## Parameters
 
@@ -16,10 +16,6 @@ RP-side OIDC discovery fetcher; in-process LRU (TTL 1h, capacity 32); rejects no
 `string`
 
 ### opts?
-
-#### allowHttp?
-
-`boolean`
 
 #### bypassCache?
 
@@ -31,11 +27,17 @@ Skip the cache lookup; still writes the result. Use for forced refresh.
 
 \{(`input`: `RequestInfo` \| `URL`, `init?`: `RequestInit`): `Promise`\<`Response`\>; (`input`: `string` \| `Request` \| `URL`, `init?`: `RequestInit`): `Promise`\<`Response`\>; \}
 
+#### timeoutMs?
+
+`number`
+
+How long the request may take, its body included. Default 10 seconds.
+
 #### ttlMs?
 
 `number`
 
 ## Returns
 
-`Promise`\<[`IDocument`](../namespaces/AuthOidcDiscovery/interfaces/IDocument)\>
+`Promise`\<[`IPublishedDocument`](../namespaces/AuthOidcDiscovery/interfaces/IPublishedDocument)\>
 

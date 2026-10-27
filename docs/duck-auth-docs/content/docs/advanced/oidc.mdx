@@ -14,8 +14,9 @@ app.get('/.well-known/openid-configuration', (_req, res) => res.json(discovery))
 app.get('/.well-known/jwks.json', (_req, res) => res.json(jwt.jwks()))
 ```
 
-- `issuer` must be `https` unless `allowHttp: true`; a trailing slash is dropped.
+- `issuer` must be `https`, or plain `http` outside production; a trailing slash is dropped.
 - `signingAlgs` defaults to `['HS256']`; set it to your transport's algorithm. HS256 secrets never appear in the JWKS, so only an asymmetric key can be verified elsewhere.
+- `none` is refused with `AUTH_MISCONFIGURED`, in any casing. A relying party reads this list to decide which signatures to accept, and `none` in it tells that party an unsigned ID token is acceptable. The type already rules it out where you write the list by hand; the check is for a list parsed from config or an environment variable.
 - The OAuth endpoints it advertises sit under `prefix` (default `/auth`), and `jwks_uri` under `jwksPath` (default `/.well-known/jwks.json`). Each is appended to the issuer as text, so each must start with `/`; one that does not throws `AUTH_MISCONFIGURED`. `extraClaims` adds fields but cannot replace these.
 - Build the JWKS per request, so a key added by `rotateSignKey` appears. `authBuildOidcRoutes({ config, transport })` answers both documents at once, with the JWKS as of that call.
 
@@ -27,7 +28,7 @@ import { authFetchOidcDiscovery } from '@gentleduck/auth/oidc'
 const doc = await authFetchOidcDiscovery('https://accounts.example.com')
 ```
 
-It fetches `/.well-known/openid-configuration` under the issuer, refuses `http` unless `allowHttp: true`, and caches the answer for an hour, or for `ttlMs`. `bypassCache: true` refetches, and `authFlushOidcDiscoveryCache()` empties the cache.
+It fetches `/.well-known/openid-configuration` under the issuer, refuses `http` in production, and caches the answer for an hour, or for `ttlMs`. `bypassCache: true` refetches, and `authFlushOidcDiscoveryCache()` empties the cache.
 
 An issuer that is down, slow or answers garbage throws `AUTH_PROVIDER_FAILED`:
 

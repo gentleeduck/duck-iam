@@ -3,7 +3,7 @@ title: "Interface: Cfg"
 description: "What deviceFingerprintDetector takes."
 ---
 
-Defined in: [packages/duck-auth/src/core/anomaly/anomaly.types.ts:91](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/anomaly/anomaly.types.ts#L91)
+Defined in: [packages/duck-auth/src/core/anomaly/anomaly.types.ts:91](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/anomaly/anomaly.types.ts#L91)
 
 What `deviceFingerprintDetector` takes.
 
@@ -13,7 +13,7 @@ What `deviceFingerprintDetector` takes.
 
 > `optional` **authSha256?**: (`s`: `string`) => `string`
 
-Defined in: [packages/duck-auth/src/core/anomaly/anomaly.types.ts:101](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/anomaly/anomaly.types.ts#L101)
+Defined in: [packages/duck-auth/src/core/anomaly/anomaly.types.ts:101](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/anomaly/anomaly.types.ts#L101)
 
 The hash the default `compose` needs - `sha256` from `core`. Required without a `compose`.
 
@@ -33,7 +33,7 @@ The hash the default `compose` needs - `sha256` from `core`. Required without a 
 
 > `optional` **compose?**: (`req`: [`RequestSnapshot`](../../../../index/namespaces/Anomaly/interfaces/RequestSnapshot)) => `string` \| `null`
 
-Defined in: [packages/duck-auth/src/core/anomaly/anomaly.types.ts:99](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/anomaly/anomaly.types.ts#L99)
+Defined in: [packages/duck-auth/src/core/anomaly/anomaly.types.ts:99](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/anomaly/anomaly.types.ts#L99)
 
 Replaces the default `sha256(ua | ipSubnet)`; `null` skips the request.
 
@@ -53,7 +53,7 @@ Replaces the default `sha256(ua | ipSubnet)`; `null` skips the request.
 
 > `optional` **score?**: `number`
 
-Defined in: [packages/duck-auth/src/core/anomaly/anomaly.types.ts:97](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/anomaly/anomaly.types.ts#L97)
+Defined in: [packages/duck-auth/src/core/anomaly/anomaly.types.ts:97](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/anomaly/anomaly.types.ts#L97)
 
 Emitted on first sight. Default 0.7 - exactly `stepUpAt`, so on the default ladder a new device
  alone steps up.
@@ -64,7 +64,7 @@ Emitted on first sight. Default 0.7 - exactly `stepUpAt`, so on the default ladd
 
 > **store**: [`IStore`](IStore)
 
-Defined in: [packages/duck-auth/src/core/anomaly/anomaly.types.ts:94](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/anomaly/anomaly.types.ts#L94)
+Defined in: [packages/duck-auth/src/core/anomaly/anomaly.types.ts:94](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/anomaly/anomaly.types.ts#L94)
 
 `AuthMemoryDeviceFingerprintStore`, or an [AuthDeviceFingerprint.IStore](IStore) over storage every
  process shares.

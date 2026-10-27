@@ -9,7 +9,7 @@ In your own process, against your own database, on Node 22 or newer or Bun; see 
 
 ## What should a production deploy do?
 
-- Call `auth.strict({ env: 'production' })` at boot. It throws `AUTH_MISCONFIGURED` listing every setting that is unsafe in production.
+- Run it with `NODE_ENV=production`, or unset, which duck-auth reads as production. Pass `strict: false` to `createAuth`, subscribe a `lockout` listener, then call `auth.strict()`. It throws `AUTH_MISCONFIGURED` listing every setting that is unsafe in production.
 - Apply the [compliance preset](/duck-auth/core/compliance) your scope needs.
 - Read [Security](/duck-auth/advanced/security).
 

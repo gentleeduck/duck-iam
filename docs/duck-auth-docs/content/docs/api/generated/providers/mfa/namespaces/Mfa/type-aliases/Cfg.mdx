@@ -3,9 +3,9 @@ title: "Type Alias: Cfg"
 description: "Total: every field explicit."
 ---
 
-> **Cfg** = \{ `backupCodeCount`: `number`; `backupCodeLen`: `number`; `compliance`: [`Preset`](../../../../../index/namespaces/Compliance/type-aliases/Preset) \| [`Preset`](../../../../../index/namespaces/Compliance/type-aliases/Preset)[]; `issuer`: `string`; \}
+> **Cfg** = \{ `backupCodeCount`: `number`; `backupCodeLen`: `number`; `compliance`: [`Preset`](../../../../../index/namespaces/Compliance/type-aliases/Preset) \| [`Preset`](../../../../../index/namespaces/Compliance/type-aliases/Preset)[]; `dataAtRest`: [`Adapter`](../../../../../index/namespaces/DataAtRest/type-aliases/Adapter); `issuer`: `string`; \}
 
-Defined in: [packages/duck-auth/src/providers/mfa/mfa.types.ts:7](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/mfa.types.ts#L7)
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.types.ts:9](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/mfa/mfa.types.ts#L9)
 
 Total: every field explicit.
 
@@ -15,7 +15,7 @@ Total: every field explicit.
 
 > **backupCodeCount**: `number`
 
-Defined in: [packages/duck-auth/src/providers/mfa/mfa.types.ts:11](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/mfa.types.ts#L11)
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.types.ts:13](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/mfa/mfa.types.ts#L13)
 
 Per enrollment. Default 10.
 
@@ -25,7 +25,7 @@ Per enrollment. Default 10.
 
 > **backupCodeLen**: `number`
 
-Defined in: [packages/duck-auth/src/providers/mfa/mfa.types.ts:13](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/mfa.types.ts#L13)
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.types.ts:15](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/mfa/mfa.types.ts#L15)
 
 In characters. Default 10.
 
@@ -35,9 +35,19 @@ In characters. Default 10.
 
 > **compliance**: [`Preset`](../../../../../index/namespaces/Compliance/type-aliases/Preset) \| [`Preset`](../../../../../index/namespaces/Compliance/type-aliases/Preset)[]
 
-Defined in: [packages/duck-auth/src/providers/mfa/mfa.types.ts:15](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/mfa.types.ts#L15)
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.types.ts:17](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/mfa/mfa.types.ts#L17)
 
 Compliance preset(s); ratchets `backupCodeCount` up to the preset floor.
+
+***
+
+### dataAtRest
+
+> **dataAtRest**: [`Adapter`](../../../../../index/namespaces/DataAtRest/type-aliases/Adapter)
+
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.types.ts:19](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/mfa/mfa.types.ts#L19)
+
+Encrypts each TOTP secret before it is stored, and opens it to check a code.
 
 ***
 
@@ -45,7 +55,7 @@ Compliance preset(s); ratchets `backupCodeCount` up to the preset floor.
 
 > **issuer**: `string`
 
-Defined in: [packages/duck-auth/src/providers/mfa/mfa.types.ts:9](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/mfa.types.ts#L9)
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.types.ts:11](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/mfa/mfa.types.ts#L11)
 
 The brand an authenticator app shows against the entry.
 

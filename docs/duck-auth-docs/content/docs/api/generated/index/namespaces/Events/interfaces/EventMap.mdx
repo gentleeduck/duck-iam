@@ -3,7 +3,7 @@ title: "Interface: EventMap"
 description: "Every event the engine emits, keyed by name, to its payload."
 ---
 
-Defined in: [packages/duck-auth/src/core/events/events.types.ts:23](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/events/events.types.ts#L23)
+Defined in: [packages/duck-auth/src/core/events/events.types.ts:23](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/events/events.types.ts#L23)
 
 Every event the engine emits, keyed by name, to its payload.
 
@@ -13,7 +13,7 @@ Every event the engine emits, keyed by name, to its payload.
 
 > **authz.revoked**: \{ `at`: `number`; `identityId`: `string`; \}
 
-Defined in: [packages/duck-auth/src/core/events/events.types.ts:158](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/events/events.types.ts#L158)
+Defined in: [packages/duck-auth/src/core/events/events.types.ts:160](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/events/events.types.ts#L160)
 
 Published by the IAM side when an identity's authorization is revoked, so every instance drops its cached
  decisions. duck-auth only subscribes, which is why this carries no `audit` envelope.
@@ -32,9 +32,11 @@ Published by the IAM side when an identity's authorization is revoked, so every 
 
 > **identity.erased**: \{ `audit?`: [`Envelope`](Envelope); `identityId`: `string`; `reason`: `string`; \}
 
-Defined in: [packages/duck-auth/src/core/events/events.types.ts:106](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/events/events.types.ts#L106)
+Defined in: [packages/duck-auth/src/core/events/events.types.ts:108](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/events/events.types.ts#L108)
 
-An identity erased for good. The `operatorId` given to `erase` arrives as `audit.actorId`.
+An identity erased for good: by `erase` or `eraseMany`, by `gc` once its grace window closed
+ (`reason: 'gc'`), or by a `bulkCreate` replace. The `operatorId` given to `erase` arrives as
+ `audit.actorId`.
 
 #### audit?
 
@@ -54,7 +56,7 @@ An identity erased for good. The `operatorId` given to `erase` arrives as `audit
 
 > **identity.impersonated**: \{ `audit?`: [`Envelope`](Envelope); `iamDecisionId?`: `string`; `realIdentityId`: `string`; `reason`: `string`; `targetIdentityId`: `string`; \}
 
-Defined in: [packages/duck-auth/src/core/events/events.types.ts:112](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/events/events.types.ts#L112)
+Defined in: [packages/duck-auth/src/core/events/events.types.ts:114](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/events/events.types.ts#L114)
 
 An operator opened an impersonation window.
 
@@ -89,7 +91,7 @@ Which IAM decision let this through. An impersonation nobody can trace to an aut
 
 > **identity.impersonation.ended**: \{ `audit?`: [`Envelope`](Envelope); `endedBy`: `"revoke"` \| `"release"` \| `"expiry"`; `realIdentityId`: `string`; `sessionId`: `string`; `targetIdentityId`: `string` \| `null`; \}
 
-Defined in: [packages/duck-auth/src/core/events/events.types.ts:123](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/events/events.types.ts#L123)
+Defined in: [packages/duck-auth/src/core/events/events.types.ts:125](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/events/events.types.ts#L125)
 
 The close of a window, however it closed.
 
@@ -121,7 +123,7 @@ The impersonated subject: the session's own `identityId`, which a guest row leav
 
 > **identity.linked**: \{ `audit?`: [`Envelope`](Envelope); `identityId`: `string`; `providerId`: `string`; \}
 
-Defined in: [packages/duck-auth/src/core/events/events.types.ts:90](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/events/events.types.ts#L90)
+Defined in: [packages/duck-auth/src/core/events/events.types.ts:90](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/events/events.types.ts#L90)
 
 A provider login was attached to an identity.
 
@@ -143,7 +145,7 @@ A provider login was attached to an identity.
 
 > **identity.unlinked**: \{ `allowedLockout`: `boolean`; `audit?`: [`Envelope`](Envelope); `identityId`: `string`; `providerId`: `string`; \}
 
-Defined in: [packages/duck-auth/src/core/events/events.types.ts:98](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/events/events.types.ts#L98)
+Defined in: [packages/duck-auth/src/core/events/events.types.ts:98](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/events/events.types.ts#L98)
 
 The mirror of `identity.linked`.
  SECURITY: this is the half an account takeover performs, dropping the real owner's login so only the
@@ -173,7 +175,7 @@ Whether the caller passed `allowLockout` to override the last-factor guard.
 
 > **lockout**: \{ `audit?`: [`Envelope`](Envelope); `identityId`: `string`; `until`: `number`; \}
 
-Defined in: [packages/duck-auth/src/core/events/events.types.ts:76](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/events/events.types.ts#L76)
+Defined in: [packages/duck-auth/src/core/events/events.types.ts:76](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/events/events.types.ts#L76)
 
 An identity is locked out until `until` (epoch ms).
 
@@ -195,7 +197,7 @@ An identity is locked out until `until` (epoch ms).
 
 > **mfa.enrolled**: \{ `audit?`: [`Envelope`](Envelope); `identityId`: `string`; `method`: `"magic-link"` \| `"password"` \| `"passkey"` \| `"oauth"` \| `"totp"` \| `"api-key"` \| `"saml"` \| `"webauthn"` \| `"sms"` \| `"backup-code"`; \}
 
-Defined in: [packages/duck-auth/src/core/events/events.types.ts:78](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/events/events.types.ts#L78)
+Defined in: [packages/duck-auth/src/core/events/events.types.ts:78](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/events/events.types.ts#L78)
 
 A second factor was added.
 
@@ -217,7 +219,7 @@ A second factor was added.
 
 > **mfa.removed**: \{ `audit?`: [`Envelope`](Envelope); `identityId`: `string`; `method`: `"magic-link"` \| `"password"` \| `"passkey"` \| `"oauth"` \| `"totp"` \| `"api-key"` \| `"saml"` \| `"webauthn"` \| `"sms"` \| `"backup-code"`; \}
 
-Defined in: [packages/duck-auth/src/core/events/events.types.ts:84](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/events/events.types.ts#L84)
+Defined in: [packages/duck-auth/src/core/events/events.types.ts:84](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/events/events.types.ts#L84)
 
 A second factor was removed.
 
@@ -239,7 +241,7 @@ A second factor was removed.
 
 > **org.member.added**: \{ `audit?`: [`Envelope`](Envelope); `identityId`: `string`; `orgId`: `string`; `roles`: `string`[]; \}
 
-Defined in: [packages/duck-auth/src/core/events/events.types.ts:151](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/events/events.types.ts#L151)
+Defined in: [packages/duck-auth/src/core/events/events.types.ts:153](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/events/events.types.ts#L153)
 
 An identity joined an org with `roles`.
 
@@ -265,7 +267,7 @@ An identity joined an org with `roles`.
 
 > **org.member.removed**: \{ `audit?`: [`Envelope`](Envelope); `identityId`: `string`; `orgId`: `string`; \}
 
-Defined in: [packages/duck-auth/src/core/events/events.types.ts:153](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/events/events.types.ts#L153)
+Defined in: [packages/duck-auth/src/core/events/events.types.ts:155](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/events/events.types.ts#L155)
 
 An identity left an org.
 
@@ -287,7 +289,7 @@ An identity left an org.
 
 > **org.roles.set**: \{ `audit?`: [`Envelope`](Envelope); `identityId`: `string`; `orgId`: `string`; `roles`: `string`[]; \}
 
-Defined in: [packages/duck-auth/src/core/events/events.types.ts:155](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/events/events.types.ts#L155)
+Defined in: [packages/duck-auth/src/core/events/events.types.ts:157](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/events/events.types.ts#L157)
 
 `roles` is the whole set the member now holds, as stored.
 
@@ -313,7 +315,7 @@ Defined in: [packages/duck-auth/src/core/events/events.types.ts:155](https://git
 
 > **recovery.mfa.escalated**: \{ `audit?`: [`Envelope`](Envelope); `credentialId`: `string`; `identityId`: `string`; \}
 
-Defined in: [packages/duck-auth/src/core/events/events.types.ts:137](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/events/events.types.ts#L137)
+Defined in: [packages/duck-auth/src/core/events/events.types.ts:139](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/events/events.types.ts#L139)
 
 A second factor satisfied by a recovery credential instead of the factor itself. `credentialId`
  is the backup code that was spent, already burnt and revoked by the time this is emitted.
@@ -336,7 +338,7 @@ A second factor satisfied by a recovery credential instead of the factor itself.
 
 > **recovery.password.completed**: \{ `audit?`: [`Envelope`](Envelope); `identityId`: `string`; \}
 
-Defined in: [packages/duck-auth/src/core/events/events.types.ts:134](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/events/events.types.ts#L134)
+Defined in: [packages/duck-auth/src/core/events/events.types.ts:136](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/events/events.types.ts#L136)
 
 A password was reset through its mailed link.
 
@@ -354,7 +356,7 @@ A password was reset through its mailed link.
 
 > **recovery.password.requested**: \{ `audit?`: [`Envelope`](Envelope); `identityId`: `string`; \}
 
-Defined in: [packages/duck-auth/src/core/events/events.types.ts:132](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/events/events.types.ts#L132)
+Defined in: [packages/duck-auth/src/core/events/events.types.ts:134](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/events/events.types.ts#L134)
 
 A password-reset mail was sent.
 
@@ -372,7 +374,7 @@ A password-reset mail was sent.
 
 > **session.created**: \{ `audit?`: [`Envelope`](Envelope); `identity`: [`Me`](../../Identities/type-aliases/Me)\<[`ProfileMetadataBase`](../../Identities/type-aliases/ProfileMetadataBase)\> \| `null`; `session`: [`Me`](../../Sessions/type-aliases/Me); \}
 
-Defined in: [packages/duck-auth/src/core/events/events.types.ts:25](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/events/events.types.ts#L25)
+Defined in: [packages/duck-auth/src/core/events/events.types.ts:25](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/events/events.types.ts#L25)
 
 A session was created.
 
@@ -394,7 +396,7 @@ A session was created.
 
 > **session.expired**: \{ `count?`: `number`; `identityId?`: `string` \| `null`; `reason`: `"sliding"` \| `"absolute"` \| `"impersonation"` \| `"gc"`; `sessionId?`: `string`; \}
 
-Defined in: [packages/duck-auth/src/core/events/events.types.ts:45](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/events/events.types.ts#L45)
+Defined in: [packages/duck-auth/src/core/events/events.types.ts:45](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/events/events.types.ts#L45)
 
 A session died of age rather than by request - the sliding TTL, the hard absolute cap, an elapsed
 impersonation window, or a `gc()` sweep.
@@ -432,7 +434,7 @@ thing, and nobody did this one. Stamping the holder of a dead token onto it woul
 
 > **session.revoked**: \{ `audit?`: [`Envelope`](Envelope); `identityId`: `string` \| `null`; `sessionId`: `string`; \}
 
-Defined in: [packages/duck-auth/src/core/events/events.types.ts:55](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/events/events.types.ts#L55)
+Defined in: [packages/duck-auth/src/core/events/events.types.ts:55](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/events/events.types.ts#L55)
 
 A session was deleted by a revoke, a cascade, or a rotation that replaced it.
 
@@ -454,7 +456,7 @@ A session was deleted by a revoke, a cascade, or a rotation that replaced it.
 
 > **session.rotated**: \{ `audit?`: [`Envelope`](Envelope); `previousSessionId?`: `string`; `session`: [`Me`](../../Sessions/type-aliases/Me); \}
 
-Defined in: [packages/duck-auth/src/core/events/events.types.ts:53](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/events/events.types.ts#L53)
+Defined in: [packages/duck-auth/src/core/events/events.types.ts:53](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/events/events.types.ts#L53)
 
 Emitted after every rotation. `previousSessionId` is the hashed id rotated away from, present whenever
  the caller supplied a `previousSid`, and it is what chains a session's lineage for audit.
@@ -477,7 +479,7 @@ Emitted after every rotation. `previousSessionId` is the hashed id rotated away 
 
 > **signin.failed**: \{ `audit?`: [`Envelope`](Envelope); `ip?`: `string`; `providerId`: `string`; `reason`: `string`; \}
 
-Defined in: [packages/duck-auth/src/core/events/events.types.ts:67](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/events/events.types.ts#L67)
+Defined in: [packages/duck-auth/src/core/events/events.types.ts:67](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/events/events.types.ts#L67)
 
 A sign-in or link attempt was refused; `reason` is for logs, never for the caller.
 
@@ -503,7 +505,7 @@ A sign-in or link attempt was refused; `reason` is for logs, never for the calle
 
 > **signin.success**: \{ `audit?`: [`Envelope`](Envelope); `factors`: [`Factor`](../../Sessions/interfaces/Factor)[]; `identity`: [`Me`](../../Identities/type-aliases/Me); \}
 
-Defined in: [packages/duck-auth/src/core/events/events.types.ts:61](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/events/events.types.ts#L61)
+Defined in: [packages/duck-auth/src/core/events/events.types.ts:61](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/events/events.types.ts#L61)
 
 A sign-in finished and its session was issued.
 
@@ -525,7 +527,7 @@ A sign-in finished and its session was issued.
 
 > **signup.completed**: \{ `audit?`: [`Envelope`](Envelope); `identity`: [`Me`](../../Identities/type-aliases/Me); \}
 
-Defined in: [packages/duck-auth/src/core/events/events.types.ts:74](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/events/events.types.ts#L74)
+Defined in: [packages/duck-auth/src/core/events/events.types.ts:74](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/events/events.types.ts#L74)
 
 A sign-up finished and its identity exists.
 
@@ -543,7 +545,7 @@ A sign-up finished and its identity exists.
 
 > **suspicious**: \{ `audit?`: [`Envelope`](Envelope); `identityId?`: `string`; `meta`: `Record`\<`string`, `unknown`\>; `score`: `number`; `signal`: `string`; \}
 
-Defined in: [packages/duck-auth/src/core/events/events.types.ts:143](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/events/events.types.ts#L143)
+Defined in: [packages/duck-auth/src/core/events/events.types.ts:145](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/events/events.types.ts#L145)
 
 A detector flagged this request: anomaly, hijack, or a replayed factor.
 

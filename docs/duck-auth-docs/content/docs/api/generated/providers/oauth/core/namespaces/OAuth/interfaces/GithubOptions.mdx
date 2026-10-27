@@ -3,7 +3,7 @@ title: "Interface: GithubOptions"
 description: "GitHub-specific options. Default scopes ['read:user', 'user:email']."
 ---
 
-Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:218](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L218)
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:217](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L217)
 
 GitHub-specific options. Default scopes `['read:user', 'user:email']`.
 
@@ -19,25 +19,11 @@ GitHub-specific options. Default scopes `['read:user', 'user:email']`.
 
 ## Properties
 
-### allowStateReplay?
-
-> `optional` **allowStateReplay?**: `boolean`
-
-Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:66](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L66)
-
-Accepts a state nothing burns. See [OAuth.Options.allowStateReplay](Options#allowstatereplay).
-
-#### Inherited from
-
-[`OptionsBase`](OptionsBase).[`allowStateReplay`](OptionsBase#allowstatereplay)
-
-***
-
 ### clientId
 
 > **clientId**: `string`
 
-Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:54](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L54)
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:56](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L56)
 
 oauth client id assigned by the IdP.
 
@@ -51,7 +37,7 @@ oauth client id assigned by the IdP.
 
 > **clientSecret**: `string`
 
-Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:56](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L56)
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:58](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L58)
 
 Client secret. Confidential clients (server-side) only.
 
@@ -65,7 +51,7 @@ Client secret. Confidential clients (server-side) only.
 
 > `optional` **fetch?**: \{(`input`: `RequestInfo` \| `URL`, `init?`: `RequestInit`): `Promise`\<`Response`\>; (`input`: `string` \| `Request` \| `URL`, `init?`: `RequestInit`): `Promise`\<`Response`\>; \}
 
-Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:70](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L70)
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:70](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L70)
 
 Override fetch impl (test stubs).
 
@@ -119,7 +105,7 @@ Override fetch impl (test stubs).
 
 > `optional` **nonceStore?**: [`NonceStore`](NonceStore)
 
-Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:64](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L64)
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:66](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L66)
 
 Burns the state's nonce at `complete`. See [OAuth.Options.nonceStore](Options#noncestore).
 
@@ -133,7 +119,7 @@ Burns the state's nonce at `complete`. See [OAuth.Options.nonceStore](Options#no
 
 > `optional` **onFederationConflict?**: [`FederationPolicy`](../type-aliases/FederationPolicy)
 
-Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:77](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L77)
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:79](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L79)
 
 What to do when the profile's email already belongs to an identity with no link to this provider. See
  [OAuth.Options.onFederationConflict](Options#onfederationconflict); the default is `'reject'`.
@@ -148,7 +134,7 @@ What to do when the profile's email already belongs to an identity with no link 
 
 > `optional` **onSignIn?**: (`ctx`: \{ `createIdentity`: (`profile`: `AppProfile`) => `Promise`\<\{ `id`: `string`; \}\>; `findByEmail`: (`email`: `string`) => `Promise`\<\{ `id`: `string`; \} \| `null`\>; `findByProviderSub`: (`providerSub`: `string`) => `Promise`\<\{ `id`: `string`; \} \| `null`\>; `linkProvider`: (`identityId`: `string`, `providerSub`: `string`) => `Promise`\<`void`\>; `profile`: [`Profile`](Profile); \}) => `Promise`\<\{ `identityId`: `string`; \} \| `null`\>
 
-Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:72](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L72)
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:74](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L74)
 
 Customise identity resolution at signin time.
 
@@ -190,7 +176,7 @@ Customise identity resolution at signin time.
 
 > `optional` **profileToIdentityProfile?**: (`p`: [`Profile`](Profile)) => `AppProfile` \| `null`
 
-Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:74](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L74)
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:76](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L76)
 
 Project canonical Profile into the consumer's Profile shape.
 
@@ -214,7 +200,7 @@ Project canonical Profile into the consumer's Profile shape.
 
 > **redirectUri**: `string`
 
-Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:58](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L58)
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:60](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L60)
 
 Exact callback URL registered with the IdP. Must match.
 
@@ -228,7 +214,7 @@ Exact callback URL registered with the IdP. Must match.
 
 > `optional` **scopes?**: `string`[]
 
-Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:219](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L219)
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:218](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L218)
 
 Overrides the provider's default scopes.
 
@@ -242,7 +228,7 @@ Overrides the provider's default scopes.
 
 > `optional` **stateCookie?**: [`StateCookie`](StateCookie)
 
-Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:62](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L62)
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:64](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L64)
 
 Binds a callback to the browser that began the flow. See [OAuth.StateCookie](StateCookie).
 
@@ -256,11 +242,25 @@ Binds a callback to the browser that began the flow. See [OAuth.StateCookie](Sta
 
 > **stateSigningSecret**: `string`
 
-Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:60](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L60)
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:62](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L62)
 
 Per-AuthEngine signing secret for the oauth `state` parameter.
 
 #### Inherited from
 
 [`OptionsBase`](OptionsBase).[`stateSigningSecret`](OptionsBase#statesigningsecret)
+
+***
+
+### timeoutMs?
+
+> `optional` **timeoutMs?**: `number`
+
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:72](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L72)
+
+Per request to the IdP, the body included. Default 10 seconds.
+
+#### Inherited from
+
+[`OptionsBase`](OptionsBase).[`timeoutMs`](OptionsBase#timeoutms)
 

@@ -5,7 +5,7 @@ description: "The Redis session store's options."
 
 > **Cfg**\<`TRedis` *extends* [`Client`](../../RedisLike/type-aliases/Client) = [`Client`](../../RedisLike/type-aliases/Client)\> = \{ `gcLeaseSec?`: `number`; `maxTtlSec?`: `number`; `prefix?`: `string`; `redis`: `TRedis`; \}
 
-Defined in: [packages/duck-auth/src/core/sessions/sessions.redis.ts:13](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.redis.ts#L13)
+Defined in: [packages/duck-auth/src/core/sessions/sessions.redis.ts:13](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/sessions/sessions.redis.ts#L13)
 
 The Redis session store's options.
 
@@ -21,7 +21,7 @@ The Redis session store's options.
 
 > `optional` **gcLeaseSec?**: `number`
 
-Defined in: [packages/duck-auth/src/core/sessions/sessions.redis.ts:27](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.redis.ts#L27)
+Defined in: [packages/duck-auth/src/core/sessions/sessions.redis.ts:27](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/sessions/sessions.redis.ts#L27)
 
 Default 5 minutes.
 
@@ -31,7 +31,7 @@ Default 5 minutes.
 
 > `optional` **maxTtlSec?**: `number`
 
-Defined in: [packages/duck-auth/src/core/sessions/sessions.redis.ts:25](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.redis.ts#L25)
+Defined in: [packages/duck-auth/src/core/sessions/sessions.redis.ts:25](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/sessions/sessions.redis.ts#L25)
 
 A ceiling on every key TTL; the row's own `absoluteExpiresAt` is authoritative. Default 30 days.
 
@@ -41,7 +41,7 @@ A ceiling on every key TTL; the row's own `absoluteExpiresAt` is authoritative. 
 
 > `optional` **prefix?**: `string`
 
-Defined in: [packages/duck-auth/src/core/sessions/sessions.redis.ts:23](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.redis.ts#L23)
+Defined in: [packages/duck-auth/src/core/sessions/sessions.redis.ts:23](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/sessions/sessions.redis.ts#L23)
 
 Default `auth`. Final keys:
   `${prefix}:sess:{sessionId}`
@@ -55,7 +55,7 @@ Default `auth`. Final keys:
 
 > **redis**: `TRedis`
 
-Defined in: [packages/duck-auth/src/core/sessions/sessions.redis.ts:15](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.redis.ts#L15)
+Defined in: [packages/duck-auth/src/core/sessions/sessions.redis.ts:15](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/sessions/sessions.redis.ts#L15)
 
 An `@upstash/redis`-shaped client or `FakeRedis`; wrap ioredis and iovalkey with `valkeyAdapter`.
 

@@ -3,9 +3,9 @@ title: "Type Alias: WebauthnMfaConfirmOpts"
 description: "What confirmWebauthnMfaEnrollment takes."
 ---
 
-> **WebauthnMfaConfirmOpts** = \{ `challengeKey`: `string`; `challengeStore`: [`ChallengeStore`](../../../../passkey/namespaces/Passkey/type-aliases/ChallengeStore); `expectedOrigins`: `string` \| `string`[]; `response`: `unknown`; `rpID`: `string`; `supportedAlgorithmIDs?`: `number`[]; `userVerification?`: `"required"` \| `"preferred"` \| `"discouraged"`; `webauthnModule?`: [`SimpleWebAuthnServerModule`](../../../../passkey/namespaces/Passkey/type-aliases/SimpleWebAuthnServerModule); \}
+> **WebauthnMfaConfirmOpts** = \{ `challengeKey`: `string`; `challengeStore`: [`ChallengeStore`](../../../../passkey/namespaces/Passkey/type-aliases/ChallengeStore); `expectedOrigins`: `string` \| `string`[]; `response`: `unknown`; `rpID`: `string`; `session`: [`Me`](../../../../../index/namespaces/Sessions/type-aliases/Me) \| `null`; `supportedAlgorithmIDs?`: `number`[]; `userVerification?`: `"required"` \| `"preferred"` \| `"discouraged"`; `webauthnModule?`: [`SimpleWebAuthnServerModule`](../../../../passkey/namespaces/Passkey/type-aliases/SimpleWebAuthnServerModule); \}
 
-Defined in: [packages/duck-auth/src/providers/mfa/mfa.types.ts:64](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/mfa.types.ts#L64)
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.types.ts:75](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/mfa/mfa.types.ts#L75)
 
 What `confirmWebauthnMfaEnrollment` takes.
 
@@ -15,7 +15,7 @@ What `confirmWebauthnMfaEnrollment` takes.
 
 > **challengeKey**: `string`
 
-Defined in: [packages/duck-auth/src/providers/mfa/mfa.types.ts:72](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/mfa.types.ts#L72)
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.types.ts:83](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/mfa/mfa.types.ts#L83)
 
 Ties the ceremony's two calls together; the session id, typically.
 
@@ -25,7 +25,7 @@ Ties the ceremony's two calls together; the session id, typically.
 
 > **challengeStore**: [`ChallengeStore`](../../../../passkey/namespaces/Passkey/type-aliases/ChallengeStore)
 
-Defined in: [packages/duck-auth/src/providers/mfa/mfa.types.ts:70](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/mfa.types.ts#L70)
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.types.ts:81](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/mfa/mfa.types.ts#L81)
 
 Where the ceremony's challenge is kept between its two calls.
 
@@ -35,7 +35,7 @@ Where the ceremony's challenge is kept between its two calls.
 
 > **expectedOrigins**: `string` \| `string`[]
 
-Defined in: [packages/duck-auth/src/providers/mfa/mfa.types.ts:68](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/mfa.types.ts#L68)
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.types.ts:79](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/mfa/mfa.types.ts#L79)
 
 The origins a response may come from.
 
@@ -45,7 +45,7 @@ The origins a response may come from.
 
 > **response**: `unknown`
 
-Defined in: [packages/duck-auth/src/providers/mfa/mfa.types.ts:74](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/mfa.types.ts#L74)
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.types.ts:85](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/mfa/mfa.types.ts#L85)
 
 The browser's `RegistrationResponseJSON` from `navigator.credentials.create`.
 
@@ -55,9 +55,20 @@ The browser's `RegistrationResponseJSON` from `navigator.credentials.create`.
 
 > **rpID**: `string`
 
-Defined in: [packages/duck-auth/src/providers/mfa/mfa.types.ts:66](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/mfa.types.ts#L66)
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.types.ts:77](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/mfa/mfa.types.ts#L77)
 
 The relying-party id: the site's registrable domain.
+
+***
+
+### session
+
+> **session**: [`Me`](../../../../../index/namespaces/Sessions/type-aliases/Me) \| `null`
+
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.types.ts:94](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/mfa/mfa.types.ts#L94)
+
+The caller's session, `null` without one. Beside any factor but the password, this is refused with
+ `AUTH_MFA_REQUIRED` unless it is the identity's own, stepped up to AAL 2.
 
 ***
 
@@ -65,7 +76,7 @@ The relying-party id: the site's registrable domain.
 
 > `optional` **supportedAlgorithmIDs?**: `number`[]
 
-Defined in: [packages/duck-auth/src/providers/mfa/mfa.types.ts:78](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/mfa.types.ts#L78)
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.types.ts:89](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/mfa/mfa.types.ts#L89)
 
 The algorithms enrollment offered; a key under any other is refused. Default `[-8, -7, -257]`.
 
@@ -75,7 +86,7 @@ The algorithms enrollment offered; a key under any other is refused. Default `[-
 
 > `optional` **userVerification?**: `"required"` \| `"preferred"` \| `"discouraged"`
 
-Defined in: [packages/duck-auth/src/providers/mfa/mfa.types.ts:76](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/mfa.types.ts#L76)
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.types.ts:87](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/mfa/mfa.types.ts#L87)
 
 WebAuthn user-verification requirement, passed through to the authenticator.
 
@@ -85,7 +96,7 @@ WebAuthn user-verification requirement, passed through to the authenticator.
 
 > `optional` **webauthnModule?**: [`SimpleWebAuthnServerModule`](../../../../passkey/namespaces/Passkey/type-aliases/SimpleWebAuthnServerModule)
 
-Defined in: [packages/duck-auth/src/providers/mfa/mfa.types.ts:80](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/mfa.types.ts#L80)
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.types.ts:91](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/mfa/mfa.types.ts#L91)
 
 Where a test injects its own library instance.
 

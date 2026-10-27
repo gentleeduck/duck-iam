@@ -5,7 +5,7 @@ description: "Result shape of resolveSession. identity is null for a guest sessi
 
 > **ResolveResult**\<`Profile` *extends* [`ProfileMetadataBase`](../../Identities/type-aliases/ProfileMetadataBase)\> = \{ `anomaly?`: [`Result`](../../Anomaly/type-aliases/Result); `identity`: [`Me`](../../Identities/type-aliases/Me)\<`Profile`\> \| `null`; `scope?`: `string`[]; `session`: [`Me`](../../Sessions/type-aliases/Me); \}
 
-Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:95](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.types.ts#L95)
+Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:98](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/engine/engine.types.ts#L98)
 
 Result shape of `resolveSession`. `identity` is null for a guest session, one with no `identityId`:
  an identity that could not be read rejects `AUTH_SESSION_IDENTITY_ERASED` instead, so the null here
@@ -23,7 +23,7 @@ Result shape of `resolveSession`. `identity` is null for a guest session, one wi
 
 > `optional` **anomaly?**: [`Result`](../../Anomaly/type-aliases/Result)
 
-Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:101](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.types.ts#L101)
+Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:104](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/engine/engine.types.ts#L104)
 
 The aggregate anomaly decision, present only when a detector is registered and
  `opts.requestSnapshot` was supplied. Branch on `anomaly.decision`, and call `anomaly.admit()` once
@@ -35,7 +35,7 @@ The aggregate anomaly decision, present only when a detector is registered and
 
 > **identity**: [`Me`](../../Identities/type-aliases/Me)\<`Profile`\> \| `null`
 
-Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:97](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.types.ts#L97)
+Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:100](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/engine/engine.types.ts#L100)
 
 ***
 
@@ -43,7 +43,7 @@ Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:97](https://gith
 
 > `optional` **scope?**: `string`[]
 
-Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:103](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.types.ts#L103)
+Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:106](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/engine/engine.types.ts#L106)
 
 The scopes a self-contained access token was granted, as `m2m` mints them; absent on any other session.
 
@@ -53,5 +53,5 @@ The scopes a self-contained access token was granted, as `m2m` mints them; absen
 
 > **session**: [`Me`](../../Sessions/type-aliases/Me)
 
-Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:96](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.types.ts#L96)
+Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:99](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/engine/engine.types.ts#L99)
 

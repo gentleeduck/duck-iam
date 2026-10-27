@@ -1,17 +1,64 @@
 ---
 title: "Type Alias: AuthorizeResult"
-description: "/authorize result the host app routes on."
+description: "/authorize result the host app routes on. For login_required the host signs the person in, then  resumes the request without login in prompt and without max_age, which that sign-in answered."
 ---
 
-> **AuthorizeResult**\<`Profile` *extends* [`ProfileMetadataBase`](../../../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase)\> = \{ `kind`: `"redirect"`; `url`: `string`; \} \| \{ `kind`: `"login_required"`; `reason`: `"no_session"` \| `"prompt_login"` \| `"max_age_exceeded"`; \} \| \{ `client`: [`Client`](Client); `identity`: [`Me`](../../../../../index/namespaces/Identities/type-aliases/Me)\<`Profile`\>; `kind`: `"consent_required"`; `scope`: `string`[]; \} \| \{ `body`: [`OauthError`](OauthError); `kind`: `"error"`; `redirectUri?`: `string`; `status`: `number`; \}
+> **AuthorizeResult**\<`Profile` *extends* [`ProfileMetadataBase`](../../../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase)\> = \{ `kind`: `"redirect"`; `url`: `string`; \} \| \{ `kind`: `"login_required"`; `reason`: `"no_session"` \| `"prompt_login"` \| `"max_age_exceeded"`; \} \| \{ `auth_time`: `number`; `client`: [`Client`](Client); `identity`: [`Me`](../../../../../index/namespaces/Identities/type-aliases/Me)\<`Profile`\>; `kind`: `"consent_required"`; `scope`: `string`[]; \} \| \{ `body`: [`OauthError`](OauthError); `kind`: `"error"`; `redirectUri?`: `string`; `status`: `number`; \}
 
-Defined in: [packages/duck-auth/src/oidc/op/types.ts:189](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L189)
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:204](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/op/types.ts#L204)
 
-/authorize result the host app routes on.
+/authorize result the host app routes on. For `login_required` the host signs the person in, then
+ resumes the request without `login` in `prompt` and without `max_age`, which that sign-in answered.
 
 ## Type Parameters
 
 ### Profile
 
 `Profile` *extends* [`ProfileMetadataBase`](../../../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase)
+
+## Union Members
+
+### Type Literal
+
+\{ `kind`: `"redirect"`; `url`: `string`; \}
+
+***
+
+### Type Literal
+
+\{ `kind`: `"login_required"`; `reason`: `"no_session"` \| `"prompt_login"` \| `"max_age_exceeded"`; \}
+
+***
+
+### Type Literal
+
+\{ `auth_time`: `number`; `client`: [`Client`](Client); `identity`: [`Me`](../../../../../index/namespaces/Identities/type-aliases/Me)\<`Profile`\>; `kind`: `"consent_required"`; `scope`: `string`[]; \}
+
+#### auth\_time
+
+> **auth\_time**: `number`
+
+Pass back to `completeConsent` so the id_token can carry `auth_time`.
+
+#### client
+
+> **client**: [`Client`](Client)
+
+#### identity
+
+> **identity**: [`Me`](../../../../../index/namespaces/Identities/type-aliases/Me)\<`Profile`\>
+
+#### kind
+
+> **kind**: `"consent_required"`
+
+#### scope
+
+> **scope**: `string`[]
+
+***
+
+### Type Literal
+
+\{ `body`: [`OauthError`](OauthError); `kind`: `"error"`; `redirectUri?`: `string`; `status`: `number`; \}
 

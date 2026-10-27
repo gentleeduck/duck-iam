@@ -3,7 +3,7 @@ title: "Class: FakeRedis"
 description: "In-process substitute for tests and for apps that need the adapter shape without a Redis dependency at runtime. The @upstash/redis surface, with TTLs enforced on read rather than by a timer."
 ---
 
-Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:68](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/redis-like.ts#L68)
+Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:68](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/drivers/redis-like.ts#L68)
 
 In-process substitute for tests and for apps that need the adapter shape without a Redis dependency at
 runtime. The `@upstash/redis` surface, with TTLs enforced on read rather than by a timer.
@@ -28,7 +28,7 @@ runtime. The `@upstash/redis` surface, with TTLs enforced on read rather than by
 
 > **del**(...`keys`: `string`[]): `Promise`\<`number`\>
 
-Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:115](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/redis-like.ts#L115)
+Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:115](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/drivers/redis-like.ts#L115)
 
 Removes from every type, the way real `DEL` behaves. Touching `_data` alone made deleting a set or a
  sorted set a silent no-op, and the session store's index and expiry keys are exactly those types, so
@@ -54,7 +54,7 @@ Removes from every type, the way real `DEL` behaves. Touching `_data` alone made
 
 > **expire**(`key`: `string`, `seconds`: `number`): `Promise`\<`number`\>
 
-Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:129](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/redis-like.ts#L129)
+Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:129](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/drivers/redis-like.ts#L129)
 
 `0` when the key does not exist, whatever its type. Strings only, this answered `0` for the
  session index and set no TTL, so the one call that bounds that set's lifetime did nothing.
@@ -83,7 +83,7 @@ Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:129](https://gith
 
 > **get**(`key`: `string`): `Promise`\<`string` \| `null`\>
 
-Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:88](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/redis-like.ts#L88)
+Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:88](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/drivers/redis-like.ts#L88)
 
 `null` on a miss or an elapsed TTL.
 
@@ -107,7 +107,7 @@ Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:88](https://githu
 
 > **incr**(`key`: `string`): `Promise`\<`number`\>
 
-Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:137](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/redis-like.ts#L137)
+Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:137](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/drivers/redis-like.ts#L137)
 
 Adds one, treating a missing key as zero.
 
@@ -131,7 +131,7 @@ Adds one, treating a missing key as zero.
 
 > **incrby**(`key`: `string`, `by`: `number`): `Promise`\<`number`\>
 
-Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:142](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/redis-like.ts#L142)
+Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:142](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/drivers/redis-like.ts#L142)
 
 Adds `by`, treating a missing key as zero.
 
@@ -159,7 +159,7 @@ Adds `by`, treating a missing key as zero.
 
 > **mget**(...`keys`: `string`[]): `Promise`\<(`string` \| `null`)[]\>
 
-Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:94](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/redis-like.ts#L94)
+Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:94](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/drivers/redis-like.ts#L94)
 
 One entry per key, in the order asked, `null` for a miss or an elapsed TTL.
 
@@ -183,7 +183,7 @@ One entry per key, in the order asked, `null` for a miss or an elapsed TTL.
 
 > **publish**(`channel`: `string`, `message`: `string`): `Promise`\<`number`\>
 
-Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:237](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/redis-like.ts#L237)
+Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:237](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/drivers/redis-like.ts#L237)
 
 Fans the payload out to every subscriber on `channel`.
 
@@ -207,7 +207,7 @@ Fans the payload out to every subscriber on `channel`.
 
 > **sadd**(`key`: `string`, ...`members`: `string`[]): `Promise`\<`number`\>
 
-Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:152](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/redis-like.ts#L152)
+Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:152](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/drivers/redis-like.ts#L152)
 
 Adds members to a set, answering how many were not already there.
 
@@ -235,7 +235,7 @@ Adds members to a set, answering how many were not already there.
 
 > **set**(`key`: `string`, `value`: `string`, `opts?`: \{ `ex?`: `number`; `nx?`: `boolean`; \}): `Promise`\<`"OK"` \| `null`\>
 
-Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:102](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/redis-like.ts#L102)
+Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:102](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/drivers/redis-like.ts#L102)
 
 `null` when the NX condition fails.
 
@@ -273,7 +273,7 @@ Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:102](https://gith
 
 > **smembers**(`key`: `string`): `Promise`\<`string`[]\>
 
-Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:183](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/redis-like.ts#L183)
+Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:183](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/drivers/redis-like.ts#L183)
 
 Every member of a set, as a fresh array.
 
@@ -297,7 +297,7 @@ Every member of a set, as a fresh array.
 
 > **srem**(`key`: `string`, ...`members`: `string`[]): `Promise`\<`number`\>
 
-Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:170](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/redis-like.ts#L170)
+Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:170](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/drivers/redis-like.ts#L170)
 
 Removes members from a set, answering how many were there.
 
@@ -325,7 +325,7 @@ Removes members from a set, answering how many were there.
 
 > **subscribe**(`channel`: `string`, `onMessage`: (`channel`: `string`, `message`: `string`) => `void` \| `Promise`\<`void`\>): `Promise`\<() => `Promise`\<`void`\>\>
 
-Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:247](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/redis-like.ts#L247)
+Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:247](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/drivers/redis-like.ts#L247)
 
 Answers an async unsubscribe.
 
@@ -349,7 +349,7 @@ Answers an async unsubscribe.
 
 > **zadd**(`key`: `string`, `score`: `number`, `member`: `string`): `Promise`\<`number`\>
 
-Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:189](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/redis-like.ts#L189)
+Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:189](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/drivers/redis-like.ts#L189)
 
 Adds a member to a sorted set, or re-scores one already in it.
 
@@ -381,7 +381,7 @@ Adds a member to a sorted set, or re-scores one already in it.
 
 > **zrangebyscore**(`key`: `string`, `min`: `string` \| `number`, `max`: `string` \| `number`, `opts?`: \{ `limit?`: \{ `count`: `number`; `offset`: `number`; \}; \}): `Promise`\<`string`[]\>
 
-Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:215](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/redis-like.ts#L215)
+Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:215](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/drivers/redis-like.ts#L215)
 
 Ascending by score, then by member.
 
@@ -427,7 +427,7 @@ Ascending by score, then by member.
 
 > **zrem**(`key`: `string`, ...`members`: `string`[]): `Promise`\<`number`\>
 
-Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:202](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/redis-like.ts#L202)
+Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:202](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/drivers/redis-like.ts#L202)
 
 Removes members from a sorted set, answering how many were there.
 

@@ -3,7 +3,7 @@ title: "Class: AuthTurnstileVerifier"
 description: "Cloudflare Turnstile verifier."
 ---
 
-Defined in: [packages/duck-auth/src/core/captcha/captcha.ts:23](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/captcha/captcha.ts#L23)
+Defined in: [packages/duck-auth/src/core/captcha/captcha.ts:23](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/captcha/captcha.ts#L23)
 
 Cloudflare Turnstile verifier.
 
@@ -17,7 +17,7 @@ Cloudflare Turnstile verifier.
 
 > **new AuthTurnstileVerifier**(`cfg`: [`ICfgBase`](../namespaces/AuthCaptcha/interfaces/ICfgBase) & \{ `expectedAction?`: `string`; \}): `AuthTurnstileVerifier`
 
-Defined in: [packages/duck-auth/src/core/captcha/captcha.ts:29](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/captcha/captcha.ts#L29)
+Defined in: [packages/duck-auth/src/core/captcha/captcha.ts:27](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/captcha/captcha.ts#L27)
 
 #### Parameters
 
@@ -31,21 +31,11 @@ Defined in: [packages/duck-auth/src/core/captcha/captcha.ts:29](https://github.c
 
 ## Properties
 
-### \_\_insecureCaptchaEndpoint
-
-> `readonly` **\_\_insecureCaptchaEndpoint**: `boolean`
-
-Defined in: [packages/duck-auth/src/core/captcha/captcha.ts:26](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/captcha/captcha.ts#L26)
-
-Read by `strict()`, which refuses a plaintext endpoint in production: the secret would go in the clear.
-
-***
-
 ### id
 
 > `readonly` **id**: `"turnstile"` = `'turnstile'`
 
-Defined in: [packages/duck-auth/src/core/captcha/captcha.ts:24](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/captcha/captcha.ts#L24)
+Defined in: [packages/duck-auth/src/core/captcha/captcha.ts:24](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/captcha/captcha.ts#L24)
 
 Stable per implementation - `'turnstile'`, `'hcaptcha'`, `'recaptcha-v3'`, `'null'`,
  `'unconfigured'`. A caller-visible string, so it is not what `strict()` keys its null check on.
@@ -60,7 +50,7 @@ Stable per implementation - `'turnstile'`, `'hcaptcha'`, `'recaptcha-v3'`, `'nul
 
 > **verify**(`input`: [`IVerifyInput`](../namespaces/AuthCaptcha/interfaces/IVerifyInput)): `Promise`\<[`IVerifyResult`](../namespaces/AuthCaptcha/interfaces/IVerifyResult)\>
 
-Defined in: [packages/duck-auth/src/core/captcha/captcha.ts:34](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/captcha/captcha.ts#L34)
+Defined in: [packages/duck-auth/src/core/captcha/captcha.ts:31](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/captcha/captcha.ts#L31)
 
 Never throws: a network fault, a timeout and a provider rejection are all `success: false`.
 

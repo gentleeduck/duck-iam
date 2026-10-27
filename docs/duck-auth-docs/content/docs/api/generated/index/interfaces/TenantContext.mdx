@@ -1,17 +1,28 @@
 ---
 title: "Interface: TenantContext"
-description: "Adapters inject this per request; every store call takes one. A single-tenant app leaves it undefined."
+description: "The tenant a store call is held to. Naming none reaches only the rows with no tenant, which in an app without  tenants is every row, so a call that forgets its tenant finds nothing of a tenant's."
 ---
 
-Defined in: [packages/duck-auth/src/core/tenant/tenant.types.ts:2](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/tenant/tenant.types.ts#L2)
+Defined in: [packages/duck-auth/src/core/tenant/tenant.types.ts:3](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/tenant/tenant.types.ts#L3)
 
-Adapters inject this per request; every store call takes one. A single-tenant app leaves it undefined.
+The tenant a store call is held to. Naming none reaches only the rows with no tenant, which in an app without
+ tenants is every row, so a call that forgets its tenant finds nothing of a tenant's.
 
 ## Properties
+
+### allTenants?
+
+> `optional` **allTenants?**: `true`
+
+Defined in: [packages/duck-auth/src/core/tenant/tenant.types.ts:6](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/tenant/tenant.types.ts#L6)
+
+Every tenant at once, for the engine's own work across them: erasure, export, ending every session.
+
+***
 
 ### tenantId?
 
 > `optional` **tenantId?**: `string`
 
-Defined in: [packages/duck-auth/src/core/tenant/tenant.types.ts:3](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/tenant/tenant.types.ts#L3)
+Defined in: [packages/duck-auth/src/core/tenant/tenant.types.ts:4](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/tenant/tenant.types.ts#L4)
 

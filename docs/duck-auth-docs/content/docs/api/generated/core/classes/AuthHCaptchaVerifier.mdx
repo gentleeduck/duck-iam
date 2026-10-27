@@ -3,7 +3,7 @@ title: "Class: AuthHCaptchaVerifier"
 description: "hCaptcha verifier."
 ---
 
-Defined in: [packages/duck-auth/src/core/captcha/captcha.ts:42](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/captcha/captcha.ts#L42)
+Defined in: [packages/duck-auth/src/core/captcha/captcha.ts:39](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/captcha/captcha.ts#L39)
 
 hCaptcha verifier.
 
@@ -17,7 +17,7 @@ hCaptcha verifier.
 
 > **new AuthHCaptchaVerifier**(`cfg`: [`ICfgBase`](../namespaces/AuthCaptcha/interfaces/ICfgBase)): `AuthHCaptchaVerifier`
 
-Defined in: [packages/duck-auth/src/core/captcha/captcha.ts:48](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/captcha/captcha.ts#L48)
+Defined in: [packages/duck-auth/src/core/captcha/captcha.ts:43](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/captcha/captcha.ts#L43)
 
 #### Parameters
 
@@ -31,21 +31,11 @@ Defined in: [packages/duck-auth/src/core/captcha/captcha.ts:48](https://github.c
 
 ## Properties
 
-### \_\_insecureCaptchaEndpoint
-
-> `readonly` **\_\_insecureCaptchaEndpoint**: `boolean`
-
-Defined in: [packages/duck-auth/src/core/captcha/captcha.ts:45](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/captcha/captcha.ts#L45)
-
-Read by `strict()`, which refuses a plaintext endpoint in production: the secret would go in the clear.
-
-***
-
 ### id
 
 > `readonly` **id**: `"hcaptcha"` = `'hcaptcha'`
 
-Defined in: [packages/duck-auth/src/core/captcha/captcha.ts:43](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/captcha/captcha.ts#L43)
+Defined in: [packages/duck-auth/src/core/captcha/captcha.ts:40](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/captcha/captcha.ts#L40)
 
 Stable per implementation - `'turnstile'`, `'hcaptcha'`, `'recaptcha-v3'`, `'null'`,
  `'unconfigured'`. A caller-visible string, so it is not what `strict()` keys its null check on.
@@ -60,7 +50,7 @@ Stable per implementation - `'turnstile'`, `'hcaptcha'`, `'recaptcha-v3'`, `'nul
 
 > **verify**(`input`: [`IVerifyInput`](../namespaces/AuthCaptcha/interfaces/IVerifyInput)): `Promise`\<[`IVerifyResult`](../namespaces/AuthCaptcha/interfaces/IVerifyResult)\>
 
-Defined in: [packages/duck-auth/src/core/captcha/captcha.ts:60](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/captcha/captcha.ts#L60)
+Defined in: [packages/duck-auth/src/core/captcha/captcha.ts:54](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/captcha/captcha.ts#L54)
 
 Never throws: a network fault, a timeout and a provider rejection are all `success: false`.
 

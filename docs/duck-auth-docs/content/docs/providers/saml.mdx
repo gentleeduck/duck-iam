@@ -89,13 +89,13 @@ The callback is a cross-site form post from the IdP, so keep it out of your CSRF
 ## What is checked
 
 - **The request.** The relay state must be the one this browser was given, and `verifyRelayState` must accept it, or the response is refused: otherwise an assertion an attacker obtained for their own account, posted into your browser, signs you in as them. Checking only that you issued it is not enough, since anyone can open `begin` for a relay state of their own; the cookie in the routes above ties it to the browser. For IdP-initiated sign-in, which has no request, pass `allowUnsolicited: true` instead, which accepts that risk.
-- **Replay.** `replayStore.consume` must answer `true` for an assertion id only once. Without a store, pass `allowReplay: true`, which lets a captured post sign in again until the assertion expires.
+- **Replay.** `replayStore.consume` must answer `true` for an assertion id only once. Production requires a store; without one, which development and test allow, a captured post signs in again until the assertion expires.
 - **The signature.** node-saml checks it. A client configured to want neither a signed assertion nor a signed response is refused at construction.
 - **The subject.** The nameID must be in `allowedNameIdFormats`, by default only the email format, since a transient nameID changes every sign-in. Under the email format, an asserted `email` must equal the nameID.
 
 Every refusal throws `AUTH_PROVIDER_FAILED` with the same detail; the real reason is emitted as `signin.failed`.
 
-The session is AAL 2 only when the IdP's `AuthnContextClassRef` is one of `mfaAuthnContexts`, such as a smartcard or a one-time code. A password at the IdP is AAL 1.
+The session is AAL 2 only when the IdP's `AuthnContextClassRef` is one of `mfaAuthnContexts`, such as a smartcard or a one-time code. A password at the IdP is AAL 1, and an account that also holds a second factor here answers a [challenge](/duck-auth/guides/mfa#signing-in) before the session opens.
 
 ## Options
 
@@ -105,7 +105,7 @@ The session is AAL 2 only when the IdP's `AuthnContextClassRef` is one of `mfaAu
 | `callbackUrl` | required | The ACS URL; must match the client's. |
 | `onSignIn` | required | Answers the identity for a validated profile, creating it on first sign-in. |
 | `verifyRelayState` | none | Required unless `allowUnsolicited`. |
-| `replayStore` | none | Required unless `allowReplay`. |
+| `replayStore` | none | Required in production. |
 | `providerId` | `'saml'` | Register one provider per IdP under different ids, such as `'saml:acme'`. |
 | `allowedNameIdFormats` | email | The nameID formats accepted. |
 | `mfaAuthnContexts` | `SAML_MFA_AUTHN_CONTEXTS` | The contexts that earn AAL 2. |

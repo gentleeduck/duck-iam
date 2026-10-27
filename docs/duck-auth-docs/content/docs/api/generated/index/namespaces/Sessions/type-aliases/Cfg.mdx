@@ -5,7 +5,7 @@ description: "The session windows and the per-identity cap, set through the engi
 
 > **Cfg** = \{ `absoluteTtlMs`: `number`; `freshnessMs`: `number`; `maxSessionsPerIdentity?`: `number`; `ttlMs`: `number`; \}
 
-Defined in: [packages/duck-auth/src/core/sessions/sessions.types.ts:157](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.types.ts#L157)
+Defined in: [packages/duck-auth/src/core/sessions/sessions.types.ts:156](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/sessions/sessions.types.ts#L156)
 
 The session windows and the per-identity cap, set through the engine's `session` option.
 
@@ -15,7 +15,7 @@ The session windows and the per-identity cap, set through the engine's `session`
 
 > **absoluteTtlMs**: `number`
 
-Defined in: [packages/duck-auth/src/core/sessions/sessions.types.ts:161](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.types.ts#L161)
+Defined in: [packages/duck-auth/src/core/sessions/sessions.types.ts:160](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/sessions/sessions.types.ts#L160)
 
 Hard absolute cap in ms. Default 30 days.
 
@@ -25,7 +25,7 @@ Hard absolute cap in ms. Default 30 days.
 
 > **freshnessMs**: `number`
 
-Defined in: [packages/duck-auth/src/core/sessions/sessions.types.ts:163](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.types.ts#L163)
+Defined in: [packages/duck-auth/src/core/sessions/sessions.types.ts:162](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/sessions/sessions.types.ts#L162)
 
 Window in ms where a session counts as "fresh" since the last factor. Default 5 min.
 
@@ -35,10 +35,11 @@ Window in ms where a session counts as "fresh" since the last factor. Default 5 
 
 > `optional` **maxSessionsPerIdentity?**: `number`
 
-Defined in: [packages/duck-auth/src/core/sessions/sessions.types.ts:173](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.types.ts#L173)
+Defined in: [packages/duck-auth/src/core/sessions/sessions.types.ts:173](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/sessions/sessions.types.ts#L173)
 
-Most concurrent sessions one identity may hold. Over the cap, the oldest by `createdAt` is revoked
-to make room. Unset means unlimited, which is the historical behaviour and the default.
+Most concurrent sessions of one kind one identity may hold. Over the cap, the oldest of the new session's
+kind by `createdAt` is revoked to make room, so an API key's sessions never sign its owner's devices out.
+Unset means unlimited, which is the historical behaviour and the default.
 
 Guests are not counted: `identityId === null` is not an identity to scope a limit to.
 
@@ -51,7 +52,7 @@ that read.
 
 > **ttlMs**: `number`
 
-Defined in: [packages/duck-auth/src/core/sessions/sessions.types.ts:159](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.types.ts#L159)
+Defined in: [packages/duck-auth/src/core/sessions/sessions.types.ts:158](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/sessions/sessions.types.ts#L158)
 
 Idle TTL in ms, slid by `resolveSession` once less than half is left. Default 7 days.
 

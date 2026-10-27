@@ -3,7 +3,7 @@ title: "Interface: Cfg"
 description: "The signing key, verify keys and claims the JWT transport uses."
 ---
 
-Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:30](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L30)
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:31](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/transport/jwt.transport.ts#L31)
 
 The signing key, verify keys and claims the JWT transport uses.
 
@@ -13,7 +13,7 @@ The signing key, verify keys and claims the JWT transport uses.
 
 > `optional` **audience?**: `string`
 
-Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:40](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L40)
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:41](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/transport/jwt.transport.ts#L41)
 
 Written as `aud` when set, and a token whose `aud` differs is refused.
 
@@ -23,7 +23,7 @@ Written as `aud` when set, and a token whose `aud` differs is refused.
 
 > `optional` **clockSkewSec?**: `number`
 
-Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:50](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L50)
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:51](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/transport/jwt.transport.ts#L51)
 
 Seconds of leeway on `exp` and `abs`, for instances that disagree on the time. Default 0.
  WARN: it widens the window an expired token is accepted in. The forward bound on `iat` allows a
@@ -35,7 +35,7 @@ Seconds of leeway on `exp` and `abs`, for instances that disagree on the time. D
 
 > `optional` **freshnessMs?**: `number`
 
-Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:46](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L46)
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:47](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/transport/jwt.transport.ts#L47)
 
 Freshness window in ms: a round trip reconstructs the session with
  `fresh = (now - rotatedAt) < freshnessMs`. Default 5 minutes, matching `Sessions.Cfg`.
@@ -47,7 +47,7 @@ Freshness window in ms: a round trip reconstructs the session with
 
 > **issuer**: `string`
 
-Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:38](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L38)
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:39](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/transport/jwt.transport.ts#L39)
 
 Written as `iss`, and a token whose `iss` differs is refused.
 
@@ -57,7 +57,7 @@ Written as `iss`, and a token whose `iss` differs is refused.
 
 > `optional` **refresh?**: \{ `cookieName?`: `string`; `sameSite?`: `"strict"` \| `"lax"` \| `"none"`; `ttlMs?`: `number`; \}
 
-Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:52](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L52)
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:53](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/transport/jwt.transport.ts#L53)
 
 Optional refresh cookie shape.
 
@@ -65,7 +65,8 @@ Optional refresh cookie shape.
 
 > `optional` **cookieName?**: `string`
 
-Cookie name carrying the opaque refresh token.
+Cookie name carrying the opaque refresh token. Default `__Host-duck-refresh`, which outside
+ production drops its prefix along with Secure; read it back by `refreshCookieName`.
 
 #### sameSite?
 
@@ -87,7 +88,7 @@ Refresh TTL in ms. Default 7 days.
 
 > **signKey**: \{ `alg?`: `"HS256"` \| `"ES256"` \| `"RS256"` \| `"EdDSA"`; `key`: `string`; `kid`: `string`; \}
 
-Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:33](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L33)
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:34](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/transport/jwt.transport.ts#L34)
 
 `key` is the secret for HS256 and the PEM-encoded private key for ES256 and RS256. `alg` defaults
  to HS256.
@@ -110,7 +111,7 @@ Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:33](https://
 
 > `optional` **ttlMs?**: `number`
 
-Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:42](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L42)
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:43](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/transport/jwt.transport.ts#L43)
 
 JWT TTL in ms. Default 15 minutes.
 
@@ -120,7 +121,7 @@ JWT TTL in ms. Default 15 minutes.
 
 > **verifyKeys**: [`IVerifyKey`](IVerifyKey)[]
 
-Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:36](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L36)
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:37](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/transport/jwt.transport.ts#L37)
 
 Every currently-valid verify key, `signKey` included. During rotation the previous keys stay
  for an overlap window, so already-issued tokens keep verifying.

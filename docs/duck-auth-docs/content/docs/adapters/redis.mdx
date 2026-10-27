@@ -37,7 +37,7 @@ const auth = createAuth({
 })
 
 auth.events.on('lockout', alertOps)
-auth.strict({ env: 'production' })
+auth.strict()
 ```
 
 `sub` must be a connection of its own: a subscribed connection can run no other command. [Production hardening](/duck-auth/advanced/security) explains the `strict` order.
@@ -56,7 +56,7 @@ With a mixed bag of stores, [`withTransaction`](/duck-auth/adapters#transactions
 
 `valkeyAdapter(client)` turns an ioredis or iovalkey client into the shape `adapters/redis` takes, so any `redis*` store works with it.
 
-`strict({ env: 'production' })` refuses the in-process version of every row above, since each one lets a second instance miss what the first did: a limiter budget granted once per instance, a revocation another instance never hears, an OAuth callback or a passkey assertion that replays on a neighbour.
+Production refuses the in-process version of every row above, `strict()` at boot or the store as it is built, since each one lets a second instance miss what the first did: a limiter budget granted once per instance, a revocation another instance never hears, an OAuth callback or a passkey assertion that replays on a neighbour.
 
 ## Options
 

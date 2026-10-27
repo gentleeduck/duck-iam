@@ -17,7 +17,7 @@ off() // unsubscribe
 
 Payloads are typed per event name. Handlers run one after another; a handler that throws is logged and the rest still run, so a broken listener never fails the sign-in that emitted.
 
-`strict({ env: 'production' })` refuses an engine with no `lockout` listener, since a lockout nobody hears is a brute force nobody sees.
+`strict()` refuses a production engine with no `lockout` listener, since a lockout nobody hears is a brute force nobody sees.
 
 ## Where a handler runs
 
@@ -91,4 +91,4 @@ createAuth({
 - A failed publish is logged, not thrown, so Redis being down never fails a sign-in.
 - A failed subscribe is logged and retried, after 1 second and doubling to 30, while the event has a `fleet` handler. It fails while Redis is unreachable, and on a client made with `enableOfflineQueue: false` that has not connected yet.
 
-`strict({ env: 'production' })` refuses the in-process bus while it holds a `fleet` handler, naming the events, and passes it when every handler is `origin`. It sees only the handlers registered before it runs.
+In production, `strict()` refuses the in-process bus while it holds a `fleet` handler, naming the events, and passes it when every handler is `origin`. It sees only the handlers registered before it runs.

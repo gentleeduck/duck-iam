@@ -18,7 +18,7 @@ Pass an `orgs` store next to the others: `stores: { ...drizzlePgAdapter(db), org
 | `removeMember(orgId, identityId, ctx)` | Set `leftAt`, or throw `AUTH_MEMBERSHIP_NOT_FOUND`. |
 | `setRoles(orgId, identityId, roles, ctx)` | Replace the roles, or throw `AUTH_MEMBERSHIP_NOT_FOUND`, for a membership that has ended too. |
 
-Every row carries a `tenantId` (`null` when global), and the facet refuses a row from a tenant other than the one asked for with `AUTH_TENANT_SCOPE_VIOLATION`. Without an `orgs` store, `auth.orgs` throws `AUTH_PROVIDER_NOT_REGISTERED`.
+Every row carries a `tenantId` (`null` for none), and the facet refuses a row from a tenant other than the one asked for with `AUTH_TENANT_SCOPE_VIOLATION`. Without an `orgs` store, `auth.orgs` throws `AUTH_PROVIDER_NOT_REGISTERED`.
 
 ## Memberships
 
@@ -35,7 +35,7 @@ await auth.orgs.listForIdentity(ada.id, {}) // the orgs ada belongs to
 await auth.orgs.listMembers('acme', {}) // live memberships only
 ```
 
-- The last argument is the tenant context: `{}` for a single-tenant app, `{ tenantId }` otherwise.
+- The last argument is the tenant context: `{ tenantId }` reaches one tenant's rows, `{}` the rows with no tenant, which in a single-tenant app is all of them, and `ALL_TENANTS` every tenant's.
 - `addMember` refuses a live member with `AUTH_ALREADY_EXISTS`. Someone who left can be added again.
 - `removeMember` marks the membership `leftAt` rather than deleting it; a left member stops appearing everywhere. Removing them again answers the same row.
 - Roles are deduplicated, empty or overlong entries are dropped, and at most 64 are kept.

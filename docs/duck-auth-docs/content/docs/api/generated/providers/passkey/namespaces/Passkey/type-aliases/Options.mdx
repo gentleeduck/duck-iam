@@ -5,7 +5,7 @@ description: "The relying party, and where challenges are kept."
 
 > **Options** = \{ `attestationType?`: [`RegistrationOptionsInput`](RegistrationOptionsInput)\[`"attestationType"`\]; `challengeStore?`: [`ChallengeStore`](ChallengeStore); `challengeTtlMs?`: `number`; `expectedOrigins`: `string` \| `string`[]; `findIdentityByEmail`: (`email`: `string`, `tenantId?`: `string`) => `Promise`\<\{ `id`: `string`; \} \| `null`\>; `limiterKeyPrefix?`: `string`; `rpID`: `string`; `rpName`: `string`; `userVerification?`: `"discouraged"` \| `"preferred"` \| `"required"`; `webauthnModule?`: [`SimpleWebAuthnServerModule`](SimpleWebAuthnServerModule); \}
 
-Defined in: [packages/duck-auth/src/providers/passkey/passkey.types.ts:125](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passkey/passkey.types.ts#L125)
+Defined in: [packages/duck-auth/src/providers/passkey/passkey.types.ts:125](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/passkey/passkey.types.ts#L125)
 
 The relying party, and where challenges are kept.
 
@@ -15,7 +15,7 @@ The relying party, and where challenges are kept.
 
 > `optional` **attestationType?**: [`RegistrationOptionsInput`](RegistrationOptionsInput)\[`"attestationType"`\]
 
-Defined in: [packages/duck-auth/src/providers/passkey/passkey.types.ts:144](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passkey/passkey.types.ts#L144)
+Defined in: [packages/duck-auth/src/providers/passkey/passkey.types.ts:144](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/passkey/passkey.types.ts#L144)
 
 How much attestation registration asks the authenticator for. Default `'none'`; the `fips`
  compliance preset requires `'direct'`.
@@ -26,7 +26,7 @@ How much attestation registration asks the authenticator for. Default `'none'`; 
 
 > `optional` **challengeStore?**: [`ChallengeStore`](ChallengeStore)
 
-Defined in: [packages/duck-auth/src/providers/passkey/passkey.types.ts:136](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passkey/passkey.types.ts#L136)
+Defined in: [packages/duck-auth/src/providers/passkey/passkey.types.ts:136](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/passkey/passkey.types.ts#L136)
 
 In-memory by default.
 
@@ -36,7 +36,7 @@ In-memory by default.
 
 > `optional` **challengeTtlMs?**: `number`
 
-Defined in: [packages/duck-auth/src/providers/passkey/passkey.types.ts:138](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passkey/passkey.types.ts#L138)
+Defined in: [packages/duck-auth/src/providers/passkey/passkey.types.ts:138](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/passkey/passkey.types.ts#L138)
 
 Default 5 minutes.
 
@@ -46,7 +46,7 @@ Default 5 minutes.
 
 > **expectedOrigins**: `string` \| `string`[]
 
-Defined in: [packages/duck-auth/src/providers/passkey/passkey.types.ts:131](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passkey/passkey.types.ts#L131)
+Defined in: [packages/duck-auth/src/providers/passkey/passkey.types.ts:131](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/passkey/passkey.types.ts#L131)
 
 Allowed origins for verification.
 
@@ -56,7 +56,7 @@ Allowed origins for verification.
 
 > **findIdentityByEmail**: (`email`: `string`, `tenantId?`: `string`) => `Promise`\<\{ `id`: `string`; \} \| `null`\>
 
-Defined in: [packages/duck-auth/src/providers/passkey/passkey.types.ts:134](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passkey/passkey.types.ts#L134)
+Defined in: [packages/duck-auth/src/providers/passkey/passkey.types.ts:134](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/passkey/passkey.types.ts#L134)
 
 How an identity is found from an email. Returning `null` and rejecting with an absence code both
  read as "no such address", so `auth.identities.getByEmail` wires straight in.
@@ -81,7 +81,7 @@ How an identity is found from an email. Returning `null` and rejecting with an a
 
 > `optional` **limiterKeyPrefix?**: `string`
 
-Defined in: [packages/duck-auth/src/providers/passkey/passkey.types.ts:146](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passkey/passkey.types.ts#L146)
+Defined in: [packages/duck-auth/src/providers/passkey/passkey.types.ts:146](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/passkey/passkey.types.ts#L146)
 
 Default `passkey:begin:`.
 
@@ -91,7 +91,7 @@ Default `passkey:begin:`.
 
 > **rpID**: `string`
 
-Defined in: [packages/duck-auth/src/providers/passkey/passkey.types.ts:129](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passkey/passkey.types.ts#L129)
+Defined in: [packages/duck-auth/src/providers/passkey/passkey.types.ts:129](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/passkey/passkey.types.ts#L129)
 
 The eTLD+1 the credential is bound to.
 
@@ -101,7 +101,7 @@ The eTLD+1 the credential is bound to.
 
 > **rpName**: `string`
 
-Defined in: [packages/duck-auth/src/providers/passkey/passkey.types.ts:127](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passkey/passkey.types.ts#L127)
+Defined in: [packages/duck-auth/src/providers/passkey/passkey.types.ts:127](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/passkey/passkey.types.ts#L127)
 
 Shown in the OS picker.
 
@@ -111,7 +111,7 @@ Shown in the OS picker.
 
 > `optional` **userVerification?**: `"discouraged"` \| `"preferred"` \| `"required"`
 
-Defined in: [packages/duck-auth/src/providers/passkey/passkey.types.ts:141](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passkey/passkey.types.ts#L141)
+Defined in: [packages/duck-auth/src/providers/passkey/passkey.types.ts:141](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/passkey/passkey.types.ts#L141)
 
 Default `'preferred'`. A sign-in the authenticator did not verify the user for opens an AAL 1 session;
  `'required'` refuses it instead.
@@ -122,7 +122,7 @@ Default `'preferred'`. A sign-in the authenticator did not verify the user for o
 
 > `optional` **webauthnModule?**: [`SimpleWebAuthnServerModule`](SimpleWebAuthnServerModule)
 
-Defined in: [packages/duck-auth/src/providers/passkey/passkey.types.ts:148](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passkey/passkey.types.ts#L148)
+Defined in: [packages/duck-auth/src/providers/passkey/passkey.types.ts:148](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/passkey/passkey.types.ts#L148)
 
 Where a test injects a mock WebAuthn module.
 

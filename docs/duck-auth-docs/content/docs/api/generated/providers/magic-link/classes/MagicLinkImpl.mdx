@@ -3,7 +3,7 @@ title: "Class: MagicLinkImpl"
 description: "Passwordless sign-in by a single-use link sent to the address."
 ---
 
-Defined in: [packages/duck-auth/src/providers/magic-link/magic-link.ts:14](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/magic-link/magic-link.ts#L14)
+Defined in: [packages/duck-auth/src/providers/magic-link/magic-link.ts:16](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/magic-link/magic-link.ts#L16)
 
 Passwordless sign-in by a single-use link sent to the address.
 
@@ -23,7 +23,7 @@ Passwordless sign-in by a single-use link sent to the address.
 
 > **new MagicLinkImpl**\<`Profile` *extends* [`ProfileMetadataBase`](../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase) = [`ProfileMetadataBase`](../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase)\>(`opts`: [`Options`](../namespaces/MagicLink/interfaces/Options)\<`Profile`\>): `MagicLinkImpl`\<`Profile`\>
 
-Defined in: [packages/duck-auth/src/providers/magic-link/magic-link.ts:26](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/magic-link/magic-link.ts#L26)
+Defined in: [packages/duck-auth/src/providers/magic-link/magic-link.ts:28](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/magic-link/magic-link.ts#L28)
 
 #### Parameters
 
@@ -41,7 +41,7 @@ Defined in: [packages/duck-auth/src/providers/magic-link/magic-link.ts:26](https
 
 > `readonly` **\_\_noDeliver**: `boolean`
 
-Defined in: [packages/duck-auth/src/providers/magic-link/magic-link.ts:21](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/magic-link/magic-link.ts#L21)
+Defined in: [packages/duck-auth/src/providers/magic-link/magic-link.ts:23](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/magic-link/magic-link.ts#L23)
 
 Read by `strict()`, which holds the provider and not its options: with no `deliver`, `begin` refuses
  every link request.
@@ -52,7 +52,7 @@ Read by `strict()`, which holds the provider and not its options: with no `deliv
 
 > `readonly` **id**: `"magic-link"` = `'magic-link'`
 
-Defined in: [packages/duck-auth/src/providers/magic-link/magic-link.ts:17](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/magic-link/magic-link.ts#L17)
+Defined in: [packages/duck-auth/src/providers/magic-link/magic-link.ts:19](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/magic-link/magic-link.ts#L19)
 
 #### Implementation of
 
@@ -64,7 +64,7 @@ Defined in: [packages/duck-auth/src/providers/magic-link/magic-link.ts:17](https
 
 > `readonly` **kind**: `"magic-link"`
 
-Defined in: [packages/duck-auth/src/providers/magic-link/magic-link.ts:18](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/magic-link/magic-link.ts#L18)
+Defined in: [packages/duck-auth/src/providers/magic-link/magic-link.ts:20](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/magic-link/magic-link.ts#L20)
 
 Open string so custom providers declare their own kind without patching the type.
 
@@ -78,7 +78,7 @@ Open string so custom providers declare their own kind without patching the type
 
 > **begin**(`ctx`: [`Context`](../../../index/namespaces/Provider/type-aliases/Context)\<`Profile`\>, `input`: [`BeginInput`](../namespaces/MagicLink/interfaces/BeginInput)): `Promise`\<[`Intent`](../../../index/namespaces/Provider/type-aliases/Intent)[]\>
 
-Defined in: [packages/duck-auth/src/providers/magic-link/magic-link.ts:49](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/magic-link/magic-link.ts#L49)
+Defined in: [packages/duck-auth/src/providers/magic-link/magic-link.ts:51](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/magic-link/magic-link.ts#L51)
 
 Mints a single-use link and hands it to the host's `deliver`.
 
@@ -106,7 +106,7 @@ Mints a single-use link and hands it to the host's `deliver`.
 
 > **complete**(`ctx`: [`Context`](../../../index/namespaces/Provider/type-aliases/Context)\<`Profile`\>, `input`: [`CompleteInput`](../namespaces/MagicLink/interfaces/CompleteInput)): `Promise`\<[`InternalIntent`](../../../index/namespaces/Provider/type-aliases/InternalIntent)[]\>
 
-Defined in: [packages/duck-auth/src/providers/magic-link/magic-link.ts:134](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/magic-link/magic-link.ts#L134)
+Defined in: [packages/duck-auth/src/providers/magic-link/magic-link.ts:137](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/magic-link/magic-link.ts#L137)
 
 Spends the token and answers the intents that open the session.
 

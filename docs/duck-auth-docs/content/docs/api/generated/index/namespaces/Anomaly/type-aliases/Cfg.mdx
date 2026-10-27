@@ -5,7 +5,7 @@ description: "The thresholds and overrides the ladder is walked against."
 
 > **Cfg** = \{ `denyAt`: `number`; `detectorTimeoutMs`: `number`; `reactions?`: `Record`\<`string`, `Record`\<`string`, [`Decision`](Decision)\>\>; `stepUpAt`: `number`; `threshold`: `number`; \}
 
-Defined in: [packages/duck-auth/src/core/anomaly/anomaly.types.ts:55](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/anomaly/anomaly.types.ts#L55)
+Defined in: [packages/duck-auth/src/core/anomaly/anomaly.types.ts:55](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/anomaly/anomaly.types.ts#L55)
 
 The thresholds and overrides the ladder is walked against.
 
@@ -15,7 +15,7 @@ The thresholds and overrides the ladder is walked against.
 
 > **denyAt**: `number`
 
-Defined in: [packages/duck-auth/src/core/anomaly/anomaly.types.ts:62](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/anomaly/anomaly.types.ts#L62)
+Defined in: [packages/duck-auth/src/core/anomaly/anomaly.types.ts:62](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/anomaly/anomaly.types.ts#L62)
 
 Aggregate score at or above which `decide()` returns `'deny'`. Default 0.95.
 
@@ -25,7 +25,7 @@ Aggregate score at or above which `decide()` returns `'deny'`. Default 0.95.
 
 > **detectorTimeoutMs**: `number`
 
-Defined in: [packages/duck-auth/src/core/anomaly/anomaly.types.ts:70](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/anomaly/anomaly.types.ts#L70)
+Defined in: [packages/duck-auth/src/core/anomaly/anomaly.types.ts:70](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/anomaly/anomaly.types.ts#L70)
 
 How long one detector may run before it is abandoned and its signals dropped. Default 1000.
 
@@ -35,7 +35,7 @@ How long one detector may run before it is abandoned and its signals dropped. De
 
 > `optional` **reactions?**: `Record`\<`string`, `Record`\<`string`, [`Decision`](Decision)\>\>
 
-Defined in: [packages/duck-auth/src/core/anomaly/anomaly.types.ts:68](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/anomaly/anomaly.types.ts#L68)
+Defined in: [packages/duck-auth/src/core/anomaly/anomaly.types.ts:68](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/anomaly/anomaly.types.ts#L68)
 
 Overrides by detector id, then kind, with `'*'` for any detector. `'allow'` mutes the signal;
 `'step-up'` or `'deny'` forces at least that decision whatever it scored.
@@ -47,7 +47,7 @@ NOTE: nested because kinds are open - a flat `id#kind` key could be forged by a 
 
 > **stepUpAt**: `number`
 
-Defined in: [packages/duck-auth/src/core/anomaly/anomaly.types.ts:60](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/anomaly/anomaly.types.ts#L60)
+Defined in: [packages/duck-auth/src/core/anomaly/anomaly.types.ts:60](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/anomaly/anomaly.types.ts#L60)
 
 Aggregate score at or above which `decide()` returns `'step-up'`. Default 0.7.
 
@@ -57,7 +57,7 @@ Aggregate score at or above which `decide()` returns `'step-up'`. Default 0.7.
 
 > **threshold**: `number`
 
-Defined in: [packages/duck-auth/src/core/anomaly/anomaly.types.ts:58](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/anomaly/anomaly.types.ts#L58)
+Defined in: [packages/duck-auth/src/core/anomaly/anomaly.types.ts:58](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/anomaly/anomaly.types.ts#L58)
 
 `suspicious` fires for every decision but `'allow'`, and for an `'allow'` scoring at least this.
  Default 0.7. Decides nothing.

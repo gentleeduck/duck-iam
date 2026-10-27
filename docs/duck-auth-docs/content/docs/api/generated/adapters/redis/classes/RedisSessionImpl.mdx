@@ -3,7 +3,7 @@ title: "Class: RedisSessionImpl"
 description: "Sessions.Me.id is already the sha-256 of the sid, so the primary key and the lookup key are the  same value."
 ---
 
-Defined in: [packages/duck-auth/src/core/sessions/sessions.redis.ts:53](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.redis.ts#L53)
+Defined in: [packages/duck-auth/src/core/sessions/sessions.redis.ts:53](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/sessions/sessions.redis.ts#L53)
 
 `Sessions.Me.id` is already the sha-256 of the sid, so the primary key and the lookup key are the
  same value.
@@ -30,7 +30,7 @@ Defined in: [packages/duck-auth/src/core/sessions/sessions.redis.ts:53](https://
 
 > **new RedisSessionImpl**\<`TRedis` *extends* [`Client`](../namespaces/RedisLike/type-aliases/Client) = [`Client`](../namespaces/RedisLike/type-aliases/Client)\>(`cfg`: [`Cfg`](../namespaces/RedisSession/type-aliases/Cfg)\<`TRedis`\>): `RedisSessionImpl`\<`TRedis`\>
 
-Defined in: [packages/duck-auth/src/core/sessions/sessions.redis.ts:59](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.redis.ts#L59)
+Defined in: [packages/duck-auth/src/core/sessions/sessions.redis.ts:59](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/sessions/sessions.redis.ts#L59)
 
 #### Parameters
 
@@ -48,7 +48,7 @@ Defined in: [packages/duck-auth/src/core/sessions/sessions.redis.ts:59](https://
 
 > **create**(`s`: [`CreateInput`](../../../index/namespaces/Sessions/type-aliases/CreateInput)): `Promise`\<`void`\>
 
-Defined in: [packages/duck-auth/src/core/sessions/sessions.redis.ts:164](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.redis.ts#L164)
+Defined in: [packages/duck-auth/src/core/sessions/sessions.redis.ts:176](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/sessions/sessions.redis.ts#L176)
 
 Writes the session and adds it to its identity's index.
 
@@ -72,7 +72,7 @@ Writes the session and adds it to its identity's index.
 
 > **delete**(`id`: `string`): `Promise`\<`void`\>
 
-Defined in: [packages/duck-auth/src/core/sessions/sessions.redis.ts:308](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.redis.ts#L308)
+Defined in: [packages/duck-auth/src/core/sessions/sessions.redis.ts:320](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/sessions/sessions.redis.ts#L320)
 
 Removes the session and takes it out of its identity's index.
 
@@ -96,9 +96,9 @@ Removes the session and takes it out of its identity's index.
 
 > **deleteAllForIdentities**(`identityIds`: `string`[]): `Promise`\<[`Revoked`](../../../index/namespaces/Sessions/type-aliases/Revoked)[]\>
 
-Defined in: [packages/duck-auth/src/core/sessions/sessions.redis.ts:365](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.redis.ts#L365)
+Defined in: [packages/duck-auth/src/core/sessions/sessions.redis.ts:377](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/sessions/sessions.redis.ts#L377)
 
-Unscoped by tenant, like the rest of the set-based forms.
+Across every tenant, like the rest of the set-based forms.
 
 #### Parameters
 
@@ -120,7 +120,7 @@ Unscoped by tenant, like the rest of the set-based forms.
 
 > **deleteAllForIdentity**(`identityId`: `string`, `ctx?`: [`TenantContext`](../../../index/interfaces/TenantContext)): `Promise`\<`void`\>
 
-Defined in: [packages/duck-auth/src/core/sessions/sessions.redis.ts:329](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.redis.ts#L329)
+Defined in: [packages/duck-auth/src/core/sessions/sessions.redis.ts:341](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/sessions/sessions.redis.ts#L341)
 
 Removes every session for this identity, and the index itself.
 
@@ -148,7 +148,7 @@ Removes every session for this identity, and the index itself.
 
 > **deleteMany**(`ids`: `string`[]): `Promise`\<[`Revoked`](../../../index/namespaces/Sessions/type-aliases/Revoked)[]\>
 
-Defined in: [packages/duck-auth/src/core/sessions/sessions.redis.ts:395](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.redis.ts#L395)
+Defined in: [packages/duck-auth/src/core/sessions/sessions.redis.ts:407](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/sessions/sessions.redis.ts#L407)
 
 The records are read first because the index entry and the expiry member are both keyed by the
  owning identity, which only the record names.
@@ -173,7 +173,7 @@ The records are read first because the index entry and the expiry member are bot
 
 > **gc**(`now`: `number`): `Promise`\<\{ `deleted`: `number`; \}\>
 
-Defined in: [packages/duck-auth/src/core/sessions/sessions.redis.ts:430](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.redis.ts#L430)
+Defined in: [packages/duck-auth/src/core/sessions/sessions.redis.ts:442](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/sessions/sessions.redis.ts#L442)
 
 Driven by the `{prefix}:exp` ZSet, one range query per page. `deleted` counts what `zrem` took, so a
 row swept concurrently is counted once. Serialised by a `{prefix}:gc:lease` taken with SET NX; an
@@ -202,7 +202,7 @@ another instance. Tolerated, since `del`, `srem` and `zrem` are no-ops the secon
 
 > **getByHash**(`sidHash`: `string`): `Promise`\<[`Me`](../../../index/namespaces/Sessions/type-aliases/Me)\>
 
-Defined in: [packages/duck-auth/src/core/sessions/sessions.redis.ts:232](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.redis.ts#L232)
+Defined in: [packages/duck-auth/src/core/sessions/sessions.redis.ts:244](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/sessions/sessions.redis.ts#L244)
 
 The session under this hashed id, throwing `AUTH_SESSION_REVOKED` when the key is gone.
 
@@ -226,7 +226,7 @@ The session under this hashed id, throwing `AUTH_SESSION_REVOKED` when the key i
 
 > **listByIdentity**(`identityId`: `string`, `ctx?`: [`TenantContext`](../../../index/interfaces/TenantContext)): `Promise`\<[`Me`](../../../index/namespaces/Sessions/type-aliases/Me)[]\>
 
-Defined in: [packages/duck-auth/src/core/sessions/sessions.redis.ts:321](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.redis.ts#L321)
+Defined in: [packages/duck-auth/src/core/sessions/sessions.redis.ts:333](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/sessions/sessions.redis.ts#L333)
 
 Every live session for this identity, dropping index entries whose row has expired.
 
@@ -254,7 +254,7 @@ Every live session for this identity, dropping index entries whose row has expir
 
 > **update**(`id`: `string`, `patch`: `Partial`\<[`Me`](../../../index/namespaces/Sessions/type-aliases/Me)\>, `expectedUpdatedAt?`: `Date`): `Promise`\<[`Me`](../../../index/namespaces/Sessions/type-aliases/Me)\>
 
-Defined in: [packages/duck-auth/src/core/sessions/sessions.redis.ts:242](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.redis.ts#L242)
+Defined in: [packages/duck-auth/src/core/sessions/sessions.redis.ts:254](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/sessions/sessions.redis.ts#L254)
 
 Merges a patch onto the stored session, rewriting it under the remaining TTL.
 

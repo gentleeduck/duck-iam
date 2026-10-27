@@ -1,13 +1,13 @@
 ---
 title: "Class: AuthRedisEvents"
-description: "Publishes each emit to a per-event channel, so every on() subscriber across the fleet receives  it. Local handlers fire synchronously off the publish, so a call site does not pay a Redis  round trip to observe its own emit."
+description: "Publishes each emit to a per-event channel. A fleet handler runs on every server, an origin one  only on the server that emitted, inside its async context. Local handlers run off the publish, so a  call site does not pay a Redis round trip to observe its own emit."
 ---
 
-Defined in: [packages/duck-auth/src/core/events/events.redis.ts:5](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/events/events.redis.ts#L5)
+Defined in: [packages/duck-auth/src/core/events/events.redis.ts:8](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/events/events.redis.ts#L8)
 
-Publishes each emit to a per-event channel, so every `on()` subscriber across the fleet receives
- it. Local handlers fire synchronously off the publish, so a call site does not pay a Redis
- round trip to observe its own emit.
+Publishes each emit to a per-event channel. A `fleet` handler runs on every server, an `origin` one
+ only on the server that emitted, inside its async context. Local handlers run off the publish, so a
+ call site does not pay a Redis round trip to observe its own emit.
 
 ## Implements
 
@@ -19,7 +19,7 @@ Publishes each emit to a per-event channel, so every `on()` subscriber across th
 
 > **new AuthRedisEvents**(`cfg`: [`Cfg`](../namespaces/AuthRedisEvents/type-aliases/Cfg)): `RedisEvents`
 
-Defined in: [packages/duck-auth/src/core/events/events.redis.ts:37](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/events/events.redis.ts#L37)
+Defined in: [packages/duck-auth/src/core/events/events.redis.ts:43](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/events/events.redis.ts#L43)
 
 #### Parameters
 
@@ -37,9 +37,10 @@ Defined in: [packages/duck-auth/src/core/events/events.redis.ts:37](https://gith
 
 > **emit**\<`K` *extends* keyof [`EventMap`](../../index/namespaces/Events/interfaces/EventMap)\>(`event`: `K`, `payload`: [`EventMap`](../../index/namespaces/Events/interfaces/EventMap)\[`K`\]): `Promise`\<`void`\>
 
-Defined in: [packages/duck-auth/src/core/events/events.redis.ts:110](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/events/events.redis.ts#L110)
+Defined in: [packages/duck-auth/src/core/events/events.redis.ts:136](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/events/events.redis.ts#L136)
 
-Publishes the event so every subscribed node runs its local handlers, this one included.
+Publishes the event, whether or not this server holds a `fleet` handler, and runs this server's
+ `origin` and `fleet` handlers.
 
 #### Type Parameters
 
@@ -71,9 +72,9 @@ Publishes the event so every subscribed node runs its local handlers, this one i
 
 > **listenerCount**\<`K` *extends* keyof [`EventMap`](../../index/namespaces/Events/interfaces/EventMap)\>(`event`: `K`): `number`
 
-Defined in: [packages/duck-auth/src/core/events/events.redis.ts:141](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/events/events.redis.ts#L141)
+Defined in: [packages/duck-auth/src/core/events/events.redis.ts:169](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/events/events.redis.ts#L169)
 
-Used by Engine.strict()'s boot-time gates.
+Used by Engine.strict()'s boot-time gates. Counts both deliveries.
 
 #### Type Parameters
 
@@ -99,11 +100,12 @@ Used by Engine.strict()'s boot-time gates.
 
 ### on()
 
-> **on**\<`K` *extends* keyof [`EventMap`](../../index/namespaces/Events/interfaces/EventMap)\>(`event`: `K`, `handler`: [`Handler`](../../index/namespaces/Events/type-aliases/Handler)\<`K`\>): [`Unsubscribe`](../../index/namespaces/Events/type-aliases/Unsubscribe)
+> **on**\<`K` *extends* keyof [`EventMap`](../../index/namespaces/Events/interfaces/EventMap)\>(`event`: `K`, `handler`: [`Handler`](../../index/namespaces/Events/type-aliases/Handler)\<`K`\>, `opts?`: [`OnOptions`](../../index/namespaces/Events/interfaces/OnOptions)): [`Unsubscribe`](../../index/namespaces/Events/type-aliases/Unsubscribe)
 
-Defined in: [packages/duck-auth/src/core/events/events.redis.ts:50](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/events/events.redis.ts#L50)
+Defined in: [packages/duck-auth/src/core/events/events.redis.ts:57](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/events/events.redis.ts#L57)
 
-Registers a local handler, subscribing to the channel on the first one for that event.
+Registers a local handler. The first `fleet` one for an event subscribes to its channel and removing
+ the last closes it; an `origin` one never touches the channel.
 
 #### Type Parameters
 
@@ -120,6 +122,10 @@ Registers a local handler, subscribing to the channel on the first one for that 
 ##### handler
 
 [`Handler`](../../index/namespaces/Events/type-aliases/Handler)\<`K`\>
+
+##### opts?
+
+[`OnOptions`](../../index/namespaces/Events/interfaces/OnOptions)
 
 #### Returns
 

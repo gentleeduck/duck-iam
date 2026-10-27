@@ -3,7 +3,7 @@ title: "Interface: CompleteInput"
 description: "What the callback hands back to finish the sign-in."
 ---
 
-Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:181](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L181)
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:180](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L180)
 
 What the callback hands back to finish the sign-in.
 
@@ -13,7 +13,7 @@ What the callback hands back to finish the sign-in.
 
 > **code**: `string`
 
-Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:183](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L183)
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:182](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L182)
 
 Authorisation code returned by the provider.
 
@@ -23,7 +23,7 @@ Authorisation code returned by the provider.
 
 > `optional` **cookieHeader?**: `string`
 
-Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:189](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L189)
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:188](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L188)
 
 The callback request's `Cookie` header, verbatim.
  SECURITY: without it the signed state verifies from any browser, so an attacker completes their own
@@ -35,7 +35,7 @@ The callback request's `Cookie` header, verbatim.
 
 > **state**: `string`
 
-Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:185](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L185)
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:184](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L184)
 
 Opaque state value the library issued at begin.
 
@@ -45,7 +45,7 @@ Opaque state value the library issued at begin.
 
 > `optional` **user?**: `string`
 
-Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:192](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L192)
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:191](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L191)
 
 Apple's form_post `user` field, verbatim. It carries the name, and Apple sends it on the first
  authorization only, so a callback that drops it loses the name for good.

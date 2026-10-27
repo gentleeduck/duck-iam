@@ -1,11 +1,11 @@
 ---
 title: "Class: InMemoryEvents"
-description: "Single-process: production swaps in RedisEvents. Handlers run sequentially per  event, and a throwing one is caught and logged so its siblings still fire."
+description: "Single-process: origin and fleet handlers both run on this server. Handlers run sequentially per  event, and a throwing one is caught and logged so its siblings still fire."
 ---
 
-Defined in: [packages/duck-auth/src/core/events/events.memory.ts:5](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/events/events.memory.ts#L5)
+Defined in: [packages/duck-auth/src/core/events/events.memory.ts:5](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/events/events.memory.ts#L5)
 
-Single-process: production swaps in `RedisEvents`. Handlers run sequentially per
+Single-process: `origin` and `fleet` handlers both run on this server. Handlers run sequentially per
  event, and a throwing one is caught and logged so its siblings still fire.
 
 ## Implements
@@ -28,7 +28,7 @@ Single-process: production swaps in `RedisEvents`. Handlers run sequentially per
 
 > `readonly` **\_\_isInProcessBus**: `true`
 
-Defined in: [packages/duck-auth/src/core/events/events.memory.ts:8](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/events/events.memory.ts#L8)
+Defined in: [packages/duck-auth/src/core/events/events.memory.ts:8](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/events/events.memory.ts#L8)
 
 Read by `strict()`. `withAuditStamping` wraps the bus in a fresh object literal, so the engine's
  `events` carries no brand and the check reads `cfg.events`, which is what the operator passed.
@@ -39,7 +39,7 @@ Read by `strict()`. `withAuditStamping` wraps the bus in a fresh object literal,
 
 > **emit**\<`K` *extends* keyof [`EventMap`](../../index/namespaces/Events/interfaces/EventMap)\>(`event`: `K`, `payload`: [`EventMap`](../../index/namespaces/Events/interfaces/EventMap)\[`K`\]): `Promise`\<`void`\>
 
-Defined in: [packages/duck-auth/src/core/events/events.memory.ts:24](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/events/events.memory.ts#L24)
+Defined in: [packages/duck-auth/src/core/events/events.memory.ts:23](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/events/events.memory.ts#L23)
 
 Dispatches to the handlers registered when the emit began; a throwing one cannot stop the rest.
 
@@ -69,14 +69,32 @@ Dispatches to the handlers registered when the emit began; a throwing one cannot
 
 ***
 
+### fleetEvents()
+
+> **fleetEvents**(): keyof [`EventMap`](../../index/namespaces/Events/interfaces/EventMap)[]
+
+Defined in: [packages/duck-auth/src/core/events/events.memory.ts:43](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/events/events.memory.ts#L43)
+
+The events holding a `fleet` handler, which `strict()` refuses on this bus in production.
+
+#### Returns
+
+keyof [`EventMap`](../../index/namespaces/Events/interfaces/EventMap)[]
+
+#### Implementation of
+
+[`IBus`](../../index/namespaces/Events/interfaces/IBus).[`fleetEvents`](../../index/namespaces/Events/interfaces/IBus#fleetevents)
+
+***
+
 ### listenerCount()
 
 > **listenerCount**\<`K` *extends* keyof [`EventMap`](../../index/namespaces/Events/interfaces/EventMap)\>(`event`: `K`): `number`
 
-Defined in: [packages/duck-auth/src/core/events/events.memory.ts:41](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/events/events.memory.ts#L41)
+Defined in: [packages/duck-auth/src/core/events/events.memory.ts:38](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/events/events.memory.ts#L38)
 
 Lets `AuthEngine.strict()` assert the required listeners are wired, `lockout` among them, without
- reaching into private state.
+ reaching into private state. Counts both deliveries.
 
 #### Type Parameters
 
@@ -102,9 +120,9 @@ Lets `AuthEngine.strict()` assert the required listeners are wired, `lockout` am
 
 ### on()
 
-> **on**\<`K` *extends* keyof [`EventMap`](../../index/namespaces/Events/interfaces/EventMap)\>(`event`: `K`, `handler`: [`Handler`](../../index/namespaces/Events/type-aliases/Handler)\<`K`\>): [`Unsubscribe`](../../index/namespaces/Events/type-aliases/Unsubscribe)
+> **on**\<`K` *extends* keyof [`EventMap`](../../index/namespaces/Events/interfaces/EventMap)\>(`event`: `K`, `handler`: [`Handler`](../../index/namespaces/Events/type-aliases/Handler)\<`K`\>, `opts?`: [`OnOptions`](../../index/namespaces/Events/interfaces/OnOptions)): [`Unsubscribe`](../../index/namespaces/Events/type-aliases/Unsubscribe)
 
-Defined in: [packages/duck-auth/src/core/events/events.memory.ts:12](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/events/events.memory.ts#L12)
+Defined in: [packages/duck-auth/src/core/events/events.memory.ts:13](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/events/events.memory.ts#L13)
 
 Registers a handler and answers the function that unsubscribes it.
 
@@ -123,6 +141,10 @@ Registers a handler and answers the function that unsubscribes it.
 ##### handler
 
 [`Handler`](../../index/namespaces/Events/type-aliases/Handler)\<`K`\>
+
+##### opts?
+
+[`OnOptions`](../../index/namespaces/Events/interfaces/OnOptions)
 
 #### Returns
 

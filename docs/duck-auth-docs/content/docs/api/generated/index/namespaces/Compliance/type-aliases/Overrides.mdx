@@ -5,7 +5,7 @@ description: "The config values a preset raises: the password length floor and t
 
 > **Overrides** = \{ `apiKeys`: \{ `randomBytes`: `number`; \}; `mfa`: \{ `backupCodeCount`: `number`; \}; `minAal`: `1` \| `2` \| `3`; `passwords`: \{ `minLength`: `number`; \}; `requireChannelForReset`: `boolean`; `requireDataAtRest`: `boolean`; `requiredStrictChecks`: [`Check`](Check)[]; `sessions`: \{ `absoluteTtlMs`: `number`; `freshnessMs`: `number`; `ttlMs`: `number`; \}; \}
 
-Defined in: [packages/duck-auth/src/core/compliance/compliance.types.ts:30](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/compliance/compliance.types.ts#L30)
+Defined in: [packages/duck-auth/src/core/compliance/compliance.types.ts:30](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/compliance/compliance.types.ts#L30)
 
 The config values a preset raises: the password length floor and the session lifetimes.
 
@@ -15,7 +15,7 @@ The config values a preset raises: the password length floor and the session lif
 
 > **apiKeys**: \{ `randomBytes`: `number`; \}
 
-Defined in: [packages/duck-auth/src/core/compliance/compliance.types.ts:34](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/compliance/compliance.types.ts#L34)
+Defined in: [packages/duck-auth/src/core/compliance/compliance.types.ts:34](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/compliance/compliance.types.ts#L34)
 
 #### randomBytes
 
@@ -27,7 +27,7 @@ Defined in: [packages/duck-auth/src/core/compliance/compliance.types.ts:34](http
 
 > **mfa**: \{ `backupCodeCount`: `number`; \}
 
-Defined in: [packages/duck-auth/src/core/compliance/compliance.types.ts:33](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/compliance/compliance.types.ts#L33)
+Defined in: [packages/duck-auth/src/core/compliance/compliance.types.ts:33](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/compliance/compliance.types.ts#L33)
 
 #### backupCodeCount
 
@@ -39,7 +39,7 @@ Defined in: [packages/duck-auth/src/core/compliance/compliance.types.ts:33](http
 
 > **minAal**: `1` \| `2` \| `3`
 
-Defined in: [packages/duck-auth/src/core/compliance/compliance.types.ts:38](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/compliance/compliance.types.ts#L38)
+Defined in: [packages/duck-auth/src/core/compliance/compliance.types.ts:38](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/compliance/compliance.types.ts#L38)
 
 Above 1, `strict()` refuses an engine with no mfa provider; sign-in itself still answers AAL 1.
 
@@ -49,7 +49,7 @@ Above 1, `strict()` refuses an engine with no mfa provider; sign-in itself still
 
 > **passwords**: \{ `minLength`: `number`; \}
 
-Defined in: [packages/duck-auth/src/core/compliance/compliance.types.ts:31](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/compliance/compliance.types.ts#L31)
+Defined in: [packages/duck-auth/src/core/compliance/compliance.types.ts:31](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/compliance/compliance.types.ts#L31)
 
 #### minLength
 
@@ -61,7 +61,7 @@ Defined in: [packages/duck-auth/src/core/compliance/compliance.types.ts:31](http
 
 > **requireChannelForReset**: `boolean`
 
-Defined in: [packages/duck-auth/src/core/compliance/compliance.types.ts:42](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/compliance/compliance.types.ts#L42)
+Defined in: [packages/duck-auth/src/core/compliance/compliance.types.ts:42](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/compliance/compliance.types.ts#L42)
 
 When true, mailer / channel adapter required for any provider that needs it.
 
@@ -71,7 +71,7 @@ When true, mailer / channel adapter required for any provider that needs it.
 
 > **requireDataAtRest**: `boolean`
 
-Defined in: [packages/duck-auth/src/core/compliance/compliance.types.ts:40](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/compliance/compliance.types.ts#L40)
+Defined in: [packages/duck-auth/src/core/compliance/compliance.types.ts:40](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/compliance/compliance.types.ts#L40)
 
 When true, dataAtRest adapter required at boot.
 
@@ -81,7 +81,7 @@ When true, dataAtRest adapter required at boot.
 
 > **requiredStrictChecks**: [`Check`](Check)[]
 
-Defined in: [packages/duck-auth/src/core/compliance/compliance.types.ts:36](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/compliance/compliance.types.ts#L36)
+Defined in: [packages/duck-auth/src/core/compliance/compliance.types.ts:36](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/compliance/compliance.types.ts#L36)
 
 Names of strict() checks the preset insists on, sorted so two orderings resolve alike.
 
@@ -91,7 +91,7 @@ Names of strict() checks the preset insists on, sorted so two orderings resolve 
 
 > **sessions**: \{ `absoluteTtlMs`: `number`; `freshnessMs`: `number`; `ttlMs`: `number`; \}
 
-Defined in: [packages/duck-auth/src/core/compliance/compliance.types.ts:32](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/compliance/compliance.types.ts#L32)
+Defined in: [packages/duck-auth/src/core/compliance/compliance.types.ts:32](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/compliance/compliance.types.ts#L32)
 
 #### absoluteTtlMs
 

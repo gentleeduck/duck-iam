@@ -3,7 +3,7 @@ title: "Class: AuthCompositeTransport"
 description: "Extract tries each transport in order; issue and revoke emit from every one, so a cookie and a  bearer token can ride the same response."
 ---
 
-Defined in: [packages/duck-auth/src/core/transport/composite.transport.ts:10](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/composite.transport.ts#L10)
+Defined in: [packages/duck-auth/src/core/transport/composite.transport.ts:10](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/transport/composite.transport.ts#L10)
 
 Extract tries each transport in order; issue and revoke emit from every one, so a cookie and a
  bearer token can ride the same response.
@@ -18,7 +18,7 @@ Extract tries each transport in order; issue and revoke emit from every one, so 
 
 > **new AuthCompositeTransport**(`transports`: [`ITransport`](../namespaces/Transport/type-aliases/ITransport)[], `opts?`: [`CompositeOpts`](../namespaces/Transport/type-aliases/CompositeOpts)): `CompositeTransport`
 
-Defined in: [packages/duck-auth/src/core/transport/composite.transport.ts:16](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/composite.transport.ts#L16)
+Defined in: [packages/duck-auth/src/core/transport/composite.transport.ts:16](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/transport/composite.transport.ts#L16)
 
 #### Parameters
 
@@ -40,7 +40,7 @@ Defined in: [packages/duck-auth/src/core/transport/composite.transport.ts:16](ht
 
 > `readonly` **maxTokenLength**: `number`
 
-Defined in: [packages/duck-auth/src/core/transport/composite.transport.ts:14](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/composite.transport.ts#L14)
+Defined in: [packages/duck-auth/src/core/transport/composite.transport.ts:14](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/transport/composite.transport.ts#L14)
 
 The longest token this transport accepts. A composite takes the largest its members declare rather than
  carrying its own constant, which silently clamped any member with a wider ceiling.
@@ -55,7 +55,7 @@ The longest token this transport accepts. A composite takes the largest its memb
 
 > `readonly` **transports**: readonly [`ITransport`](../namespaces/Transport/type-aliases/ITransport)[]
 
-Defined in: [packages/duck-auth/src/core/transport/composite.transport.ts:12](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/composite.transport.ts#L12)
+Defined in: [packages/duck-auth/src/core/transport/composite.transport.ts:12](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/transport/composite.transport.ts#L12)
 
 Read by `strict()`, which checks each part as if it were configured alone.
 
@@ -65,7 +65,7 @@ Read by `strict()`, which checks each part as if it were configured alone.
 
 > **extract**(`req`: \{ `headers`: `Headers`; \}): `string` \| `null`
 
-Defined in: [packages/duck-auth/src/core/transport/composite.transport.ts:30](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/composite.transport.ts#L30)
+Defined in: [packages/duck-auth/src/core/transport/composite.transport.ts:30](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/transport/composite.transport.ts#L30)
 
 Asks every transport, and refuses a request that presents two different credentials.
 
@@ -91,7 +91,7 @@ Asks every transport, and refuses a request that presents two different credenti
 
 > **issue**(`sid`: `string`, `session`: [`Me`](../namespaces/Sessions/type-aliases/Me), `opts`: [`IssueOpts`](../namespaces/Transport/type-aliases/IssueOpts)): [`Intent`](../namespaces/Provider/type-aliases/Intent)[]
 
-Defined in: [packages/duck-auth/src/core/transport/composite.transport.ts:62](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/composite.transport.ts#L62)
+Defined in: [packages/duck-auth/src/core/transport/composite.transport.ts:62](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/transport/composite.transport.ts#L62)
 
 Issues through every transport, deliberately not as one transaction.
 
@@ -123,7 +123,7 @@ Issues through every transport, deliberately not as one transaction.
 
 > **revoke**(): [`Intent`](../namespaces/Provider/type-aliases/Intent)[]
 
-Defined in: [packages/duck-auth/src/core/transport/composite.transport.ts:72](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/composite.transport.ts#L72)
+Defined in: [packages/duck-auth/src/core/transport/composite.transport.ts:72](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/transport/composite.transport.ts#L72)
 
 Revokes through every transport.
 
@@ -141,7 +141,7 @@ Revokes through every transport.
 
 > **verify**(`token`: `string`): [`Me`](../namespaces/Answer/interfaces/Me)\<[`Verified`](../namespaces/Transport/type-aliases/Verified)\>
 
-Defined in: [packages/duck-auth/src/core/transport/composite.transport.ts:80](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/composite.transport.ts#L80)
+Defined in: [packages/duck-auth/src/core/transport/composite.transport.ts:80](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/transport/composite.transport.ts#L80)
 
 The first transport to vouch for the token wins; an authoritative refusal ends it.
 

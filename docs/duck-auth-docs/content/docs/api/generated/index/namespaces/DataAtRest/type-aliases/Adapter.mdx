@@ -5,7 +5,7 @@ description: "Encrypts and decrypts one profile field at a time."
 
 > **Adapter** = \{ `id`: `string`; `decrypt`: `Promise`\<`string`\>; `encrypt`: `Promise`\<`string`\>; `needsReEncrypt`: `boolean`; \}
 
-Defined in: [packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts:43](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts#L43)
+Defined in: [packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts:43](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts#L43)
 
 Encrypts and decrypts one profile field at a time.
 
@@ -15,7 +15,7 @@ Encrypts and decrypts one profile field at a time.
 
 > `readonly` **id**: `string`
 
-Defined in: [packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts:45](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts#L45)
+Defined in: [packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts:45](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts#L45)
 
 Stable id for audit logs and strict() reporting.
 
@@ -25,7 +25,7 @@ Stable id for audit logs and strict() reporting.
 
 > **decrypt**(`cipher`: `string`, `ctx`: [`Context`](Context)): `Promise`\<`string`\>
 
-Defined in: [packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts:49](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts#L49)
+Defined in: [packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts:49](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts#L49)
 
 The plaintext `encrypt` was given, under the same `ctx`.
 
@@ -49,7 +49,7 @@ The plaintext `encrypt` was given, under the same `ctx`.
 
 > **encrypt**(`plain`: `string`, `ctx`: [`Context`](Context)): `Promise`\<`string`\>
 
-Defined in: [packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts:47](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts#L47)
+Defined in: [packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts:47](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts#L47)
 
 The ciphertext is opaque; base64 it caller-side if the column needs that.
 
@@ -73,7 +73,7 @@ The ciphertext is opaque; base64 it caller-side if the column needs that.
 
 > **needsReEncrypt**(`cipher`: `string`): `boolean`
 
-Defined in: [packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts:51](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts#L51)
+Defined in: [packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts:51](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts#L51)
 
 Whether `cipher`'s key version is older than the current one, which is the rotation trigger.
 

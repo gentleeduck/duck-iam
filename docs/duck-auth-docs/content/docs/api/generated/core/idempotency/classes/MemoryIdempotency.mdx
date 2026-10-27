@@ -1,13 +1,13 @@
 ---
 title: "Class: MemoryIdempotency"
-description: "Dev and test only: production needs the Redis store, whose SET NX EX claim is atomic across processes. Keys are scoped by an encoded tenantId, so two tenants sending one Idempotency-Key cannot collide however the host spells its tenant ids."
+description: "Development and test only, and refused in production, which needs the Redis store: its SET NX EX claim is atomic across processes. Keys are scoped by an encoded tenantId, so two tenants sending one Idempotency-Key cannot collide however the host spells its tenant ids."
 ---
 
-Defined in: [packages/duck-auth/src/core/idempotency/idempotency.memory.ts:13](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/idempotency/idempotency.memory.ts#L13)
+Defined in: [packages/duck-auth/src/core/idempotency/idempotency.memory.ts:13](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/idempotency/idempotency.memory.ts#L13)
 
-Dev and test only: production needs the Redis store, whose `SET NX EX` claim is atomic across
-processes. Keys are scoped by an encoded tenantId, so two tenants sending one Idempotency-Key cannot
-collide however the host spells its tenant ids.
+Development and test only, and refused in production, which needs the Redis store: its `SET NX EX` claim
+is atomic across processes. Keys are scoped by an encoded tenantId, so two tenants sending one
+Idempotency-Key cannot collide however the host spells its tenant ids.
 
 ## Implements
 
@@ -17,19 +17,9 @@ collide however the host spells its tenant ids.
 
 ### Constructor
 
-> **new MemoryIdempotency**(`cfg?`: \{ `development?`: `boolean`; \}): `MemoryIdempotency`
+> **new MemoryIdempotency**(): `MemoryIdempotency`
 
-Defined in: [packages/duck-auth/src/core/idempotency/idempotency.memory.ts:19](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/idempotency/idempotency.memory.ts#L19)
-
-#### Parameters
-
-##### cfg?
-
-###### development?
-
-`boolean`
-
-Escape hatch to allow this store under `NODE_ENV=production`.
+Defined in: [packages/duck-auth/src/core/idempotency/idempotency.memory.ts:19](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/idempotency/idempotency.memory.ts#L19)
 
 #### Returns
 
@@ -41,7 +31,7 @@ Escape hatch to allow this store under `NODE_ENV=production`.
 
 > **claim**(`key`: `string`, `ttlMs`: `number`, `ctx`: [`TenantContext`](../../../index/interfaces/TenantContext)): `Promise`\<`boolean`\>
 
-Defined in: [packages/duck-auth/src/core/idempotency/idempotency.memory.ts:56](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/idempotency/idempotency.memory.ts#L56)
+Defined in: [packages/duck-auth/src/core/idempotency/idempotency.memory.ts:51](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/idempotency/idempotency.memory.ts#L51)
 
 Takes the key for this caller, answering false when someone else already holds it.
 
@@ -73,7 +63,7 @@ Takes the key for this caller, answering false when someone else already holds i
 
 > **delete**(`key`: `string`, `ctx`: [`TenantContext`](../../../index/interfaces/TenantContext)): `Promise`\<`void`\>
 
-Defined in: [packages/duck-auth/src/core/idempotency/idempotency.memory.ts:84](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/idempotency/idempotency.memory.ts#L84)
+Defined in: [packages/duck-auth/src/core/idempotency/idempotency.memory.ts:79](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/idempotency/idempotency.memory.ts#L79)
 
 Drops the key, so the next request carrying it runs for real.
 
@@ -101,7 +91,7 @@ Drops the key, so the next request carrying it runs for real.
 
 > **get**(`key`: `string`, `ctx`: [`TenantContext`](../../../index/interfaces/TenantContext)): `Promise`\<[`CachedResponse`](../namespaces/Idempotency/type-aliases/CachedResponse)\>
 
-Defined in: [packages/duck-auth/src/core/idempotency/idempotency.memory.ts:40](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/idempotency/idempotency.memory.ts#L40)
+Defined in: [packages/duck-auth/src/core/idempotency/idempotency.memory.ts:35](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/idempotency/idempotency.memory.ts#L35)
 
 The cached response, throwing `AUTH_IDEMPOTENCY_MISS` when the key holds none.
 
@@ -129,7 +119,7 @@ The cached response, throwing `AUTH_IDEMPOTENCY_MISS` when the key holds none.
 
 > **put**(`key`: `string`, `response`: [`CachedResponse`](../namespaces/Idempotency/type-aliases/CachedResponse), `ttlMs`: `number`, `ctx`: [`TenantContext`](../../../index/interfaces/TenantContext)): `Promise`\<`void`\>
 
-Defined in: [packages/duck-auth/src/core/idempotency/idempotency.memory.ts:72](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/idempotency/idempotency.memory.ts#L72)
+Defined in: [packages/duck-auth/src/core/idempotency/idempotency.memory.ts:67](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/idempotency/idempotency.memory.ts#L67)
 
 Stores the response, so a replay of the key answers from cache.
 
