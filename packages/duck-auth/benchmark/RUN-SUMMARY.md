@@ -1,27 +1,30 @@
 # What actually ran
 
-2026-10-21, macOS arm64, Docker 29.6.2. Logs in `out/`. Regenerate with
-`bun run coverage-gap:run`.
+Built 2026-10-21, duck-auth counts re-measured 2026-10-24 (port 11). macOS arm64,
+Docker 29.6.2. Logs in `out/`. Regenerate with `bun run coverage-gap:run`.
 
 These are the only counts worth quoting. The static per-cluster numbers in
 `out/GAP-TABLE.md` undercount by ~25% (see `README.md`), so they show shape, not
 size.
 
-## duck-auth — 5384 executed, 5384 passed
+## duck-auth — 5453 executed, 5453 passed
 
 | Tier | Command | Files | Tests | Result |
 | --- | --- | --- | --- | --- |
-| unit (hermetic) | `vitest run --project unit` | 244 | 4428 | all passed |
+| unit (hermetic) | `vitest run --project unit` | 252 | 4487 | all passed |
 | sqlite store-compliance | `bun test …/compliance.bun.ts` | 1 | 111 | all passed, 0.8s |
-| e2e (real pg, mysql, redis, valkey) | `DUCKAUTH_E2E_REQUIRE=1 vitest run --project e2e` | 40 | 845 | all passed |
-| **total** | | **285** | **5384** | **0 failed, 0 skipped** |
+| e2e (real pg, mysql, redis, valkey) | `DUCKAUTH_E2E_REQUIRE=1 vitest run --project e2e` | 40 | 855 | all passed |
+| **total** | | **293** | **5453** | **0 failed, 0 skipped** |
 
 Plus `bun run smoke`, which is a script rather than a vitest tier: 9 checks over
 the built package — 188 `exports` targets present, every condition typed, and 47
 entrypoints type-checked under 7 consumer tsconfigs.
 
-The unit tier was 4308 when this folder was built. The +120 are the ported
-scenarios in `PORT-LOG.md`.
+The unit tier was 4308 when this folder was built. The +179 are the ported
+scenarios in `PORT-LOG.md`: 43 from the security sweep (ports 5-10) and 17 more
+from the advisory sweep (port 11), which read better-auth's 37 published
+advisories rather than its tests. Port 10 also added 5 store-compliance cases,
+which is why the e2e tier moved: each runs again on Postgres and MySQL.
 
 ## better-auth v1.7.2 — 6274 executed, 6 failed
 
@@ -51,7 +54,7 @@ Their `e2e/adapter` (94 static), `e2e/integration` (Playwright, 16) and
 `e2e/smoke` (26) tiers were not run at all for the same reason.
 
 So better-auth's achievable total is roughly **6570 unit** plus ~136 e2e, against
-duck-auth's 5384. We execute about 82% of their test count.
+duck-auth's 5453. We execute about 83% of their test count.
 
 ## The architectural difference this exposed
 
