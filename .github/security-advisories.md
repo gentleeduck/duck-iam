@@ -58,18 +58,14 @@ still counted single-factor contexts until 5.17.0, so the range is `< 5.17.0`.
 
 ## Advisories
 
-All six published 2026-10-25, each with a CVE requested from GitHub.
+Each published with a CVE requested from GitHub: the first six on 2026-10-25, GHSA-x3jh-hfw7-qxvf on 2026-10-27.
 
 | Advisory | Package | Range | Severity | State |
 | --- | --- | --- | --- | --- |
+| [GHSA-x3jh-hfw7-qxvf](https://github.com/gentleeduck/duck-iam/security/advisories/GHSA-x3jh-hfw7-qxvf) | `@gentleduck/auth` | `< 5.18.0` | high | published |
 | [GHSA-5h9c-2cgg-j467](https://github.com/gentleeduck/duck-iam/security/advisories/GHSA-5h9c-2cgg-j467) | `@gentleduck/auth` | `< 5.17.0` | high | published, reported by EQSTLab |
 | [GHSA-r79m-2rfh-7rgf](https://github.com/gentleeduck/duck-iam/security/advisories/GHSA-r79m-2rfh-7rgf) | `@gentleduck/auth` | `< 5.17.0` | high | published |
 | [GHSA-g5qq-cw3q-85c6](https://github.com/gentleeduck/duck-iam/security/advisories/GHSA-g5qq-cw3q-85c6) | `@gentleduck/auth` | `< 5.14.0` | critical | published |
 | [GHSA-jvxv-xjr4-73p2](https://github.com/gentleeduck/duck-iam/security/advisories/GHSA-jvxv-xjr4-73p2) | `@gentleduck/iam` | `< 5.12.0` | high | published |
 | [GHSA-qx7x-27h5-xv9r](https://github.com/gentleeduck/duck-iam/security/advisories/GHSA-qx7x-27h5-xv9r) | `@gentleduck/iam` | `< 5.11.0` | high | published |
 | [GHSA-qxwf-fhgx-6fc9](https://github.com/gentleeduck/duck-iam/security/advisories/GHSA-qxwf-fhgx-6fc9) | `@gentleduck/iam` | `< 3.0.1` | critical | published |
-
-Fixed on this branch and not yet released, so **no advisory until the release ships**: the SAML
-`audience: false` acceptance, the OIDC code replay that left the first redemption's tokens live,
-`authBuildOidcDiscovery` publishing `none`, and a password-only session adding, removing or replacing a factor
-beside another one (all in `.changeset/auth-audit.md`).
