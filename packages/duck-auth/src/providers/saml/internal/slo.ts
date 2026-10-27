@@ -1,6 +1,10 @@
+import { promisify } from 'node:util'
+import { inflateRaw } from 'node:zlib'
 import { AuthError } from '~/core/errors'
 import { DEFAULT_SAML_CONFIG, SAML_NAME_ID_MAX, SAML_RELAY_STATE_MAX, SAML_RESPONSE_MAX } from '../saml.constants'
 import type { Saml } from '../saml.types'
+
+const inflateRawAsync = promisify(inflateRaw)
 
 /** One method per logout message: the SP's LogoutRequest out, the IdP's LogoutResponse back, and an IdP's LogoutRequest in. */
 export function samlSloController(opts: { providerId?: string; client: Saml.Client }): {
@@ -61,7 +65,7 @@ export function samlSloController(opts: { providerId?: string; client: Saml.Clie
           detail: 'samlSloController.completeSp: client does not implement validateRedirectAsync',
         })
       }
-      const signed = redirectParams(input.originalQuery, 'SAMLResponse')
+      const signed = await redirectParams(input.originalQuery, 'SAMLResponse')
       if (!signed) {
         throw new AuthError('AUTH_PROVIDER_FAILED', {
           providerId,
@@ -120,7 +124,7 @@ export function samlSloController(opts: { providerId?: string; client: Saml.Clie
             detail: 'samlSloController.completeIdp: client does not implement validateRedirectAsync',
           })
         }
-        const signed = redirectParams(input.originalQuery, 'SAMLRequest')
+        const signed = await redirectParams(input.originalQuery, 'SAMLRequest')
         if (!signed) {
           throw new AuthError('AUTH_PROVIDER_FAILED', {
             providerId,
@@ -160,12 +164,13 @@ export function samlSloController(opts: { providerId?: string; client: Saml.Clie
  * The Redirect binding's parameters, read off the raw query the signature covers. node-saml verifies a
  * signature only when one is present, and over the first token of the raw query naming each parameter,
  * while it decodes the message from a parsed copy; so each parameter is required once, the signature is
- * required, and both copies are built here from the same tokens.
+ * required, and both copies are built here from the same tokens. node-saml also inflates the message with
+ * no bound before it checks the signature, so the message must inflate within `SAML_RESPONSE_MAX`.
  */
-function redirectParams(
+async function redirectParams(
   raw: unknown,
   message: 'SAMLRequest' | 'SAMLResponse',
-): { query: Record<string, string>; originalQuery: string } | null {
+): Promise<{ query: Record<string, string>; originalQuery: string } | null> {
   if (typeof raw !== 'string' || raw.length === 0 || raw.length > SAML_RESPONSE_MAX) return null
   const query: Record<string, string> = {}
   const tokens: string[] = []
@@ -179,5 +184,10 @@ function redirectParams(
     tokens.push(token)
   }
   if (!query[message] || !query.SigAlg || !query.Signature) return null
+  try {
+    await inflateRawAsync(Buffer.from(query[message], 'base64'), { maxOutputLength: SAML_RESPONSE_MAX })
+  } catch {
+    return null
+  }
   return { originalQuery: tokens.join('&'), query }
 }

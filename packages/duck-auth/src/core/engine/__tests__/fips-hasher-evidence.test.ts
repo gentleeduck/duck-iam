@@ -15,6 +15,7 @@ import { CookieTransport } from '~/core/transport/cookie.transport'
 import { mfaProvider } from '~/providers/mfa'
 import { ARGON2ID_COMPLIANCE, argon2idHasher, passwords, scryptHasher } from '~/providers/passwords'
 import type { Hasher } from '~/providers/passwords/hashers/hashers.types'
+import { authTestDataAtRest } from '~/test'
 import { AuthEngine } from '../engine'
 
 /** Publishes no opinion on the FIPS parameters, which is what a host's own implementation looks like. */
@@ -38,15 +39,15 @@ function boot(hasher: Hasher.Me, wired: Partial<Compliance.Wired>, preset: Compl
     applyCompliancePreset(
       {
         baseUrl: 'https://app.test',
-        providers: [passwords({ hasher }), mfaProvider()],
+        providers: [passwords({ hasher }), mfaProvider({ dataAtRest: authTestDataAtRest() })],
         stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
-        transport: new CookieTransport({ name: 'sid', secure: true }),
+        transport: new CookieTransport({ name: 'sid' }),
       },
       preset,
     ),
   )
   try {
-    auth.strict({ compliance: wired, env: 'test' })
+    auth.strict({ compliance: wired })
     return 'booted'
   } catch (err) {
     return (err as { meta: { detail: string } }).meta.detail

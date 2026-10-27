@@ -17,7 +17,7 @@ export async function signUp(auth: AppAuth, body: unknown): Promise<{ identityId
 
   const identity = await auth.identities.create({ profile: { email, name, username: email } })
   try {
-    await auth.passwords.set(identity.id, password, auth.cfg.stores.credentials)
+    await auth.passwords.set(identity.id, password, auth.cfg.stores.credentials, null)
   } catch (err) {
     // Nothing holds the new identity yet: it goes, so the address can sign up again.
     await auth.identities.erase(identity.id, { reason: 'sign-up rolled back' }).catch(() => {})

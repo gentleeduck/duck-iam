@@ -136,12 +136,11 @@ export namespace Sessions {
     update(id: string, patch: Partial<Me>, expectedUpdatedAt?: Date): Promise<Me>
     /** Remove one row by its hash. */
     delete(id: string): Promise<void>
-    /** Every session of an identity, narrowed to one tenant by `ctx`. Identities are global, so an unfiltered
-     *  read hands one tenant the IP, user-agent and existence of every session another issued. A named
-     *  `tenantId` matches exactly, so a global (`null`) session is not visible to it. */
+    /** Every session of an identity in the tenant `ctx` names, or with no tenant when it names none. Identities
+     *  are global, so an unfiltered read hands one tenant the IP, user-agent and existence of every session
+     *  another issued; `ALL_TENANTS` is that read, for the engine's own work. */
     listByIdentity(identityId: string, ctx?: TenantContext): Promise<Me[]>
-    /** Sign an identity out, scoped as {@link Sessions.Store.listByIdentity} is.
-     *  WARN: unscoped it ends every session the identity has anywhere, other tenants' included. */
+    /** Sign an identity out, held to a tenant as {@link Sessions.Store.listByIdentity} is. */
     deleteAllForIdentity(identityId: string, ctx?: TenantContext): Promise<void>
     /** Periodic GC, scheduled by the caller, counting each row it reconciled once. An implementation that can
      *  run on several instances at once MUST serialise itself, as `RedisSessionImpl` does with a `gc:lease`. */
@@ -162,8 +161,9 @@ export namespace Sessions {
     /** Window in ms where a session counts as "fresh" since the last factor. Default 5 min. */
     freshnessMs: number
     /**
-     * Most concurrent sessions one identity may hold. Over the cap, the oldest by `createdAt` is revoked
-     * to make room. Unset means unlimited, which is the historical behaviour and the default.
+     * Most concurrent sessions of one kind one identity may hold. Over the cap, the oldest of the new session's
+     * kind by `createdAt` is revoked to make room, so an API key's sessions never sign its owner's devices out.
+     * Unset means unlimited, which is the historical behaviour and the default.
      *
      * Guests are not counted: `identityId === null` is not an identity to scope a limit to.
      *

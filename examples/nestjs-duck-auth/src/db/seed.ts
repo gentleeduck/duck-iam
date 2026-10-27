@@ -34,7 +34,7 @@ async function upsertUser(email: string, password: string, roleId: 'viewer' | 'e
 
   const name = email.split('@')[0] ?? email
   const identity = await auth.identities.create({ profile: { email, name, username: email } })
-  await auth.passwords.set(identity.id, password, authAdapter.credentials)
+  await auth.passwords.set(identity.id, password, authAdapter.credentials, null)
   await engine.admin.assignRole(identity.id, roleId)
   console.log(`  [created] ${email} -> role: ${roleId}`)
   return identity.id

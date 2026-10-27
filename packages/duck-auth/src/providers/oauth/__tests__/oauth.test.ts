@@ -1,4 +1,4 @@
-import { createHash, createHmac } from 'node:crypto'
+import { createHash, createHmac, generateKeyPairSync } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { sha256 } from '~/core/crypto'
@@ -9,9 +9,15 @@ import { memoryDPoPNonceStore } from '~/core/transport/dpop-nonce.memory'
 import { MemoryLimiter } from '~/limiters/memory'
 import { passwords, ScryptHasher } from '~/providers/passwords'
 import { afterOAuthBegin } from '~/test/oauth-browser'
+import { apple } from '../apple/apple'
 import { getUserinfoString, OAuthClient, oProvider } from '../core'
 import { generatePkce } from '../core/pkce'
 import { authBuildState, authVerifyState, signState } from '../core/state'
+import { discord } from '../discord/discord'
+import { github } from '../github/github'
+import { google } from '../google/google'
+import { linkedin } from '../linkedin/linkedin'
+import { microsoft } from '../microsoft/microsoft'
 
 /**
  * SEC helper: mint a properly-signed state string from a caller-supplied
@@ -28,7 +34,8 @@ function mintRawState(payload: unknown, secret: string): string {
 /** The pair `begin` splits: the cookie stays in the browser, its digest rides in the state. */
 const COOKIE = 'pre-auth-cookie-value'
 const BINDING = sha256(COOKIE)
-const COOKIE_HEADER = `__Host-duck-oauth=${COOKIE}`
+/** Under the name the provider sets outside production. */
+const COOKIE_HEADER = `duck-oauth=${COOKIE}`
 
 interface MyProfile extends Identities.ProfileMetadataBase {}
 
@@ -271,6 +278,36 @@ describe('OAuthClient.buildAuthorizeUrl', () => {
     expect(u.searchParams.get('code_challenge')).toBe('cc-xyz')
     expect(u.searchParams.get('code_challenge_method')).toBe('S256')
   })
+
+  it("keeps the endpoint's own query, as an Azure AD B2C policy endpoint carries one", async () => {
+    const client = new OAuthClient({
+      clientId: 'cid',
+      endpoints: {
+        authorizationEndpoint: 'https://idp.example.com/tenant/oauth2/v2.0/authorize?p=b2c_1_signin',
+        tokenEndpoint: 'https://idp.example.com/tenant/oauth2/v2.0/token?p=b2c_1_signin',
+      },
+      scopes: ['openid'],
+    })
+    const u = new URL(await client.buildAuthorizeUrl({ redirectUri: 'https://app/cb', state: 's', codeChallenge: 'c' }))
+    expect(u.pathname).toBe('/tenant/oauth2/v2.0/authorize')
+    expect(u.searchParams.get('p')).toBe('b2c_1_signin')
+    expect(u.searchParams.get('response_type')).toBe('code')
+    expect(u.searchParams.get('state')).toBe('s')
+  })
+
+  it('answers its own value for a parameter the endpoint already names', async () => {
+    const client = new OAuthClient({
+      clientId: 'cid',
+      endpoints: {
+        authorizationEndpoint: 'https://idp.example.com/authorize?response_type=token&state=fixed',
+        tokenEndpoint: 'https://idp.example.com/token',
+      },
+      scopes: ['openid'],
+    })
+    const u = new URL(await client.buildAuthorizeUrl({ redirectUri: 'https://app/cb', state: 's', codeChallenge: 'c' }))
+    expect(u.searchParams.getAll('response_type')).toEqual(['code'])
+    expect(u.searchParams.getAll('state')).toEqual(['s'])
+  })
 })
 
 describe('oProvider - generic end-to-end (mocked IdP)', () => {
@@ -278,7 +315,7 @@ describe('oProvider - generic end-to-end (mocked IdP)', () => {
     const adapter = new MemoryAdapter<MyProfile>()
     const auth = new AuthEngine<MyProfile>({
       baseUrl: 'https://app',
-      transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
+      transport: new CookieTransport({ name: 'duck-sid' }),
       stores: {
         identities: adapter.identities,
         sessions: adapter.sessions,
@@ -339,8 +376,8 @@ describe('oProvider - generic end-to-end (mocked IdP)', () => {
     const cookie = intents.find((i) => i.type === 'setCookie')
 
     expect(cookie).toMatchObject({
-      name: '__Host-duck-oauth',
-      options: { httpOnly: true, path: '/', sameSite: 'lax', secure: true },
+      name: 'duck-oauth',
+      options: { httpOnly: true, path: '/', sameSite: 'lax', secure: false },
     })
     // The IdP sees the state, so the state carries the digest and the browser keeps the value.
     const { state, cookieHeader } = afterOAuthBegin(intents)
@@ -384,7 +421,7 @@ describe('oProvider - generic end-to-end (mocked IdP)', () => {
     // Spent with the code, so a recovered callback URL cannot be replayed in this browser.
     expect(result.intents).toContainEqual(
       expect.objectContaining({
-        name: '__Host-duck-oauth',
+        name: 'duck-oauth',
         options: expect.objectContaining({ maxAge: 0 }),
         type: 'clearCookie',
       }),
@@ -454,7 +491,7 @@ describe('oProvider - generic end-to-end (mocked IdP)', () => {
 
     await expect(
       auth.flows.signIn({
-        input: { code: 'c', cookieHeader: '__Host-duck-oauth=guessed', state },
+        input: { code: 'c', cookieHeader: 'duck-oauth=guessed', state },
         providerId: 'oauth:fakeoidc',
       }),
     ).rejects.toThrow(/OAUTH_STATE_MISMATCH/)
@@ -536,6 +573,277 @@ describe('oProvider - generic end-to-end (mocked IdP)', () => {
     const r2 = await auth.flows.signIn({ providerId: 'oauth:fakeoidc', input: { code: 'c2', ...second } })
     expect(r2.session!.identityId).toBe(identitiesBefore?.id)
   })
+
+  it('refuses a replayed state dated ahead of this clock for as long as the state verifies', async () => {
+    const idp = async (input: string | URL | Request): Promise<Response> =>
+      String(input).startsWith('https://idp/token')
+        ? Response.json({ access_token: 'at', token_type: 'Bearer' })
+        : Response.json({ sub: 'skewed-1', email: 'skew@x.com' })
+    const { auth } = buildAuth(idp)
+    const T = Date.parse('2026-10-21T12:00:00Z')
+    // Minted by a node whose clock runs five minutes ahead of this one.
+    const ahead = mintRawState(
+      { nonce: 'ahead', providerId: 'oauth:fakeoidc', binding: BINDING, iat: T + 5 * 60_000 },
+      'super-secret',
+    )
+    const callback = (state: string) =>
+      auth.flows.signIn({ providerId: 'oauth:fakeoidc', input: { code: 'c', state, cookieHeader: COOKIE_HEADER } })
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      vi.setSystemTime(T)
+      await expect(callback(ahead)).resolves.toMatchObject({ session: expect.anything() })
+
+      vi.setSystemTime(T + 10 * 60_000 + 1_000)
+      await expect(callback(ahead)).rejects.toMatchObject({ code: 'AUTH_OAUTH_NONCE_REPLAY' })
+      const fresh = mintRawState(
+        { nonce: 'fresh', providerId: 'oauth:fakeoidc', binding: BINDING, iat: T + 10 * 60_000 },
+        'super-secret',
+      )
+      await expect(callback(fresh)).resolves.toMatchObject({ session: expect.anything() })
+
+      vi.setSystemTime(T + 15 * 60_000 + 1_000)
+      await expect(callback(ahead)).rejects.toMatchObject({ code: 'AUTH_OAUTH_STATE_MISMATCH' })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('oProvider - an IdP that is down or never answers', () => {
+  type Mode = 'up' | 'refused' | 'silent' | 'no-sub'
+
+  /** A working IdP, or one failing as `mode` says. A silent endpoint settles only when the request is aborted. */
+  function idp(state: { mode: Mode; revocation: 'up' | 'silent' }): typeof globalThis.fetch {
+    return async (input, init) => {
+      const url = String(input)
+      const silent = () =>
+        new Promise<Response>((_, reject) => init?.signal?.addEventListener('abort', () => reject(init.signal?.reason)))
+      if (url.startsWith('https://idp/revoke')) return state.revocation === 'silent' ? silent() : new Response(null)
+      if (state.mode === 'refused') throw new TypeError('fetch failed')
+      if (state.mode === 'silent') return silent()
+      if (url.startsWith('https://idp/token')) return Response.json({ access_token: 'at', token_type: 'Bearer' })
+      return Response.json(state.mode === 'no-sub' ? {} : { sub: 'down-1', email: 'down@x.com' })
+    }
+  }
+
+  function build(fetch: typeof globalThis.fetch, timeoutMs: number) {
+    const adapter = new MemoryAdapter<MyProfile>()
+    const auth = new AuthEngine<MyProfile>({
+      baseUrl: 'https://app',
+      transport: new CookieTransport({ name: 'duck-sid' }),
+      stores: { identities: adapter.identities, sessions: adapter.sessions, credentials: adapter.credentials },
+    })
+    const client = new OAuthClient({
+      clientId: 'cid',
+      clientSecret: 'csec',
+      endpoints: {
+        authorizationEndpoint: 'https://idp/authorize',
+        tokenEndpoint: 'https://idp/token',
+        userinfoEndpoint: 'https://idp/userinfo',
+        revocationEndpoint: 'https://idp/revoke',
+      },
+      scopes: ['openid'],
+      fetch,
+      timeoutMs,
+    })
+    auth.providers.register(
+      oProvider<MyProfile>({
+        providerId: 'fakeoidc',
+        client,
+        redirectUri: 'https://app/cb',
+        stateSigningSecret: 'super-secret',
+        nonceStore: memoryDPoPNonceStore(),
+        async fetchProfile(tokens, c) {
+          const info = await c.userinfo(tokens.access_token)
+          return { sub: getUserinfoString(info, 'sub') ?? '', email: getUserinfoString(info, 'email') }
+        },
+        profileToIdentityProfile: (p) => ({ username: p.email ?? '', email: p.email ?? '' }),
+      }),
+    )
+    return async () => {
+      const begun = afterOAuthBegin(await auth.flows.beginProvider('oauth:fakeoidc', {}))
+      return auth.flows.signIn({ providerId: 'oauth:fakeoidc', input: { code: 'c', ...begun } })
+    }
+  }
+
+  it('fails a sign-in whose IdP refuses the connection as AUTH_PROVIDER_FAILED, which a callback catches', async () => {
+    const state: { mode: Mode; revocation: 'up' | 'silent' } = { mode: 'refused', revocation: 'up' }
+    const signIn = build(idp(state), 1_000)
+    await expect(signIn()).rejects.toMatchObject({
+      code: 'AUTH_PROVIDER_FAILED',
+      meta: { detail: expect.stringContaining('token endpoint unreachable') },
+    })
+    state.mode = 'up'
+    await expect(signIn()).resolves.toMatchObject({ session: expect.anything() })
+  })
+
+  it('gives up on an IdP that never answers after timeoutMs', async () => {
+    const state: { mode: Mode; revocation: 'up' | 'silent' } = { mode: 'silent', revocation: 'up' }
+    const signIn = build(idp(state), 100)
+    await expect(signIn()).rejects.toMatchObject({
+      code: 'AUTH_PROVIDER_FAILED',
+      meta: { detail: expect.stringContaining('token endpoint unreachable') },
+    })
+    state.mode = 'up'
+    await expect(signIn()).resolves.toMatchObject({ session: expect.anything() })
+  }, 3_000)
+
+  it('answers a refusal after the exchange without waiting on a revocation endpoint that never answers', async () => {
+    const state: { mode: Mode; revocation: 'up' | 'silent' } = { mode: 'no-sub', revocation: 'silent' }
+    const signIn = build(idp(state), 100)
+    const missingSub = { code: 'AUTH_PROVIDER_FAILED', meta: { detail: 'oauth profile missing sub' } }
+    await expect(signIn()).rejects.toMatchObject(missingSub)
+    state.revocation = 'up'
+    await expect(signIn()).rejects.toMatchObject(missingSub)
+  }, 3_000)
+
+  it('refuses a timeoutMs no timer can hold', () => {
+    const client = (timeoutMs: number) =>
+      new OAuthClient({
+        clientId: 'cid',
+        endpoints: { authorizationEndpoint: 'https://idp/a', tokenEndpoint: 'https://idp/t' },
+        scopes: [],
+        timeoutMs,
+      })
+    for (const timeoutMs of [0, -1, Number.NaN, Number.POSITIVE_INFINITY, 2_147_483_648]) {
+      expect(() => client(timeoutMs)).toThrow(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
+    }
+    expect(() => client(1)).not.toThrow()
+    expect(() => client(2_147_483_647)).not.toThrow()
+  })
+
+  it('is honoured by every shipped provider', async () => {
+    // Answers a 400 after 100ms, so a 50ms timeout gives up first and a 1s one hears the refusal.
+    const slow: typeof globalThis.fetch = (_input, init) =>
+      new Promise((resolve, reject) => {
+        const timer = setTimeout(() => resolve(new Response('no', { status: 400 })), 100)
+        init?.signal?.addEventListener('abort', () => {
+          clearTimeout(timer)
+          reject(init.signal?.reason)
+        })
+      })
+    const { privateKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' })
+    const shipped = (timeoutMs: number) => {
+      const common = {
+        clientId: 'cid',
+        fetch: slow,
+        redirectUri: 'https://app/cb',
+        stateSigningSecret: 'super-secret',
+        nonceStore: memoryDPoPNonceStore(),
+        timeoutMs,
+      }
+      return [
+        google<MyProfile>({ ...common, clientSecret: 'csec' }),
+        github<MyProfile>({ ...common, clientSecret: 'csec' }),
+        discord<MyProfile>({ ...common, clientSecret: 'csec' }),
+        linkedin<MyProfile>({ ...common, clientSecret: 'csec' }),
+        microsoft<MyProfile>({ ...common, clientSecret: 'csec' }),
+        apple<MyProfile>({
+          ...common,
+          teamId: 'TEAM123456',
+          keyId: 'KEYID12345',
+          privateKey: privateKey.export({ format: 'pem', type: 'pkcs8' }).toString(),
+        }),
+      ]
+    }
+    const detailOf = async (provider: ReturnType<typeof shipped>[number]) => {
+      const adapter = new MemoryAdapter<MyProfile>()
+      const auth = new AuthEngine<MyProfile>({
+        baseUrl: 'https://app',
+        providers: [provider],
+        stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
+        transport: new CookieTransport({ name: 'duck-sid' }),
+      })
+      const begun = afterOAuthBegin(await auth.flows.beginProvider(provider.id, {}))
+      return auth.flows.signIn({ providerId: provider.id, input: { code: 'c', ...begun } }).then(
+        () => 'signed in',
+        (err: { meta?: { detail?: string } }) => err.meta?.detail ?? 'no detail',
+      )
+    }
+    for (const provider of shipped(50)) {
+      expect([provider.id, await detailOf(provider)]).toEqual([provider.id, expect.stringContaining('unreachable')])
+    }
+    for (const provider of shipped(1_000)) {
+      expect([provider.id, await detailOf(provider)]).toEqual([provider.id, expect.stringContaining('returned 400')])
+    }
+  })
+})
+
+describe('oProvider - the state cookie and the nonce store follow NODE_ENV', () => {
+  const client = new OAuthClient({
+    clientId: 'cid',
+    clientSecret: 'csec',
+    endpoints: { authorizationEndpoint: 'https://idp/authorize', tokenEndpoint: 'https://idp/token' },
+    scopes: ['openid'],
+  })
+  const opts = {
+    providerId: 'fakeoidc',
+    client,
+    redirectUri: 'https://app/cb',
+    stateSigningSecret: 'super-secret',
+    async fetchProfile() {
+      return { sub: 's' }
+    },
+  }
+  // Not the memory store, which production refuses on its own.
+  const nonceStore = { recordSeen: async () => true }
+
+  async function stateCookie(extra: Partial<Parameters<typeof oProvider<MyProfile>>[0]> = {}) {
+    const adapter = new MemoryAdapter<MyProfile>()
+    const auth = new AuthEngine<MyProfile>({
+      baseUrl: 'https://app',
+      transport: new CookieTransport({ name: 'duck-sid' }),
+      stores: { identities: adapter.identities, sessions: adapter.sessions, credentials: adapter.credentials },
+      providers: [oProvider<MyProfile>({ ...opts, nonceStore, ...extra })],
+    })
+    return (await auth.flows.beginProvider('oauth:fakeoidc', {})).find((i) => i.type === 'setCookie')
+  }
+
+  it('sets the state cookie Secure under the __Host- prefix in production', async () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    expect(await stateCookie()).toMatchObject({
+      name: '__Host-duck-oauth',
+      options: { httpOnly: true, path: '/', sameSite: 'lax', secure: true },
+    })
+  })
+
+  // Over plain http, which is how a dev server runs, a browser drops a Secure cookie and any `__Host-` one.
+  it.each(['development', 'test'])('drops Secure and the __Host- prefix under NODE_ENV=%s', async (env) => {
+    vi.stubEnv('NODE_ENV', env)
+    expect(await stateCookie()).toMatchObject({ name: 'duck-oauth', options: { sameSite: 'lax', secure: false } })
+  })
+
+  // `form_post` makes the callback a cross-site POST, so the cookie is SameSite=None, which needs Secure.
+  it('keeps a form_post cookie Secure outside production', async () => {
+    vi.stubEnv('NODE_ENV', 'development')
+    expect(await stateCookie({ responseMode: 'form_post' })).toMatchObject({
+      name: '__Host-duck-oauth',
+      options: { sameSite: 'none', secure: true },
+    })
+  })
+
+  it.each(['development', 'production'])('refuses a __Host- name with a domain under NODE_ENV=%s', (env) => {
+    vi.stubEnv('NODE_ENV', env)
+    expect(() =>
+      oProvider<MyProfile>({ ...opts, nonceStore, stateCookie: { domain: 'app', name: '__Host-duck-oauth' } }),
+    ).toThrow(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
+  })
+
+  // A state nothing burns is a callback URL that completes again for the rest of its ten minutes.
+  it('refuses a provider with no nonce store in production', () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    expect(() => oProvider<MyProfile>(opts)).toThrow(
+      expect.objectContaining({
+        code: 'AUTH_MISCONFIGURED',
+        meta: { detail: 'oauth requires `nonceStore` in production (provider fakeoidc)' },
+      }),
+    )
+  })
+
+  it.each(['development', 'test'])('accepts a provider with no nonce store under NODE_ENV=%s', (env) => {
+    vi.stubEnv('NODE_ENV', env)
+    expect(() => oProvider<MyProfile>(opts)).not.toThrow()
+  })
 })
 
 describe('oProvider - redirectUri construction guard', () => {
@@ -553,7 +861,6 @@ describe('oProvider - redirectUri construction guard', () => {
       fetch: vi.fn<typeof globalThis.fetch>(),
     }),
     stateSigningSecret: 'sec',
-    allowStateReplay: true,
     async fetchProfile() {
       return { sub: 's' }
     },
@@ -565,18 +872,11 @@ describe('oProvider - redirectUri construction guard', () => {
 
   it('refuses a __Host- state cookie the browser would silently drop', () => {
     const redirectUri = 'https://app/callback'
-    expect(() => oProvider<MyProfile>({ ...baseOpts, redirectUri, stateCookie: { secure: false } })).toThrow(
-      /MISCONFIGURED/,
-    )
     expect(() =>
       oProvider<MyProfile>({ ...baseOpts, redirectUri, stateCookie: { domain: 'app', name: '__Host-duck-oauth' } }),
     ).toThrow(/MISCONFIGURED/)
     // A domain with no name asked for is not a conflict: the default drops the prefix for it.
     expect(() => oProvider<MyProfile>({ ...baseOpts, redirectUri, stateCookie: { domain: 'app' } })).not.toThrow()
-    // Naming it something else is how an http development host opts out.
-    expect(() =>
-      oProvider<MyProfile>({ ...baseOpts, redirectUri, stateCookie: { name: 'duck-oauth', secure: false } }),
-    ).not.toThrow()
   })
 
   it('throws on a redirectUri containing CR/LF (header injection)', () => {

@@ -10,7 +10,7 @@
  * `argon2idHasher({ memoryCost: 8, timeCost: 1 })` hashed at 8 KiB and one pass -- with `needsRehash`,
  * which compares a row against these very numbers, calling each result current.
  */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { AuthEngine } from '~/core/engine'
 import { CookieTransport } from '~/core/transport/cookie.transport'
@@ -124,12 +124,13 @@ describe('strict() refuses a cheap KDF in production and nowhere else', () => {
       baseUrl: 'https://app.test',
       providers: [passwords({ hasher })],
       stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
-      transport: new CookieTransport({ name: 'sid', secure: true }),
+      transport: new CookieTransport({ name: 'sid' }),
     })
   }
   const complaints = (hasher: Hasher.Me, env: 'production' | 'test'): string => {
+    vi.stubEnv('NODE_ENV', env)
     try {
-      engine(hasher).strict({ env })
+      engine(hasher).strict()
       return ''
     } catch (err) {
       return (err as { meta: { detail: string } }).meta.detail

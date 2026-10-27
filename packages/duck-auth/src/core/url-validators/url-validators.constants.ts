@@ -9,8 +9,11 @@ const V4_BLOCKED: Array<{ mask: number; net: number }> = [
   { mask: 0xffff0000, net: 0xa9fe0000 }, // 169.254.0.0/16 link-local, incl. 169.254.169.254
   { mask: 0xfff00000, net: 0xac100000 }, // 172.16.0.0/12
   { mask: 0xffffff00, net: 0xc0000000 }, // 192.0.0.0/24 ietf protocol assignments
+  { mask: 0xffffff00, net: 0xc0000200 }, // 192.0.2.0/24 documentation, RFC 5737 TEST-NET-1
   { mask: 0xffff0000, net: 0xc0a80000 }, // 192.168.0.0/16
   { mask: 0xfffe0000, net: 0xc6120000 }, // 198.18.0.0/15 benchmarking
+  { mask: 0xffffff00, net: 0xc6336400 }, // 198.51.100.0/24 documentation, RFC 5737 TEST-NET-2
+  { mask: 0xffffff00, net: 0xcb007100 }, // 203.0.113.0/24 documentation, RFC 5737 TEST-NET-3
   { mask: 0xf0000000, net: 0xe0000000 }, // 224.0.0.0/4 multicast
   { mask: 0xf0000000, net: 0xf0000000 }, // 240.0.0.0/4 reserved, incl. 255.255.255.255
 ]
@@ -78,18 +81,24 @@ export function isBlockedIpv6(h: number[]): boolean {
   if (h.every((x) => x === 0)) return true // ::
   if (h0 === 0 && h1 === 0 && h2 === 0 && h3 === 0 && h4 === 0 && h5 === 0) return true // ::1 and ::a.b.c.d
   if (h0 === 0 && h1 === 0 && h2 === 0 && h3 === 0 && h4 === 0 && h5 === 0xffff) return true // ::ffff:0:0/96
+  if (h0 === 0 && h1 === 0 && h2 === 0 && h3 === 0 && h4 === 0xffff && h5 === 0) return true // ::ffff:0:0:0/96 siit
   if ((h0 & 0xfe00) === 0xfc00) return true // fc00::/7 unique-local
   if ((h0 & 0xffc0) === 0xfe80) return true // fe80::/10 link-local
+  if ((h0 & 0xffc0) === 0xfec0) return true // fec0::/10 site-local, deprecated but still routed where configured
   if ((h0 & 0xff00) === 0xff00) return true // ff00::/8 multicast
   if (h0 === 0x0100 && h1 === 0 && h2 === 0 && h3 === 0) return true // 100::/64 discard-only
   if (h0 === 0x0064 && h1 === 0xff9b) return true // 64:ff9b::/32 nat64
   if (h0 === 0x2002) return true // 2002::/16 6to4
   if (h0 === 0x2001 && h1 === 0x0000) return true // 2001::/32 teredo
+  if (h0 === 0x2001 && h1 === 0x0002 && h2 === 0) return true // 2001:2::/48 benchmarking, RFC 5180
+  if (h0 === 0x2001 && h1 === 0x0db8) return true // 2001:db8::/32 documentation, RFC 3849
+  if (h0 === 0x3fff && (h1 & 0xf000) === 0) return true // 3fff::/20 documentation, RFC 9637
+  if (h0 === 0x5f00) return true // 5f00::/16 srv6 segment ids, RFC 9602
   return false
 }
 
 /** Loopback and the cloud metadata endpoint under a name rather than an address. The `localhost` aliases
- *  ship in the /etc/hosts of Debian-family images; `metadata.goog` is the public alias of GCP's metadata
+ *  ship in the /etc/hosts of Debian- and RHEL-family hosts; `metadata.goog` is the public alias of GCP's metadata
  *  server, which the v4 list already refuses at 169.254.169.254 but which is reached by name. */
 const BLOCKED_NAMES = new Set([
   'internal',
@@ -97,8 +106,11 @@ const BLOCKED_NAMES = new Set([
   'ip6-loopback',
   'local',
   'localhost',
+  'localhost.localdomain',
   'localhost4',
+  'localhost4.localdomain4',
   'localhost6',
+  'localhost6.localdomain6',
   'metadata.goog',
 ])
 
@@ -110,4 +122,15 @@ const BLOCKED_SUFFIXES = ['.internal', '.local', '.localhost', '.metadata.goog']
 export function isBlockedHostname(host: string): boolean {
   const name = host.endsWith('.') ? host.slice(0, -1) : host
   return BLOCKED_NAMES.has(name) || BLOCKED_SUFFIXES.some((suffix) => name.endsWith(suffix))
+}
+
+/** Whether `host` is this machine: `localhost`, a name under `.localhost`, 127.0.0.0/8 or ::1. */
+export function isLoopbackHost(host: string): boolean {
+  const name = host.endsWith('.') ? host.slice(0, -1) : host
+  if (name === 'localhost' || name.endsWith('.localhost')) return true
+  const v4 = parseIpv4(name)
+  if (v4 !== null) return v4 >>> 24 === 127
+  const v6 = parseIpv6(name)
+  if (v6 === null) return false
+  return v6.slice(0, 7).every((h) => h === 0) && v6[7] === 1
 }

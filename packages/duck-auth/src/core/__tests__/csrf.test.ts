@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { sha256 } from '../crypto'
 import { AUTH_DEFAULT_CSRF_CONFIG, buildCsrfCookieOptions, csrfGuard, issueCsrfToken, verifyCsrf } from '../csrf'
 import { AuthError } from '../errors'
@@ -11,7 +11,8 @@ describe('CSRF', () => {
       expect(hash).toBe(sha256(token))
     })
 
-    it('cookie defaults: __Host-duck-csrf, HttpOnly=false, Secure, SameSite=Lax, Path=/', () => {
+    it('cookie defaults in production: __Host-duck-csrf, HttpOnly=false, Secure, SameSite=Lax, Path=/', () => {
+      vi.stubEnv('NODE_ENV', 'production')
       const c = buildCsrfCookieOptions('abc')
       expect(c.name).toBe('__Host-duck-csrf')
       expect(c.value).toBe('abc')
@@ -19,6 +20,13 @@ describe('CSRF', () => {
       expect(c.options.secure).toBe(true)
       expect(c.options.sameSite).toBe('lax')
       expect(c.options.path).toBe('/')
+    })
+
+    // Over plain http, which is how a dev server runs, a browser drops a Secure cookie and any `__Host-` one.
+    it.each(['development', 'test'])('drops Secure and the __Host- prefix under NODE_ENV=%s', (env) => {
+      vi.stubEnv('NODE_ENV', env)
+      expect(buildCsrfCookieOptions('abc')).toMatchObject({ name: 'duck-csrf', options: { secure: false } })
+      expect(buildCsrfCookieOptions('abc', { cookieName: '__Host-mine' }).name).toBe('mine')
     })
   })
 

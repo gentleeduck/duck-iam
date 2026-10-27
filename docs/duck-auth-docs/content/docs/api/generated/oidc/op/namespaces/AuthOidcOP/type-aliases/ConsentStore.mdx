@@ -5,7 +5,7 @@ description: "The scopes each subject granted each client."
 
 > **ConsentStore** = \{ `find`: `Promise`\<[`Consent`](Consent) \| `null`\>; `upsert`: `Promise`\<`void`\>; \}
 
-Defined in: [packages/duck-auth/src/oidc/op/types.ts:125](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L125)
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:139](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/op/types.ts#L139)
 
 The scopes each subject granted each client.
 
@@ -15,7 +15,7 @@ The scopes each subject granted each client.
 
 > **find**(`identity_id`: `string`, `client_id`: `string`): `Promise`\<[`Consent`](Consent) \| `null`\>
 
-Defined in: [packages/duck-auth/src/oidc/op/types.ts:127](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L127)
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:141](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/op/types.ts#L141)
 
 The consent, or `null`.
 
@@ -39,7 +39,7 @@ The consent, or `null`.
 
 > **upsert**(`c`: [`Consent`](Consent)): `Promise`\<`void`\>
 
-Defined in: [packages/duck-auth/src/oidc/op/types.ts:129](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L129)
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:143](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/op/types.ts#L143)
 
 Records or replaces a consent.
 

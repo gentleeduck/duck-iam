@@ -3,7 +3,7 @@ title: "Interface: StatePayload"
 description: "Signed state payload, <payload-base64url>.<sig-base64url> under HMAC-SHA256 with the engine's signing  secret. Signed, not secret: the IdP round-trips it in URLs."
 ---
 
-Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:197](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L197)
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:196](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L196)
 
 Signed `state` payload, `<payload-base64url>.<sig-base64url>` under HMAC-SHA256 with the engine's signing
  secret. Signed, not secret: the IdP round-trips it in URLs.
@@ -14,7 +14,7 @@ Signed `state` payload, `<payload-base64url>.<sig-base64url>` under HMAC-SHA256 
 
 > **binding**: `string`
 
-Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:204](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L204)
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:203](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L203)
 
 Digest of the cookie `begin` set, which is also the PKCE verifier. Presenting the cookie proves the
  callback reached the browser that started the flow.
@@ -25,7 +25,7 @@ Digest of the cookie `begin` set, which is also the PKCE verifier. Presenting th
 
 > **iat**: `number`
 
-Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:209](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L209)
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:208](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L208)
 
 Issued-at, in epoch ms. A state stamped more than ten minutes either side of now is refused.
 
@@ -35,7 +35,7 @@ Issued-at, in epoch ms. A state stamped more than ten minutes either side of now
 
 > **nonce**: `string`
 
-Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:199](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L199)
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:198](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L198)
 
 Random per flow, and what `Options.nonceStore` burns so one state completes once.
 
@@ -45,7 +45,7 @@ Random per flow, and what `Options.nonceStore` burns so one state completes once
 
 > **providerId**: `string`
 
-Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:201](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L201)
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:200](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L200)
 
 Provider id; library refuses if it doesn't match the callback.
 
@@ -55,7 +55,7 @@ Provider id; library refuses if it doesn't match the callback.
 
 > `optional` **returnTo?**: `string`
 
-Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:207](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L207)
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:206](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L206)
 
 Optional return-to path on the app, as `begin` minted it. Round-tripped and length-capped, never
  read after that - see `BeginInput.returnTo`.

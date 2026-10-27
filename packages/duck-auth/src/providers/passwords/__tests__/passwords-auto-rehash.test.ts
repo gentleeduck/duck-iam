@@ -142,3 +142,60 @@ describe('autoRehash rolls a parameter upgrade out on sign-in', () => {
     expect(await storedSecret()).toBe('v1:correct-horse-battery')
   })
 })
+
+describe('a rehash racing a password change', () => {
+  /** Hashes carry their generation and the password. `hold` makes the next `hash` wait until released, so a
+   *  reset can land inside it while its own hash runs free. */
+  function gatedHasher() {
+    let generation = 1
+    let gate = Promise.resolve()
+    const hasher: Hasher.Me = {
+      id: 'gated',
+      hash: async (plaintext: string) => {
+        const at = generation
+        const wait = gate
+        gate = Promise.resolve()
+        await wait
+        return `v${at}:${plaintext}`
+      },
+      needsRehash: (encoded: string) => !encoded.startsWith(`v${generation}:`),
+      verify: async (plaintext: string, encoded: string) => encoded.slice(encoded.indexOf(':') + 1) === plaintext,
+    }
+    return {
+      hasher,
+      hold: () => {
+        let release = () => {}
+        gate = new Promise<void>((resolve) => {
+          release = resolve
+        })
+        return release
+      },
+      upgrade: () => {
+        generation += 1
+      },
+    }
+  }
+
+  it('does not put back the password a reset replaced while it was hashing', async () => {
+    const adapter = new MemoryAdapter<ProfileShape>()
+    const { id } = await adapter.identities.create({
+      emailVerified: false,
+      profile: { email: 'alice@x.com', username: 'alice' },
+      providers: [],
+    })
+    const gated = gatedHasher()
+    const facet = passwordsImpl({ hasher: gated.hasher, minLength: 1, rejectCommon: false })
+    await facet.set(id, 'old-password', adapter.credentials, null)
+    gated.upgrade()
+    expect(await facet.verify(id, 'old-password', adapter.credentials)).toEqual({ needsRehash: true, ok: true })
+
+    const release = gated.hold()
+    const rehash = facet.rehash(id, 'old-password', adapter.credentials)
+    await facet.set(id, 'new-password', adapter.credentials, null)
+    release()
+    await rehash
+
+    expect((await facet.verify(id, 'new-password', adapter.credentials)).ok).toBe(true)
+    expect((await facet.verify(id, 'old-password', adapter.credentials)).ok).toBe(false)
+  })
+})

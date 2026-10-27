@@ -15,16 +15,16 @@ export function mfaRoutes(auth: AppAuth) {
 
     '/auth/mfa/totp/begin': {
       POST: guarded(auth, async (req) => {
-        const { identity } = await signedIn(auth, req.headers)
-        return jsonResponse(200, await auth.mfa.beginTotpEnrollment(identity.id, identity.profile.email))
+        const { identity, session } = await signedIn(auth, req.headers)
+        return jsonResponse(200, await auth.mfa.beginTotpEnrollment(identity.id, identity.profile.email, session))
       }),
     },
 
     '/auth/mfa/totp/confirm': {
       POST: guarded(auth, async (req) => {
-        const { identity } = await signedIn(auth, req.headers)
+        const { identity, session } = await signedIn(auth, req.headers)
         const code = readString(await readBodyJson(req), 'code') ?? ''
-        const confirmed = await auth.mfa.confirmTotpEnrollment(identity.id, code)
+        const confirmed = await auth.mfa.confirmTotpEnrollment(identity.id, code, session)
         if (!confirmed.ok) throw new AuthError('AUTH_INVALID_CREDENTIALS')
         return jsonResponse(200, { backupCodes: confirmed.backupCodes })
       }),
@@ -32,17 +32,17 @@ export function mfaRoutes(auth: AppAuth) {
 
     '/auth/mfa/totp/remove': {
       POST: guarded(auth, async (req) => {
-        const { identity } = await signedIn(auth, req.headers)
-        await auth.mfa.removeTotp(identity.id)
-        await auth.mfa.removeBackupCodes(identity.id)
+        const { identity, session } = await signedIn(auth, req.headers)
+        await auth.mfa.removeTotp(identity.id, session)
+        await auth.mfa.removeBackupCodes(identity.id, session)
         return jsonResponse(200, { ok: true })
       }),
     },
 
     '/auth/mfa/backup-codes': {
       POST: guarded(auth, async (req) => {
-        const { identity } = await signedIn(auth, req.headers)
-        return jsonResponse(200, { backupCodes: await auth.mfa.regenerateBackupCodes(identity.id) })
+        const { identity, session } = await signedIn(auth, req.headers)
+        return jsonResponse(200, { backupCodes: await auth.mfa.regenerateBackupCodes(identity.id, session) })
       }),
     },
   }

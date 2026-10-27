@@ -58,15 +58,19 @@ CREATE TABLE `auth_identity_providers` (
 	`identity_id` text NOT NULL,
 	`provider_id` text NOT NULL,
 	`provider_sub` text NOT NULL,
+	`tenant_id` text,
 	`added_at` integer DEFAULT (cast(unixepoch('subsec') * 1000 as integer)) NOT NULL,
 	`added_by` text,
 	FOREIGN KEY (`identity_id`) REFERENCES `auth_identities`(`id`) ON UPDATE no action ON DELETE cascade,
 	CONSTRAINT "chk_auth_identity_providers_provider_not_blank" CHECK(provider_id <> ''),
-	CONSTRAINT "chk_auth_identity_providers_sub_not_blank" CHECK(provider_sub <> '')
+	CONSTRAINT "chk_auth_identity_providers_sub_not_blank" CHECK(provider_sub <> ''),
+	CONSTRAINT "chk_auth_identity_providers_tenant_not_blank" CHECK(tenant_id IS NULL OR tenant_id <> '')
 );
 
-CREATE UNIQUE INDEX `uq_auth_identity_providers_sub` ON `auth_identity_providers` (`provider_id`,`provider_sub`);
-CREATE UNIQUE INDEX `uq_auth_identity_providers_owned` ON `auth_identity_providers` (`identity_id`,`provider_id`);
+CREATE UNIQUE INDEX `uq_auth_identity_providers_sub` ON `auth_identity_providers` (`provider_id`,`provider_sub`) WHERE tenant_id is null;
+CREATE UNIQUE INDEX `uq_auth_identity_providers_sub_tenant` ON `auth_identity_providers` (`provider_id`,`provider_sub`,`tenant_id`) WHERE tenant_id is not null;
+CREATE UNIQUE INDEX `uq_auth_identity_providers_owned` ON `auth_identity_providers` (`identity_id`,`provider_id`) WHERE tenant_id is null;
+CREATE UNIQUE INDEX `uq_auth_identity_providers_owned_tenant` ON `auth_identity_providers` (`identity_id`,`provider_id`,`tenant_id`) WHERE tenant_id is not null;
 CREATE INDEX `auth_identity_providers_identity` ON `auth_identity_providers` (`identity_id`,`added_at`);
 CREATE TABLE `auth_sessions` (
 	`id` text PRIMARY KEY NOT NULL,

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "@gentleduck/auth",
-  "version": "5.16.0",
+  "version": "5.17.0",
   "publishConfig": {
     "access": "public"
   },
@@ -485,7 +485,6 @@
   },
   "files": [
     "dist",
-    "src",
     "public",
     "CHANGELOG.md",
     "README.md",
@@ -497,9 +496,12 @@
     "test": "vitest run --project unit && bun test ./src/adapters/drizzle/sqlite/__tests__/compliance.bun.ts",
     "test:coverage": "vitest run --project unit --coverage",
     "benchmark": "bun run scripts/benchmark.ts",
+    "coverage-gap": "benchmark/scripts/refresh.sh",
+    "coverage-gap:run": "benchmark/scripts/run-suites.sh",
     "bench:adapters": "bun run scripts/bench-adapters.ts",
     "findings": "bun run scripts/collect-findings.ts",
     "dead-keys": "bun run scripts/audit-dead-keys.ts",
+    "smoke": "bun run scripts/smoke-consumer.ts",
     "check-types": "tsc -p tsconfig.json --noEmit --pretty false --skipLibCheck && tsc -p tsconfig.bun.json --noEmit --pretty false --skipLibCheck",
     "lint": "biome lint --write ./",
     "format": "biome format --write ./",

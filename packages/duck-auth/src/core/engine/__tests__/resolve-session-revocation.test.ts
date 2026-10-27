@@ -185,6 +185,17 @@ describe('resolveSession() revocation, on both resolution paths', () => {
     })
   })
 
+  it.each(PATHS)("%s: a tenant's token is refused as absent to a caller naming no tenant", async (path) => {
+    const { engine } = makeEngine({ path, session: session('i1', 'tenant-a'), identity: LIVE })
+    await expect(resolveSession(engine, req)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+  })
+
+  it.each(PATHS)('%s: allTenants accepts the session in whatever tenant it is', async (path) => {
+    const { engine } = makeEngine({ path, session: session('i1', 'tenant-a'), identity: LIVE })
+    const resolved = await resolveSession(engine, req, { allTenants: true })
+    expect(resolved.session.tenantId).toBe('tenant-a')
+  })
+
   /** Detectors take the identity, so an erased one must be refused before they run. */
   it.each(PATHS)('%s: an erased identity never reaches an anomaly detector', async (path) => {
     const { engine, evaluate } = makeEngine({
@@ -290,6 +301,14 @@ describe('resolveSession() revocation, on both resolution paths', () => {
         meta: { reason: 'the session belongs to another tenant' },
       })
       expect(find).not.toHaveBeenCalled()
+    })
+
+    it("refuses a tenant's session as absent to a caller naming no tenant", async () => {
+      const { sessions, identities } = stores(session('i1', 'tenant-a'), LIVE)
+      await expect(resolveBySid('sid', sessions, identities)).rejects.toMatchObject({
+        code: 'AUTH_SESSION_REVOKED',
+        meta: { reason: 'the session belongs to another tenant' },
+      })
     })
   })
 

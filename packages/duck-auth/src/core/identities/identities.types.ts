@@ -9,6 +9,8 @@ export namespace Identities {
     providerId: string
     /** That party's own stable subject id for the account, such as a Google `sub`. Theirs, not ours. */
     providerSub: string
+    /** The tenant it signs in to; `null` is no tenant. */
+    tenantId: string | null
     addedAt: Date
     addedBy: string | null
   }
@@ -56,7 +58,9 @@ export namespace Identities {
   /** The persistence contract every identity store implements. */
   export type Store<Profile extends ProfileMetadataBase> = {
     /** The live row by id, email or provider login; a soft-deleted row reads as absent. */
-    find(by: { id: string } | { email: string } | { providerId: string; providerSub: string }): Promise<Me<Profile>>
+    find(
+      by: { id: string } | { email: string } | { providerId: string; providerSub: string; tenantId: string | null },
+    ): Promise<Me<Profile>>
     /** Insert a new row; a taken email, username or login is refused. */
     create(input: CreateInput<Profile>): Promise<Me<Profile>>
     /** Patch `emailVerified` or `profile`; a stale `expectedVersion` is `AUTH_STALE_WRITE`. */
@@ -72,11 +76,11 @@ export namespace Identities {
     restore(id: string): Promise<Me<Profile>>
     /** Hard-deletes the row and its children, answering it as it stood just before it went. */
     erase(id: string): Promise<Me<Profile>>
-    /** Attaches a login. A subject another identity holds is refused; a provider this one already holds is
-     *  a no-op, which is what a retried OAuth callback does. */
+    /** Attaches a login in its tenant. A subject another identity holds there, or another subject at a provider
+     *  this one holds there, is refused `AUTH_PROVIDER_TAKEN`; the subject it already holds is a no-op. */
     link(identityId: string, link: ProviderLinkInput): Promise<Me<Profile>>
-    /** Detaches the login at `providerId`; there is at most one, and an absent one is not an error. */
-    unlink(identityId: string, providerId: string): Promise<Me<Profile>>
+    /** Detaches the login at `providerId` in `tenantId`; an absent one is not an error. */
+    unlink(identityId: string, providerId: string, tenantId: string | null): Promise<Me<Profile>>
 
     /** {@link Identities.Store.softDelete} and {@link Identities.Store.erase} for the admin and compliance paths. */
     softDeleteMany(ids: string[], gracePeriodMs: number): Promise<Me<Profile>[]>
@@ -85,8 +89,9 @@ export namespace Identities {
 
     /** Hard-deletes every row whose grace window closed before `now`, which is what makes a soft delete a
      *  delete rather than a row hidden forever. The children go with it, by the cascade
-     *  {@link Identities.Store.erase} relies on. */
-    gc(now: number): Promise<{ deleted: number }>
+     *  {@link Identities.Store.erase} relies on. Answers the ids it erased, which the facet names in
+     *  `identity.erased`. */
+    gc(now: number): Promise<{ deleted: number; ids: string[] }>
   }
 
   /** The identity facet's settings, set through the engine's `identities` option. */

@@ -31,6 +31,10 @@ const EVERY_EVENT_KEYED: Record<Events.EventName, true> = {
   suspicious: true,
 }
 
+/** The first wait before `RedisEvents` retries a subscribe that failed, doubling up to `SUBSCRIBE_RETRY_MAX_MS`. */
+export const SUBSCRIBE_RETRY_MS = 1_000
+export const SUBSCRIBE_RETRY_MAX_MS = 30_000
+
 /** Every name in `Events.EventMap`, for materialising a `'*'` subscription. */
 export const EVERY_EVENT = Object.keys(EVERY_EVENT_KEYED).filter(isEventName)
 

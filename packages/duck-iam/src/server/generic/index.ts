@@ -88,7 +88,7 @@ export namespace IamAdminAudit {
      * })
      * ```
      */
-    csrfCheck?: ((req: unknown) => boolean) | false
+    csrfCheck?: ((req: unknown) => boolean | Promise<boolean>) | false
   }
 }
 
@@ -115,8 +115,8 @@ export function iamNoticeCsrfDefaultIfNeeded(csrfCheckPassed: boolean): void {
  * default notice. Every admin router calls this once at construction, so the four adapters share one rule.
  */
 export function iamResolveCsrfCheck(
-  csrfCheck: ((req: unknown) => boolean) | false | undefined,
-): ((req: unknown) => boolean) | null {
+  csrfCheck: ((req: unknown) => boolean | Promise<boolean>) | false | undefined,
+): ((req: unknown) => boolean | Promise<boolean>) | null {
   iamNoticeCsrfDefaultIfNeeded(csrfCheck !== undefined)
   return csrfCheck === false ? null : (csrfCheck ?? iamDefaultCsrfCheck)
 }
@@ -307,15 +307,16 @@ export type IamIAdminAuthzResult =
 /** Runs the CSRF and authorize phases shared by every admin route; each adapter maps the result to its own response. */
 export async function iamRunAdminAuthz<TReq>(
   req: TReq,
-  csrfCheck: ((req: TReq) => boolean) | null,
+  csrfCheck: ((req: TReq) => boolean | Promise<boolean>) | null,
   // NOTE: not `unknown | Promise<unknown>`, which collapses to `unknown` and types nothing.
   authorize: (req: TReq) => IamAdminAuthzAnswer | Promise<IamAdminAuthzAnswer>,
 ): Promise<IamIAdminAuthzResult> {
   if (csrfCheck) {
-    // SECURITY: a predicate that throws has not said yes, so it refuses.
+    // SECURITY: a predicate that throws (sync or async) has not said yes, so it refuses. Awaited, not just
+    // called: an unawaited Promise is truthy, which would pass CSRF regardless of what it resolves to.
     let passed: boolean
     try {
-      passed = csrfCheck(req)
+      passed = await csrfCheck(req)
     } catch {
       return { phase: 'forbidden' }
     }

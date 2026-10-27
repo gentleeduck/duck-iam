@@ -1,18 +1,20 @@
 /** Trusted-device tokens for a host's "remember this device": a long-lived random value, stored hashed
  *  under `Credential.kind='recovery'` with `metadata.purpose='trusted-device'`. Nothing in the package
- *  issues or reads one; the host decides what a verified device skips. A password reset and removing TOTP
- *  or WebAuthn MFA revoke every one the identity holds. */
+ *  issues one; `flows.signIn` reads one as `rememberedDevice` to skip the sign-in challenge. A password reset
+ *  and removing TOTP or WebAuthn MFA revoke every one the identity holds. */
 
 import { type Answer, answer, orNull } from '~/core/answer'
 import {
   getCredentialPurpose,
   isCredentialExpired,
   isRevoked,
+  refuseWithoutStepUp,
   toCredentialCreate,
 } from '~/core/credentials/credentials'
-import { RECOVERY_PURPOSES } from '~/core/credentials/credentials.constants'
+import { LATEST_STORABLE_MS, RECOVERY_PURPOSES } from '~/core/credentials/credentials.constants'
 import type { Credential } from '~/core/credentials/credentials.types'
 import { AuthError } from '~/core/errors'
+import type { Sessions } from '~/core/sessions/sessions.types'
 import type { TenantContext } from '~/core/tenant/tenant.types'
 
 export namespace RememberMeFacet {
@@ -65,20 +67,24 @@ export class RememberMeFacet {
         detail: `rememberMe: byteLength must be a whole number between 16 and 128, got ${String(this._cfg.byteLength)}`,
       })
     }
-    if (!Number.isFinite(this._cfg.ttlMs) || this._cfg.ttlMs < 1) {
+    // A deadline past what the stores hold failed every `issue` with the caller's error, AUTH_INVALID_PARAMETERS.
+    if (!Number.isFinite(this._cfg.ttlMs) || this._cfg.ttlMs < 1 || Date.now() + this._cfg.ttlMs > LATEST_STORABLE_MS) {
       throw new AuthError('AUTH_MISCONFIGURED', {
-        detail: `rememberMe: ttlMs must be a positive number, got ${String(this._cfg.ttlMs)}`,
+        detail: `rememberMe: ttlMs must be a positive number whose deadline a store can hold, got ${String(this._cfg.ttlMs)}`,
       })
     }
   }
 
   /** Mints and persists a token, handing back the plaintext exactly once. `metadata` is the caller's,
-   *  usually `{ label, userAgent, ip }` for a devices list, except `purpose`, which is always this one. */
+   *  usually `{ label, userAgent, ip }` for a devices list, except `purpose`, which is always this one. A token
+   *  skips a factor, so `session` has to be stepped up with one, as `refuseWithoutStepUp` asks. */
   async issue(
     identityId: string,
+    session: Sessions.Me | null,
     opts: { metadata?: Record<string, unknown> } = {},
     ctx: TenantContext = {},
   ): Promise<RememberMeFacet.Issued> {
+    await refuseWithoutStepUp(this._credentials, identityId, session, ctx)
     const token = this._crypto.authRandomToken(this._cfg.byteLength)
     const hash = this._crypto.authSha256(token)
     const now = Date.now()

@@ -11,7 +11,8 @@ import { getCredentialPurpose, toCredentialCreate } from '~/core/credentials/cre
 import { RECOVERY_PURPOSES } from '~/core/credentials/credentials.constants'
 import { randomToken, sha256 } from '~/core/crypto'
 import { InMemoryEvents } from '~/core/events'
-import { identityInput } from '~/test/store-inputs'
+import { authTestDataAtRest } from '~/test'
+import { identityInput, makeSession } from '~/test/store-inputs'
 import { RememberMeFacet } from '../internal/remember-me'
 import { MfaImpl } from '../mfa'
 import { DEFAULT_MFA_CONFIG } from '../mfa.constants'
@@ -56,7 +57,10 @@ describe('recovery-kind overload', () => {
 
   beforeEach(async () => {
     adapter = new MemoryAdapter()
-    mfa = new MfaImpl(adapter.credentials, new InMemoryEvents(), DEFAULT_MFA_CONFIG)
+    mfa = new MfaImpl(adapter.credentials, new InMemoryEvents(), {
+      ...DEFAULT_MFA_CONFIG,
+      dataAtRest: authTestDataAtRest(),
+    })
     const ident = await adapter.identities.create(
       identityInput({ profile: { email: 'a@b.com', username: 'a' }, providers: [] }),
     )
@@ -66,7 +70,7 @@ describe('recovery-kind overload', () => {
   describe('minting and removing codes does not touch the other five', () => {
     it('regenerating stamps every code with the backup-code purpose and leaves the rest alone', async () => {
       await plantOtherPurposes()
-      await mfa.regenerateBackupCodes(identityId)
+      await mfa.regenerateBackupCodes(identityId, makeSession({ aal: 2, identityId: identityId }))
       expect(await livePurposes()).toEqual(
         [...OTHER_PURPOSES, ...Array(DEFAULT_MFA_CONFIG.backupCodeCount).fill(RECOVERY_PURPOSES.mfaBackupCode)].sort(),
       )
@@ -74,8 +78,8 @@ describe('recovery-kind overload', () => {
 
     it('regenerating replaces only the previous code set', async () => {
       await plantOtherPurposes()
-      const [first = ''] = await mfa.regenerateBackupCodes(identityId)
-      const [second = ''] = await mfa.regenerateBackupCodes(identityId)
+      const [first = ''] = await mfa.regenerateBackupCodes(identityId, makeSession({ aal: 2, identityId: identityId }))
+      const [second = ''] = await mfa.regenerateBackupCodes(identityId, makeSession({ aal: 2, identityId: identityId }))
       expect(await mfa.verifyBackupCode(identityId, first)).toBe(false)
       expect(await mfa.verifyBackupCode(identityId, second)).toBe(true)
       expect(await livePurposes()).toContain(RECOVERY_PURPOSES.passwordReset)
@@ -83,8 +87,8 @@ describe('recovery-kind overload', () => {
 
     it('removeBackupCodes wipes the codes and nothing else', async () => {
       await plantOtherPurposes()
-      await mfa.regenerateBackupCodes(identityId)
-      await mfa.removeBackupCodes(identityId)
+      await mfa.regenerateBackupCodes(identityId, makeSession({ aal: 2, identityId: identityId }))
+      await mfa.removeBackupCodes(identityId, makeSession({ aal: 2, identityId: identityId }))
       expect(await livePurposes()).toEqual([...OTHER_PURPOSES].sort())
     })
 
@@ -93,8 +97,8 @@ describe('recovery-kind overload', () => {
         authRandomToken: randomToken,
         authSha256: sha256,
       })
-      const { token } = await remember.issue(identityId)
-      await mfa.regenerateBackupCodes(identityId)
+      const { token } = await remember.issue(identityId, makeSession({ aal: 2, identityId: identityId }))
+      await mfa.regenerateBackupCodes(identityId, makeSession({ aal: 2, identityId: identityId }))
       expect(await remember.verify(token)).toMatchObject({ identityId })
     })
   })
@@ -102,7 +106,7 @@ describe('recovery-kind overload', () => {
   describe('the other five are not second factors', () => {
     it('verifyBackupCode refuses a token of another purpose', async () => {
       const tokens = await plantOtherPurposes()
-      await mfa.regenerateBackupCodes(identityId)
+      await mfa.regenerateBackupCodes(identityId, makeSession({ aal: 2, identityId: identityId }))
       for (const [, token] of tokens) {
         expect(await mfa.verifyBackupCode(identityId, token)).toBe(false)
       }
@@ -136,7 +140,7 @@ describe('recovery-kind overload', () => {
     it('the other five purposes do not inflate the count', async () => {
       await plantOtherPurposes()
       expect(await mfa.remainingBackupCodes(identityId)).toBe(0)
-      await mfa.regenerateBackupCodes(identityId)
+      await mfa.regenerateBackupCodes(identityId, makeSession({ aal: 2, identityId: identityId }))
       expect(await mfa.remainingBackupCodes(identityId)).toBe(DEFAULT_MFA_CONFIG.backupCodeCount)
     })
   })

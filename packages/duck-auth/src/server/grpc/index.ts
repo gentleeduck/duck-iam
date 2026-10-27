@@ -64,8 +64,14 @@ export function withGrpc<Req, Res>(
           caller: opts.getCaller?.(call),
           onAnomaly: opts.onAnomaly,
           onHijack: opts.onHijack,
+          tenantId: opts.tenantId?.(call),
         })
-        const resolved = await auth.resolveSession({ headers }, { requestSnapshot: security.requestSnapshot }).orNull()
+        const resolved = await auth
+          .resolveSession(
+            { headers },
+            { expectedTenantId: security.expectedTenantId, requestSnapshot: security.requestSnapshot },
+          )
+          .orNull()
         if (!resolved && required) {
           callback({
             code: GRPC_STATUS.UNAUTHENTICATED,

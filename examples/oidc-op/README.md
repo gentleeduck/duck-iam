@@ -1,59 +1,56 @@
 # OIDC OP example
 
-Minimal end-to-end OAuth2/OIDC OP wired up with `@gentleduck/auth/oidc/op`.
+An OpenID provider on `@gentleduck/auth/oidc/op`, with a demo sign-in and a consent page.
 
-Run it with Bun: `server.ts` is TypeScript, and the `dev` script is
-`bun run server.ts`. It talks to no external services and imports only
-`node:http` and `node:crypto` beyond `@gentleduck/auth`.
-
-State is held in memory - the default `MemoryClientStore` / `MemoryCodeStore`
-and friends ship with the `oidc/op` subpath. Swap them for the Drizzle ports
-under `@gentleduck/auth/oidc/op/drizzle/{pg,sqlite,mysql}` to wire a real
-database.
+One file, one port, everything in memory: the engine runs on the memory adapter, and the OP on its
+default memory stores, both of which production refuses, so `bun run dev` sets `NODE_ENV=development`.
+For a database, pass the Drizzle stores from
+`@gentleduck/auth/oidc/op/drizzle/{pg,sqlite,mysql}` to `createOidcOP` as `stores`.
 
 ## Run it
 
 ```bash
 bun install
-bun run server.ts
+bun run dev
 ```
 
-Server listens on `http://localhost:8787`. Routes:
+It listens on `http://localhost:8787`; set `PORT` to move it. Routes:
 
-- `GET /authorize?...` - OIDC authorize. With no session, you see the
-  fake-login screen. With a session, you see the consent screen.
-- `POST /login` - fake login button. Creates a session for `user@example.com`.
-- `POST /consent` - "Allow" button on the consent screen. The "Deny" button
-  posts to `/deny`, which this server does not implement; it answers 404.
-- `POST /token` - OAuth2 token endpoint. Exchanges code+PKCE for tokens.
-- `GET /userinfo` - bearer-protected claims.
-- `POST /introspect` - RFC 7662 introspection (basic auth).
-- `POST /revoke` - RFC 7009 revocation.
+- `GET /authorize` - the authorize endpoint. With no session you see the demo sign-in, then the
+  consent screen.
+- `POST /login` - the demo sign-in, as `user@example.com`. It sends you back to the authorize request
+  without `login` in `prompt` and without `max_age`, which the sign-in answered.
+- `POST /consent` - Allow or Deny. Deny sends `error=access_denied` to the client.
+- `POST /token` - the token endpoint: a code with its PKCE verifier, or a refresh token.
+- `GET /userinfo` - the claims for a bearer access token.
+- `POST /introspect` - RFC 7662, for a confidential client.
+- `POST /revoke` - RFC 7009. A client authenticates as it does at `/token`, so the public demo client
+  names itself with `client_id`.
 
-## End-to-end smoke run
+`/login` and `/consent` refuse a post from another origin.
 
-Pre-registered client `demo-spa` has `redirect_uri = http://localhost:8787/callback`
-and `token_endpoint_auth_method: 'none'`. There is no bundled CLI client; drive
-the flow in a browser.
+## A sign-in, end to end
 
-1. Generate a PKCE pair and open `/authorize` with it:
+The pre-registered client `demo-spa` is public (`token_endpoint_auth_method: 'none'`) and redirects to
+`http://localhost:8787/callback`. There is no bundled client; drive the flow in a browser.
+
+1. Make a PKCE pair, then open `/authorize` with its challenge:
 
    ```
    http://localhost:8787/authorize
      ?client_id=demo-spa
      &redirect_uri=http://localhost:8787/callback
      &response_type=code
-     &scope=openid%20profile%20email
+     &scope=openid%20profile%20email%20offline_access
      &state=<state>
      &code_challenge=<S256 of your verifier>
      &code_challenge_method=S256
    ```
 
-2. Click through the fake-login screen (signs you in as `user@example.com`)
-   and then "Allow" on the consent screen.
-3. The browser lands on `/callback?code=…`, which this server does not
-   handle - copy the `code` out of the address bar.
-4. Exchange it, unauthenticated, because the client is public:
+2. Sign in, then Allow.
+3. The browser lands on `/callback?code=...`, which this server does not handle: copy the `code` out of
+   the address bar.
+4. Exchange it:
 
    ```bash
    curl -s http://localhost:8787/token \
@@ -64,7 +61,9 @@ the flow in a browser.
      -d code_verifier=<verifier>
    ```
 
-5. Call `/userinfo` with the returned `access_token` as a bearer token.
+5. Call `/userinfo` with the `access_token` as a bearer token, and revoke the refresh token with
+   `curl -s http://localhost:8787/revoke -d client_id=demo-spa -d token=<refresh_token>`.
 
-The `id_token` is signed HS256 with a demo secret from `server.ts`. It is a
-fixture, not a key you should reuse.
+Add `prompt=login`, or `max_age=0`, to the authorize URL to be asked to sign in again with a live session.
+
+The `id_token` is signed HS256 with a demo secret from `server.ts`. It is a fixture, not a key to reuse.

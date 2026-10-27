@@ -19,7 +19,7 @@ export namespace Idempotency {
     status: number
     /** The response body, serialised as JSON. */
     body: unknown
-    /** Optional response headers worth replaying (Set-Cookie excluded by default). */
+    /** Optional response headers worth replaying. `Set-Cookie` is left out of the cached copy. */
     headers?: Record<string, string>
     /** Wall-clock createdAt for diagnostics. */
     createdAt: Date

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { AuthMemoryLimiter } from '..'
 
 describe('AuthMemoryLimiter - input bounds', () => {
@@ -141,6 +141,33 @@ describe('expired buckets do not stay resident', () => {
     for (let i = 0; i < 2000; i++) await limiter.consume(`filler-${i}@x.com`)
 
     expect(await limiter.consume('victim@x.com')).toMatchObject({ ok: false })
+  })
+
+  it('sweeps at most once a window, not once for every new key past the threshold', async () => {
+    const limiter = new AuthMemoryLimiter({ max: 5, windowMs: 60_000 })
+    const buckets: unknown = Reflect.get(limiter, '_buckets')
+    if (!(buckets instanceof Map)) throw new Error('expected the limiter to hold its buckets in a Map')
+    for (let i = 0; i < 1024; i++) await limiter.consume(`live-${i}@x.com`)
+    const sweeps = vi.spyOn(buckets, Symbol.iterator)
+
+    for (let i = 0; i < 5000; i++) await limiter.consume(`flood-${i}@x.com`)
+
+    expect(sweeps).toHaveBeenCalledTimes(1)
+    expect(buckets.size).toBe(6024)
+  })
+
+  it('sweeps again once a window has passed, dropping what expired', async () => {
+    vi.useFakeTimers()
+    try {
+      const limiter = new AuthMemoryLimiter({ max: 5, windowMs: 1000 })
+      for (let i = 0; i < 1100; i++) await limiter.consume(`early-${i}@x.com`)
+      vi.advanceTimersByTime(1001)
+      await limiter.consume('late@x.com')
+
+      expect(bucketCount(limiter)).toBe(1)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('still refuses over budget within one window', async () => {

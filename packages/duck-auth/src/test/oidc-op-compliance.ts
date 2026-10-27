@@ -25,6 +25,7 @@ export type OidcOpStores = {
  *  token, and a consumed refresh token that has not expired. */
 export async function insertGcFixture(stores: OidcOpStores, now: number): Promise<void> {
   await stores.codes.insert({
+    auth_time: null,
     client_id: 'app',
     code: 'gc-code',
     code_challenge: null,
@@ -40,18 +41,21 @@ export async function insertGcFixture(stores: OidcOpStores, now: number): Promis
   await stores.accessTokens.insert({
     client_id: 'app',
     exp: now - 1,
+    family_id: 'f',
     identity_id: 'u',
     scope: ['openid'],
     tenant_id: null,
     token_hash: 'gc-at',
   })
   await stores.refreshTokens.insert({
+    auth_time: null,
     client_id: 'app',
     consumedAt: now - 1,
     exp: now + 60_000,
     family_id: 'f',
     identity_id: 'u',
     scope: ['openid'],
+    sid: 's',
     tenant_id: null,
     token_hash: 'gc-rt',
   })
@@ -72,6 +76,7 @@ export function runOidcOpCompliance(factory: () => OidcOpStores): void {
   })
 
   const code = (over: Partial<OidcOP.Code> = {}): OidcOP.Code => ({
+    auth_time: null,
     client_id: 'app',
     code: 'code-1',
     code_challenge: null,
@@ -89,6 +94,7 @@ export function runOidcOpCompliance(factory: () => OidcOpStores): void {
   const accessToken = (over: Partial<OidcOP.AccessToken> = {}): OidcOP.AccessToken => ({
     client_id: 'app',
     exp: Date.now() + 60_000,
+    family_id: 'family-1',
     identity_id: 'user-1',
     scope: ['openid'],
     tenant_id: null,
@@ -97,12 +103,14 @@ export function runOidcOpCompliance(factory: () => OidcOpStores): void {
   })
 
   const refreshToken = (over: Partial<OidcOP.RefreshToken> = {}): OidcOP.RefreshToken => ({
+    auth_time: null,
     client_id: 'app',
     consumedAt: null,
     exp: Date.now() + 60_000,
     family_id: 'family-1',
     identity_id: 'user-1',
     scope: ['openid', 'offline_access'],
+    sid: 'sid-1',
     tenant_id: null,
     token_hash: 'rt-1',
     ...over,
@@ -119,14 +127,16 @@ export function runOidcOpCompliance(factory: () => OidcOpStores): void {
       await s.clients.insert(client())
       expectFieldTypes(await s.clients.findById('app'), OIDC_CLIENT_FIELDS, 'clients.findById')
 
+      // `auth_time` is measured here rather than left null, or a nullable field proves nothing about the
+      // column it reads from.
       const now = Date.now()
-      await s.codes.insert(code())
+      await s.codes.insert(code({ auth_time: 1_700_000_000_000 }))
       expectFieldTypes(await s.codes.consume('code-1', now), OIDC_CODE_FIELDS, 'codes.consume')
 
       await s.accessTokens.insert(accessToken())
       expectFieldTypes(await s.accessTokens.findByHash('at-1', now), OIDC_ACCESS_TOKEN_FIELDS, 'accessTokens.findByHash')
 
-      await s.refreshTokens.insert(refreshToken())
+      await s.refreshTokens.insert(refreshToken({ auth_time: 1_700_000_000_000 }))
       expectFieldTypes(await s.refreshTokens.findByHash('rt-1', now), OIDC_REFRESH_TOKEN_FIELDS, 'refreshTokens.findByHash')
       expectFieldTypes(await s.refreshTokens.consume('rt-1', now), OIDC_REFRESH_TOKEN_FIELDS, 'refreshTokens.consume')
 
@@ -219,6 +229,16 @@ export function runOidcOpCompliance(factory: () => OidcOpStores): void {
         expect(consumed?.sid).toBe('session-xyz')
       })
 
+      it('carries auth_time through, and a null through as a null', async () => {
+        const s = factory()
+        const measured = 1_700_000_000_000
+        await s.codes.insert(code({ auth_time: measured, code: 'timed' }))
+        await s.codes.insert(code({ code: 'untimed' }))
+        expect((await s.codes.consume('timed', Date.now()))?.auth_time).toBe(measured)
+        // A null is the absence of a measurement, and must not read back as 0 or as now.
+        expect((await s.codes.consume('untimed', Date.now()))?.auth_time).toBeNull()
+      })
+
       it('consuming one code leaves the others alone', async () => {
         const s = factory()
         await s.codes.insert(code({ code: 'keep-a' }))
@@ -249,6 +269,34 @@ export function runOidcOpCompliance(factory: () => OidcOpStores): void {
         await s.accessTokens.insert(accessToken({ token_hash: 'at-b' }))
         await s.accessTokens.revokeByHash('at-a')
         expect(await s.accessTokens.findByHash('at-b', Date.now())).not.toBeNull()
+      })
+
+      it('revokeFamily kills every token of the grant and spares the rest', async () => {
+        // What ending a grant rests on: a replayed code or a reused refresh token must reach the access
+        // tokens of every rotation, and no further.
+        const s = factory()
+        await s.accessTokens.insert(accessToken({ token_hash: 'grant-a' }))
+        await s.accessTokens.insert(accessToken({ token_hash: 'grant-b' }))
+        await s.accessTokens.insert(accessToken({ family_id: 'family-2', token_hash: 'other-grant' }))
+
+        await s.accessTokens.revokeFamily('family-1')
+
+        expect(await s.accessTokens.findByHash('grant-a', Date.now())).toBeNull()
+        expect(await s.accessTokens.findByHash('grant-b', Date.now())).toBeNull()
+        expect(await s.accessTokens.findByHash('other-grant', Date.now())).not.toBeNull()
+      })
+
+      it('revoking a family nobody holds is a no-op', async () => {
+        const s = factory()
+        await s.accessTokens.insert(accessToken({ token_hash: 'at-kept' }))
+        await s.accessTokens.revokeFamily('family-never-issued')
+        expect(await s.accessTokens.findByHash('at-kept', Date.now())).not.toBeNull()
+      })
+
+      it('keeps the family id, which is what ending a grant revokes by', async () => {
+        const s = factory()
+        await s.accessTokens.insert(accessToken({ family_id: 'lineage-9', token_hash: 'at-fam' }))
+        expect((await s.accessTokens.findByHash('at-fam', Date.now()))?.family_id).toBe('lineage-9')
       })
 
       it('preserves the granted scope', async () => {
@@ -299,6 +347,19 @@ export function runOidcOpCompliance(factory: () => OidcOpStores): void {
         const s = factory()
         await s.refreshTokens.insert(refreshToken({ exp: Date.now() - 1, token_hash: 'rt-old' }))
         expect(await s.refreshTokens.findByHash('rt-old', Date.now())).toBeNull()
+      })
+
+      it('carries the sid and auth_time a refreshed id_token has to repeat', async () => {
+        const s = factory()
+        const measured = 1_700_000_000_000
+        await s.refreshTokens.insert(
+          refreshToken({ auth_time: measured, sid: 'session-xyz', token_hash: 'rt-claims' }),
+        )
+        const row = await s.refreshTokens.consume('rt-claims', Date.now())
+        expect(row?.sid).toBe('session-xyz')
+        expect(row?.auth_time).toBe(measured)
+        await s.refreshTokens.insert(refreshToken({ token_hash: 'rt-unmeasured' }))
+        expect((await s.refreshTokens.consume('rt-unmeasured', Date.now()))?.auth_time).toBeNull()
       })
 
       it('keeps the family id, which is what a reuse revokes by', async () => {

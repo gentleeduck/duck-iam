@@ -8,6 +8,7 @@ function withCookie(value: string): { headers: Headers } {
 
 describe('AuthCookieTransport - construction invariants', () => {
   it('defaults cookie name to `__Host-duck-sid` when no domain is set', () => {
+    vi.stubEnv('NODE_ENV', 'production')
     const t = new CookieTransport({})
     expect(t.cookieName).toBe('__Host-duck-sid')
   })
@@ -31,15 +32,6 @@ describe('AuthCookieTransport - construction invariants', () => {
       expect.objectContaining({
         code: 'AUTH_MISCONFIGURED',
         meta: { detail: expect.stringContaining('__Host- prefix requires Path=/') },
-      }),
-    )
-  })
-
-  it('rejects __Host- prefix with secure:false', () => {
-    expect(() => new CookieTransport({ name: '__Host-mine', secure: false })).toThrow(
-      expect.objectContaining({
-        code: 'AUTH_MISCONFIGURED',
-        meta: { detail: expect.stringContaining('__Host- prefix requires Secure=true') },
       }),
     )
   })
@@ -70,22 +62,88 @@ describe('AuthCookieTransport - construction invariants', () => {
     expect(issued.map((i) => i.type === 'setCookie' && i.options.maxAge)).toEqual([3600, 3600])
   })
 
-  it("rejects sameSite: 'none' without secure", () => {
-    expect(() => new CookieTransport({ name: 'sid', sameSite: 'none', secure: false })).toThrow(
-      expect.objectContaining({
-        code: 'AUTH_MISCONFIGURED',
-        meta: { detail: "@gentleduck/auth CookieTransport: sameSite: 'none' requires secure: true" },
-      }),
-    )
-  })
-
-  it("accepts sameSite: 'none' with secure", () => {
-    expect(new CookieTransport({ name: 'sid', sameSite: 'none', secure: true }).secure).toBe(true)
+  it('refuses a path or domain the browser would replace or drop', () => {
+    const misconfigured = expect.objectContaining({ code: 'AUTH_MISCONFIGURED' })
+    for (const path of ['', 'app', 'app/', '/a;b']) {
+      expect(() => new CookieTransport({ domain: 'example.com', path })).toThrow(misconfigured)
+    }
+    for (const domain of ['https://example.com', 'example.com:3000', 'example.com/', ' example.com']) {
+      expect(() => new CookieTransport({ domain })).toThrow(misconfigured)
+    }
+    expect(new CookieTransport({ domain: '.example.com', path: '/app' }).cookieName).toBe('duck-sid')
+    vi.stubEnv('NODE_ENV', 'production')
+    expect(new CookieTransport({ domain: '' }).cookieName).toBe('__Host-duck-sid')
   })
 })
 
+describe('AuthCookieTransport - Secure follows NODE_ENV', () => {
+  const session = makeSession({ absoluteExpiresAt: new Date(Date.now() + 3_600_000) })
+  const issue = (t: CookieTransport) => t.issue('sid', session, { absolute: false, fresh: true, csrfToken: 'c' })
+
+  it('sets both cookies Secure, under the __Host- prefix, in production', () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    const t = new CookieTransport()
+    expect([t.cookieName, t.csrfCookieName]).toEqual(['__Host-duck-sid', '__Host-duck-csrf'])
+    expect(issue(t)).toMatchObject([
+      { name: '__Host-duck-sid', options: { secure: true } },
+      { name: '__Host-duck-csrf', options: { secure: true } },
+    ])
+    expect(t.revoke()).toMatchObject([
+      { name: '__Host-duck-sid', options: { secure: true } },
+      { name: '__Host-duck-csrf', options: { secure: true } },
+    ])
+  })
+
+  // Over plain http, which is how a dev server runs, a browser drops a Secure cookie and any `__Host-` one.
+  it.each(['development', 'test'])('drops Secure and the __Host- prefix under NODE_ENV=%s', (value) => {
+    vi.stubEnv('NODE_ENV', value)
+    const t = new CookieTransport()
+    expect([t.cookieName, t.csrfCookieName]).toEqual(['duck-sid', 'duck-csrf'])
+    expect(issue(t)).toMatchObject([
+      { name: 'duck-sid', options: { secure: false } },
+      { name: 'duck-csrf', options: { secure: false } },
+    ])
+    expect(t.revoke()).toMatchObject([
+      { name: 'duck-sid', options: { secure: false } },
+      { name: 'duck-csrf', options: { secure: false } },
+    ])
+  })
+
+  it('drops a __Secure- prefix the caller named, outside production', () => {
+    vi.stubEnv('NODE_ENV', 'development')
+    expect(new CookieTransport({ name: '__Secure-sid' }).cookieName).toBe('sid')
+    vi.stubEnv('NODE_ENV', 'production')
+    expect(new CookieTransport({ name: '__Secure-sid' }).cookieName).toBe('__Secure-sid')
+  })
+
+  // A browser drops a SameSite=None cookie that is not Secure, so None keeps it in every environment.
+  it('keeps Secure and the prefix under SameSite=None outside production', () => {
+    vi.stubEnv('NODE_ENV', 'development')
+    const t = new CookieTransport({ sameSite: 'none' })
+    expect([t.cookieName, t.csrfCookieName]).toEqual(['__Host-duck-sid', '__Host-duck-csrf'])
+    expect(issue(t)).toMatchObject([
+      { options: { secure: true, sameSite: 'none' } },
+      { options: { secure: true, sameSite: 'none' } },
+    ])
+  })
+
+  // Refused where it is written, rather than first on the production deploy.
+  it.each(['development', 'production'])(
+    'refuses a __Host- name with a domain or a path under NODE_ENV=%s',
+    (value) => {
+      vi.stubEnv('NODE_ENV', value)
+      expect(() => new CookieTransport({ name: '__Host-mine', domain: 'x.com' })).toThrow(
+        expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
+      )
+      expect(() => new CookieTransport({ name: '__Host-mine', path: '/api' })).toThrow(
+        expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
+      )
+    },
+  )
+})
+
 describe('AuthCookieTransport.extract - happy path', () => {
-  const t = new CookieTransport({ secure: false, name: 'duck-sid' })
+  const t = new CookieTransport({ name: 'duck-sid' })
 
   it('returns the cookie value when present', () => {
     expect(t.extract(withCookie('duck-sid=abc123'))).toBe('abc123')
@@ -111,7 +169,7 @@ describe('AuthCookieTransport.extract - happy path', () => {
 })
 
 describe('AuthCookieTransport.extract - SEC: hardened parser', () => {
-  const t = new CookieTransport({ secure: false, name: 'duck-sid' })
+  const t = new CookieTransport({ name: 'duck-sid' })
 
   it('returns null on malformed percent-encoding (would otherwise throw URIError -> DoS crash)', () => {
     // `decodeURIComponent('%g0')` throws URIError. Previously this
@@ -159,7 +217,7 @@ describe('AuthCookieTransport.extract - SEC: hardened parser', () => {
 
   describe('cookie name validation at construction', () => {
     it('rejects a cookie name with whitespace (RFC 6265 token)', () => {
-      expect(() => new CookieTransport({ secure: false, name: 'duck sid' })).toThrow(
+      expect(() => new CookieTransport({ name: 'duck sid' })).toThrow(
         expect.objectContaining({
           code: 'AUTH_MISCONFIGURED',
           meta: { detail: '@gentleduck/auth CookieTransport: name contains an RFC 6265-forbidden character' },
@@ -167,7 +225,7 @@ describe('AuthCookieTransport.extract - SEC: hardened parser', () => {
       )
     })
     it('rejects a cookie name with semicolon', () => {
-      expect(() => new CookieTransport({ secure: false, name: 'duck;sid' })).toThrow(
+      expect(() => new CookieTransport({ name: 'duck;sid' })).toThrow(
         expect.objectContaining({
           code: 'AUTH_MISCONFIGURED',
           meta: { detail: '@gentleduck/auth CookieTransport: name contains an RFC 6265-forbidden character' },
@@ -175,7 +233,7 @@ describe('AuthCookieTransport.extract - SEC: hardened parser', () => {
       )
     })
     it('rejects a cookie name with equals sign', () => {
-      expect(() => new CookieTransport({ secure: false, name: 'duck=sid' })).toThrow(
+      expect(() => new CookieTransport({ name: 'duck=sid' })).toThrow(
         expect.objectContaining({
           code: 'AUTH_MISCONFIGURED',
           meta: { detail: '@gentleduck/auth CookieTransport: name contains an RFC 6265-forbidden character' },
@@ -183,7 +241,7 @@ describe('AuthCookieTransport.extract - SEC: hardened parser', () => {
       )
     })
     it('rejects an empty cookie name', () => {
-      expect(() => new CookieTransport({ secure: false, name: '' })).toThrow(
+      expect(() => new CookieTransport({ name: '' })).toThrow(
         expect.objectContaining({
           code: 'AUTH_MISCONFIGURED',
           meta: { detail: '@gentleduck/auth CookieTransport: name must be a non-empty string <=256 chars' },
@@ -191,10 +249,10 @@ describe('AuthCookieTransport.extract - SEC: hardened parser', () => {
       )
     })
     it('accepts the default duck-sid name', () => {
-      expect(() => new CookieTransport({ secure: false, name: 'duck-sid' })).not.toThrow()
+      expect(() => new CookieTransport({ name: 'duck-sid' })).not.toThrow()
     })
     it('accepts the __Host-duck-sid name', () => {
-      expect(() => new CookieTransport({ secure: true, name: '__Host-duck-sid' })).not.toThrow()
+      expect(() => new CookieTransport({ name: '__Host-duck-sid' })).not.toThrow()
     })
   })
 })

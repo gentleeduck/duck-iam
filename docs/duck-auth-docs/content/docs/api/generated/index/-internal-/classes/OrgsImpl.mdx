@@ -3,7 +3,7 @@ title: "Class: OrgsImpl"
 description: "Apps with no org concept leave OrgMeta = never, and the facet tree-shakes to zero references."
 ---
 
-Defined in: [packages/duck-auth/src/core/orgs/orgs.ts:12](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/orgs/orgs.ts#L12)
+Defined in: [packages/duck-auth/src/core/orgs/orgs.ts:12](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/orgs/orgs.ts#L12)
 
 Apps with no org concept leave `OrgMeta = never`, and the facet tree-shakes to zero references.
 
@@ -19,7 +19,7 @@ Apps with no org concept leave `OrgMeta = never`, and the facet tree-shakes to z
 
 > **new OrgsImpl**\<`OrgMeta` = `unknown`\>(`_store`: [`Store`](../../namespaces/Org/type-aliases/Store)\<`OrgMeta`\>, `_events`: [`IBus`](../../namespaces/Events/interfaces/IBus)): `OrgsImpl`\<`OrgMeta`\>
 
-Defined in: [packages/duck-auth/src/core/orgs/orgs.ts:13](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/orgs/orgs.ts#L13)
+Defined in: [packages/duck-auth/src/core/orgs/orgs.ts:13](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/orgs/orgs.ts#L13)
 
 #### Parameters
 
@@ -41,7 +41,7 @@ Defined in: [packages/duck-auth/src/core/orgs/orgs.ts:13](https://github.com/gen
 
 > `readonly` **\_events**: [`IBus`](../../namespaces/Events/interfaces/IBus)
 
-Defined in: [packages/duck-auth/src/core/orgs/orgs.ts:15](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/orgs/orgs.ts#L15)
+Defined in: [packages/duck-auth/src/core/orgs/orgs.ts:15](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/orgs/orgs.ts#L15)
 
 ## Methods
 
@@ -49,7 +49,7 @@ Defined in: [packages/duck-auth/src/core/orgs/orgs.ts:15](https://github.com/gen
 
 > **addMember**(`input`: \{ `identityId`: `string`; `orgId`: `string`; `roles?`: `string`[]; \}, `ctx`: [`TenantContext`](../../interfaces/TenantContext)): `Promise`\<[`Membership`](../../namespaces/Org/type-aliases/Membership)\>
 
-Defined in: [packages/duck-auth/src/core/orgs/orgs.ts:35](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/orgs/orgs.ts#L35)
+Defined in: [packages/duck-auth/src/core/orgs/orgs.ts:36](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/orgs/orgs.ts#L36)
 
 Re-adding an identity whose previous membership is marked `leftAt` is allowed; a live one is a
  conflict on (org, identity).
@@ -84,7 +84,7 @@ Re-adding an identity whose previous membership is marked `leftAt` is allowed; a
 
 > **get**(`id`: `string`, `ctx`: [`TenantContext`](../../interfaces/TenantContext)): [`Me`](../../namespaces/Answer/interfaces/Me)\<[`Me`](../../namespaces/Org/type-aliases/Me)\<`OrgMeta`\>\>
 
-Defined in: [packages/duck-auth/src/core/orgs/orgs.ts:19](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/orgs/orgs.ts#L19)
+Defined in: [packages/duck-auth/src/core/orgs/orgs.ts:19](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/orgs/orgs.ts#L19)
 
 The org with this id.
 
@@ -108,7 +108,7 @@ The org with this id.
 
 > **listForIdentity**(`identityId`: `string`, `ctx`: [`TenantContext`](../../interfaces/TenantContext)): `Promise`\<[`Me`](../../namespaces/Org/type-aliases/Me)\<`OrgMeta`\>[]\>
 
-Defined in: [packages/duck-auth/src/core/orgs/orgs.ts:24](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/orgs/orgs.ts#L24)
+Defined in: [packages/duck-auth/src/core/orgs/orgs.ts:24](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/orgs/orgs.ts#L24)
 
 Every org this identity is a member of.
 
@@ -132,7 +132,7 @@ Every org this identity is a member of.
 
 > **listMembers**(`orgId`: `string`, `ctx`: [`TenantContext`](../../interfaces/TenantContext)): `Promise`\<[`Membership`](../../namespaces/Org/type-aliases/Membership)[]\>
 
-Defined in: [packages/duck-auth/src/core/orgs/orgs.ts:29](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/orgs/orgs.ts#L29)
+Defined in: [packages/duck-auth/src/core/orgs/orgs.ts:30](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/orgs/orgs.ts#L30)
 
 Every live membership in this org; a row the store answers marked `leftAt` is dropped.
 
@@ -156,10 +156,11 @@ Every live membership in this org; a row the store answers marked `leftAt` is dr
 
 > **removeMember**(`orgId`: `string`, `identityId`: `string`, `ctx`: [`TenantContext`](../../interfaces/TenantContext)): [`Me`](../../namespaces/Answer/interfaces/Me)\<[`Membership`](../../namespaces/Org/type-aliases/Membership)\>
 
-Defined in: [packages/duck-auth/src/core/orgs/orgs.ts:62](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/orgs/orgs.ts#L62)
+Defined in: [packages/duck-auth/src/core/orgs/orgs.ts:69](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/orgs/orgs.ts#L69)
 
 Marks `leftAt`, answering the membership as it stands left. An identity that was not a member
- rejects; `orNull()` is how an idempotent caller reads that as having done nothing.
+ rejects; `orNull()` is how an idempotent caller reads that as having done nothing. Removing again
+ answers the left row, and only the call that ended the membership emits `org.member.removed`.
 
 #### Parameters
 
@@ -185,7 +186,7 @@ Marks `leftAt`, answering the membership as it stands left. An identity that was
 
 > **resolveMembership**(`orgId`: `string`, `identityId`: `string`, `ctx`: [`TenantContext`](../../interfaces/TenantContext)): [`Me`](../../namespaces/Answer/interfaces/Me)\<[`Membership`](../../namespaces/Org/type-aliases/Membership)\>
 
-Defined in: [packages/duck-auth/src/core/orgs/orgs.ts:83](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/orgs/orgs.ts#L83)
+Defined in: [packages/duck-auth/src/core/orgs/orgs.ts:101](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/orgs/orgs.ts#L101)
 
 Rejects `AUTH_MEMBERSHIP_NOT_FOUND` when the identity is not a live member.
 
@@ -213,12 +214,10 @@ Rejects `AUTH_MEMBERSHIP_NOT_FOUND` when the identity is not a live member.
 
 > **setRoles**(`orgId`: `string`, `identityId`: `string`, `roles`: `string`[], `ctx`: [`TenantContext`](../../interfaces/TenantContext)): [`Me`](../../namespaces/Answer/interfaces/Me)\<[`Membership`](../../namespaces/Org/type-aliases/Membership)\>
 
-Defined in: [packages/duck-auth/src/core/orgs/orgs.ts:74](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/orgs/orgs.ts#L74)
+Defined in: [packages/duck-auth/src/core/orgs/orgs.ts:85](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/orgs/orgs.ts#L85)
 
-Answers the membership carrying the sanitized set actually stored, not the one passed in.
- NOTE: the store decides whether a membership marked `leftAt` can still be given roles. The
- shipped memory store allows it, and the write is unreadable - `listMembers` and
- `resolveMembership` skip left rows, and re-adding overwrites the roles wholesale.
+Answers the membership carrying the sanitized set actually stored, not the one passed in. Rejects
+ `AUTH_MEMBERSHIP_NOT_FOUND` for an identity that is not a live member.
 
 #### Parameters
 

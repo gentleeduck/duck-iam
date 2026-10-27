@@ -15,7 +15,7 @@ import { ApiKeysFacet } from '~/providers/api-key/api-key'
 import { magicLink } from '~/providers/magic-link'
 import { mfaProvider, totpAt } from '~/providers/mfa'
 import { passwords, ScryptHasher } from '~/providers/passwords'
-import { authTestDeliver } from '~/test'
+import { authTestDataAtRest, authTestDeliver } from '~/test'
 import { identityInput } from '~/test/store-inputs'
 
 interface MyProfile extends Identities.ProfileMetadataBase {
@@ -31,9 +31,12 @@ function build(limit: number) {
     baseUrl: 'https://app',
     deliver: channel.deliver,
     limiter: new MemoryLimiter({ max: limit, windowMs: 60_000 }),
-    providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) }), mfaProvider()],
+    providers: [
+      passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) }),
+      mfaProvider({ dataAtRest: authTestDataAtRest() }),
+    ],
     stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
-    transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+    transport: new CookieTransport({ name: 'duck-sid' }),
   })
   const seen: Lockout[] = []
   auth.events.on('lockout', (p) => {
@@ -97,7 +100,7 @@ describe('lockout is emitted where the refusal knows whose account it is', () =>
   it('password sign-in - the brute-force bucket names the account being ground', async () => {
     const { adapter, auth, seen } = build(1)
     const id = await newIdentity(auth, 'alice@x.com')
-    await auth.passwords.set(id, 'correct-horse-battery', adapter.credentials)
+    await auth.passwords.set(id, 'correct-horse-battery', adapter.credentials, null)
 
     const attempt = () =>
       auth.flows.signIn({ input: { email: 'alice@x.com', password: 'wrong-password-1' }, providerId: 'password' })
@@ -114,7 +117,7 @@ describe('lockout is emitted where the refusal knows whose account it is', () =>
   it('password sign-in - a correct password is refused and reported the same way', async () => {
     const { adapter, auth, seen } = build(1)
     const id = await newIdentity(auth, 'alice@x.com')
-    await auth.passwords.set(id, 'correct-horse-battery', adapter.credentials)
+    await auth.passwords.set(id, 'correct-horse-battery', adapter.credentials, null)
 
     const signin = () =>
       auth.flows.signIn({ input: { email: 'alice@x.com', password: 'correct-horse-battery' }, providerId: 'password' })
@@ -172,8 +175,8 @@ describe('lockout is emitted where the refusal knows whose account it is', () =>
   it('completePasswordReset - a ground MFA gate names the token owner', async () => {
     const { auth, channel, seen } = build(1)
     const id = await newIdentity(auth, 'dave@x.com')
-    const enrol = await auth.mfa.beginTotpEnrollment(id, 'dave@x.com')
-    await auth.mfa.confirmTotpEnrollment(id, totpAt(enrol.secret, Math.floor(Date.now() / 1000 / 30)))
+    const enrol = await auth.mfa.beginTotpEnrollment(id, 'dave@x.com', null)
+    await auth.mfa.confirmTotpEnrollment(id, totpAt(enrol.secret, Math.floor(Date.now() / 1000 / 30)), null)
 
     await auth.flows.requestPasswordReset({
       findIdentityByEmail: (email) => auth.identities.getByEmail(email),
@@ -227,7 +230,7 @@ describe('lockout is withheld where the refusal has no subject', () => {
       baseUrl: 'https://app',
       limiter: new MemoryLimiter({ max: 1, windowMs: 60_000 }),
       stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
-      transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+      transport: new CookieTransport({ name: 'duck-sid' }),
     })
     const seen: Lockout[] = []
     auth.events.on('lockout', (p) => {
@@ -258,7 +261,7 @@ describe('lockout is withheld where the refusal has no subject', () => {
     const ident = await adapter.identities.create(
       identityInput({ profile: { email: 'svc@x.com', username: 'svc' }, providers: [] }),
     )
-    const { plaintext } = await facet.create(ident.id, { name: 'CI runner', scopes: ['read:users'] })
+    const { plaintext } = await facet.create(ident.id, { name: 'CI runner', scopes: ['read:users'], session: null })
     const ctx = {
       baseUrl: 'https://app',
       crypto: { authRandomToken: randomToken, authSha256: sha256, authTimingSafeEqual: timingSafeEqual },

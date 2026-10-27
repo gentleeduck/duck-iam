@@ -1,5 +1,5 @@
 import { type Answer, answer, orNull } from '~/core/answer'
-import { isCredentialExpired } from '~/core/credentials/credentials'
+import { isCredentialExpired, refuseWithoutStepUp } from '~/core/credentials/credentials'
 import type { Credential } from '~/core/credentials/credentials.types'
 import { randomToken, sha256 } from '~/core/crypto'
 import type { AuthEngine } from '~/core/engine'
@@ -9,6 +9,7 @@ import type { Events } from '~/core/events/events.types'
 import type { Identities } from '~/core/identities'
 import type { Provider } from '~/core/provider/provider.types'
 import type { Sessions } from '~/core/sessions/sessions.types'
+import { ALL_TENANTS } from '~/core/tenant/tenant'
 import type { TenantContext } from '~/core/tenant/tenant.types'
 import { APIKEY_MAX_LENGTH, isScopeToken, toApiKeysCfg } from './api-key.constants'
 import type { ApiKeys } from './api-key.types'
@@ -67,10 +68,11 @@ export class ApiKeysFacet {
     return new ApiKeysFacet(stores.credentials, events, this._crypto, this._cfg, stores.identities, stores.sessions)
   }
 
-  /** The plaintext comes back exactly once. */
+  /** The plaintext comes back exactly once. A key signs in without a second factor, so `opts.session` has to be
+   *  stepped up, as `refuseWithoutStepUp` asks. */
   async create(
     identityId: string,
-    opts: { name: string; scopes: string[]; expiresAt?: number; tenantId?: string },
+    opts: { name: string; scopes: string[]; expiresAt?: number; tenantId?: string; session: Sessions.Me | null },
     ctx: TenantContext = {},
   ): Promise<ApiKeys.CreatedApiKey> {
     if (typeof opts.name !== 'string' || opts.name.length > 128) {
@@ -91,6 +93,9 @@ export class ApiKeysFacet {
         })
       }
     }
+    // The key's own tenant, for the gate and the row alike.
+    const tenant = opts.tenantId !== undefined ? { tenantId: opts.tenantId } : ctx
+    await refuseWithoutStepUp(this._credentials, identityId, opts.session, tenant)
     const random = this._crypto.randomToken(this._cfg.randomBytes)
     const plaintext = `${this._cfg.prefix}${random}`
     const hash = this._crypto.sha256(plaintext)
@@ -105,18 +110,10 @@ export class ApiKeysFacet {
         lastUsedAt: null,
         revokedAt: null,
       },
-      ctx,
+      tenant,
     )
-    const key: ApiKeys.ApiKey = {
-      id: cred.id,
-      identityId,
-      name: opts.name,
-      scopes: opts.scopes,
-      createdAt: cred.createdAt,
-      updatedAt: cred.updatedAt,
-      ...(opts.expiresAt !== undefined && { expiresAt: new Date(opts.expiresAt) }),
-    }
-    return { key, plaintext }
+    // The stored row, as `list` reads it: built from the input, a tenant-bound key came back without its tenant.
+    return { key: toApiKey(cred), plaintext }
   }
 
   /** No plaintext. */
@@ -148,8 +145,8 @@ export class ApiKeysFacet {
   }
 
   /** Issues a new plaintext, exactly once, and marks the old row revoked; telling consumers to swap is
-   *  the caller's job. */
-  async rotate(keyId: string, ctx: TenantContext = {}): Promise<ApiKeys.CreatedApiKey> {
+   *  the caller's job. `session` has to be the key owner's, stepped up, as `refuseWithoutStepUp` asks. */
+  async rotate(keyId: string, session: Sessions.Me | null, ctx: TenantContext = {}): Promise<ApiKeys.CreatedApiKey> {
     const existing = await orNull(this._credentials.findById(keyId, ctx))
     if (existing?.kind !== 'api-key') {
       throw new AuthError('AUTH_APIKEY_INVALID')
@@ -158,6 +155,8 @@ export class ApiKeysFacet {
     if (existing.revokedAt != null || isCredentialExpired(existing)) {
       throw new AuthError('AUTH_APIKEY_REVOKED')
     }
+    // Before the revoke, or a refused rotation still ends the key.
+    await refuseWithoutStepUp(this._credentials, existing.identityId, session, ctx)
     const meta = parseApiKeyMetadata(existing.metadata)
     await this._credentials.revoke(keyId, ctx)
     await this._endKeySessions(existing.identityId)
@@ -167,6 +166,9 @@ export class ApiKeysFacet {
         name: meta.name,
         scopes: meta.scopes,
         ...(existing.expiresAt != null && { expiresAt: existing.expiresAt.getTime() }),
+        // SECURITY: the old key's tenant, which an `ALL_TENANTS` context does not name.
+        ...(existing.tenantId != null && { tenantId: existing.tenantId }),
+        session,
       },
       ctx,
     )
@@ -176,7 +178,7 @@ export class ApiKeysFacet {
    *  opened it. */
   private async _endKeySessions(identityId: string): Promise<void> {
     if (!this._sessions) return
-    const opened = (await this._sessions.listByIdentity(identityId)).filter((s) => s.kind === 'apikey')
+    const opened = (await this._sessions.listByIdentity(identityId, ALL_TENANTS)).filter((s) => s.kind === 'apikey')
     if (opened.length === 0) return
     for (const s of await this._sessions.deleteMany(opened.map((s) => s.id))) {
       await this._events.emit('session.revoked', { sessionId: s.id, identityId: s.identityId })
@@ -291,12 +293,8 @@ export class AuthApiKeyImpl<Profile extends Identities.ProfileMetadataBase = Ide
     // redis, or by anything with a JSON hop, hands back epoch milliseconds and that throws - a 500 out
     // of the guard whose whole job is to answer 429.
     if (!rl.ok) await refuseRateLimited(ctx.events, rl, null)
+    // Held to the sign-in's tenant, or to none, so the key found is in the tenant its session opens in.
     const verified = await this.opts.apiKeys.verify(input.token, ctx.tenant)
-    // A tenant-bound api-key must not identify-confirm on a different or empty tenant scope, or the
-    // resulting session lacks the key's tenancy while the caller still holds proof-of-key for it.
-    if (verified.tenantId !== undefined && ctx.tenant.tenantId !== verified.tenantId) {
-      throw new AuthError('AUTH_APIKEY_INVALID')
-    }
     if (this.opts.requireScopes && this.opts.requireScopes.length > 0) {
       this.opts.apiKeys.requireScopes(verified.scopes, this.opts.requireScopes)
     }

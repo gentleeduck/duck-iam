@@ -17,7 +17,7 @@ function buildAuth(): {
   const fastHasher = new ScryptHasher({ N: 1 << 10, keylen: 32 })
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://x',
-    transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
+    transport: new CookieTransport({ name: 'duck-sid' }),
     stores: {
       identities: adapter.identities,
       sessions: adapter.sessions,
@@ -44,7 +44,7 @@ describe('password provider - end-to-end sign-in', () => {
 
   it('full happy path: create identity -> set password -> sign in -> cookie issued', async () => {
     const identity = await auth.identities.create({ profile: { email: 'alice@x.com', username: 'alice' } })
-    await auth.passwords.set(identity.id, 'correct-horse-battery', adapter.credentials)
+    await auth.passwords.set(identity.id, 'correct-horse-battery', adapter.credentials, null)
 
     const signinHandler = vi.fn()
     auth.events.on('signin.success', signinHandler)
@@ -70,7 +70,7 @@ describe('password provider - end-to-end sign-in', () => {
 
   it('wrong password surfaces AUTH_INVALID_CREDENTIALS without revealing which side failed', async () => {
     const identity = await auth.identities.create({ profile: { email: 'a@x.com', username: 'a' } })
-    await auth.passwords.set(identity.id, 'correct-pw', adapter.credentials)
+    await auth.passwords.set(identity.id, 'correct-pw', adapter.credentials, null)
 
     const failedHandler = vi.fn()
     auth.events.on('signin.failed', failedHandler)
@@ -110,7 +110,7 @@ describe('password provider - end-to-end sign-in', () => {
 
   it('rate limit trips after configured attempts', async () => {
     const identity = await auth.identities.create({ profile: { email: 'a@x.com', username: 'a' } })
-    await auth.passwords.set(identity.id, 'correct-pw', adapter.credentials)
+    await auth.passwords.set(identity.id, 'correct-pw', adapter.credentials, null)
 
     for (let i = 0; i < 5; i++) {
       await auth.flows
@@ -139,7 +139,7 @@ describe('password provider - end-to-end sign-in', () => {
 
   it('signOut revokes the session and emits clearCookie intent', async () => {
     const identity = await auth.identities.create({ profile: { email: 'a@x.com', username: 'a' } })
-    await auth.passwords.set(identity.id, 'correct-pw', adapter.credentials)
+    await auth.passwords.set(identity.id, 'correct-pw', adapter.credentials, null)
     const signin = await auth.flows.signIn({
       providerId: 'password',
       input: { email: 'a@x.com', password: 'correct-pw' },
@@ -155,7 +155,7 @@ describe('password provider - end-to-end sign-in', () => {
 
   it('AuthEngine.resolveSession() returns the (session, identity) pair after sign-in', async () => {
     const identity = await auth.identities.create({ profile: { email: 'a@x.com', username: 'a' } })
-    await auth.passwords.set(identity.id, 'correct-pw', adapter.credentials)
+    await auth.passwords.set(identity.id, 'correct-pw', adapter.credentials, null)
     const signin = await auth.flows.signIn({
       providerId: 'password',
       input: { email: 'a@x.com', password: 'correct-pw' },
@@ -169,7 +169,7 @@ describe('password provider - end-to-end sign-in', () => {
   describe('email case-folding parity', () => {
     it('signs in with mixed-case email when identity is stored lowercase', async () => {
       const identity = await auth.identities.create({ profile: { email: 'alice@x.com', username: 'alice' } })
-      await auth.passwords.set(identity.id, 'correct-pw', adapter.credentials)
+      await auth.passwords.set(identity.id, 'correct-pw', adapter.credentials, null)
       const result = await auth.flows.signIn({
         providerId: 'password',
         input: { email: '  ALICE@X.com  ', password: 'correct-pw' },

@@ -3,6 +3,7 @@
  * HTTP-POST binding and IdP-initiated SSO through an unsolicited SAMLResponse.
  */
 
+import { isProduction } from '~/core/env'
 import { AuthError } from '~/core/errors'
 import { refuseRateLimited } from '~/core/events'
 import type { Identities } from '~/core/identities'
@@ -43,8 +44,9 @@ export class SamlImpl<Profile extends Identities.ProfileMetadataBase = Identitie
         detail: 'samlProvider requires `callbackUrl` (matches IdP AssertionConsumerService URL)',
       })
     }
-    // The client is what validates `Destination` and `Recipient` against its own callback, so the
-    // two disagreeing meant a response minted for a different ACS was accepted here.
+    // Keeps the advertised ACS and the one the client signs requests with from drifting apart. It is not
+    // what binds an assertion to this SP - node-saml compares neither `Destination` nor `Recipient` - so
+    // the audience check below is.
     const clientCallback = clientOption(cfg.client, 'callbackUrl')
     if (clientCallback !== undefined && clientCallback !== cfg.callbackUrl) {
       throw new AuthError('AUTH_MISCONFIGURED', {
@@ -64,6 +66,14 @@ export class SamlImpl<Profile extends Identities.ProfileMetadataBase = Identitie
           'samlProvider was given a client set to verify no signature at all (wantAssertionsSigned and wantAuthnResponseSigned are both false); at least one must stay on',
       })
     }
+    // SECURITY: `AudienceRestriction` is the whole of what ties an assertion to this SP, since the client
+    // compares neither `Destination` nor `Recipient`. With it off, any assertion the IdP ever issued lands.
+    if (clientOption(cfg.client, 'audience') === false && cfg.allowAnyAudience !== true) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail:
+          "samlProvider was given a client with `audience: false`, which accepts an assertion minted for any Service Provider; set the client's `audience` (or its `issuer`), or `allowAnyAudience: true` to opt out",
+      })
+    }
     if (!cfg.onSignIn) {
       throw new AuthError('AUTH_MISCONFIGURED', {
         detail: 'samlProvider requires `onSignIn` (just-in-time identity provisioning hook)',
@@ -77,14 +87,9 @@ export class SamlImpl<Profile extends Identities.ProfileMetadataBase = Identitie
           'samlProvider requires `verifyRelayState`, or `allowUnsolicited: true` to accept IdP-initiated responses with no request to bind to',
       })
     }
-    // The same rule as the relay state above, applied to the one replay protection this wrapper has:
-    // it cannot be absent by accident. `complete` still branches on the store, because opting out is
-    // now a thing the operator said rather than a key they forgot.
-    if (!cfg.replayStore && cfg.allowReplay !== true) {
-      throw new AuthError('AUTH_MISCONFIGURED', {
-        detail:
-          'samlProvider requires `replayStore`, or `allowReplay: true` to accept assertions with no replay protection',
-      })
+    // The one replay protection this wrapper has; development and test may run without it.
+    if (!cfg.replayStore && isProduction()) {
+      throw new AuthError('AUTH_MISCONFIGURED', { detail: 'samlProvider requires `replayStore` in production' })
     }
     this.id = cfg.providerId ?? DEFAULT_SAML_CONFIG.providerId
     this._allowedNameIdFormats = cfg.allowedNameIdFormats ?? [DEFAULT_SAML_CONFIG.nameIdFormat]

@@ -3,29 +3,17 @@ title: "Interface: Cfg"
 description: "What the discovery document advertises."
 ---
 
-Defined in: [packages/duck-auth/src/oidc/index.ts:241](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/index.ts#L241)
+Defined in: [packages/duck-auth/src/oidc/index.ts:330](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/index.ts#L330)
 
 What the discovery document advertises.
 
 ## Properties
 
-### allowHttp?
-
-> `optional` **allowHttp?**: `boolean`
-
-Defined in: [packages/duck-auth/src/oidc/index.ts:274](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/index.ts#L274)
-
-Permit a non-HTTPS `issuer`. Dev-only. OIDC core section 16.18 requires
-HTTPS in production. Default false; explicit opt-in here so the
-misconfig is visible in code review.
-
-***
-
 ### extraClaims?
 
 > `optional` **extraClaims?**: `Record`\<`string`, `unknown`\>
 
-Defined in: [packages/duck-auth/src/oidc/index.ts:281](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/index.ts#L281)
+Defined in: [packages/duck-auth/src/oidc/index.ts:364](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/index.ts#L364)
 
 Extra fields merged at the top level (for OIDC profiles or
 extensions). Spread BEFORE the canonical fields so a misconfigured
@@ -38,7 +26,7 @@ via this hatch.
 
 > `optional` **grantTypesSupported?**: `string`[]
 
-Defined in: [packages/duck-auth/src/oidc/index.ts:258](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/index.ts#L258)
+Defined in: [packages/duck-auth/src/oidc/index.ts:347](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/index.ts#L347)
 
 Default `['authorization_code', 'refresh_token', 'client_credentials']`.
 
@@ -48,9 +36,9 @@ Default `['authorization_code', 'refresh_token', 'client_credentials']`.
 
 > **issuer**: `string`
 
-Defined in: [packages/duck-auth/src/oidc/index.ts:243](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/index.ts#L243)
+Defined in: [packages/duck-auth/src/oidc/index.ts:332](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/index.ts#L332)
 
-Required. Public issuer URL (no trailing slash).
+Required. Public issuer URL (no trailing slash), HTTPS; plain http is admitted only outside production.
 
 ***
 
@@ -58,7 +46,7 @@ Required. Public issuer URL (no trailing slash).
 
 > `optional` **jwksPath?**: `string`
 
-Defined in: [packages/duck-auth/src/oidc/index.ts:250](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/index.ts#L250)
+Defined in: [packages/duck-auth/src/oidc/index.ts:339](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/index.ts#L339)
 
 Path to the JWKS endpoint your framework adapter exposes. Default
 `/.well-known/jwks.json`.
@@ -69,7 +57,7 @@ Path to the JWKS endpoint your framework adapter exposes. Default
 
 > `optional` **prefix?**: `string`
 
-Defined in: [packages/duck-auth/src/oidc/index.ts:245](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/index.ts#L245)
+Defined in: [packages/duck-auth/src/oidc/index.ts:334](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/index.ts#L334)
 
 Mount prefix for the auth routes; default `/auth`.
 
@@ -79,7 +67,7 @@ Mount prefix for the auth routes; default `/auth`.
 
 > `optional` **registrationEndpoint?**: `string`
 
-Defined in: [packages/duck-auth/src/oidc/index.ts:268](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/index.ts#L268)
+Defined in: [packages/duck-auth/src/oidc/index.ts:357](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/index.ts#L357)
 
 Advertise a `registration_endpoint` (RFC 7591). Set when the
 host wires `AuthOidcOP.register` on a public route. Omit to suppress
@@ -91,7 +79,7 @@ the field entirely.
 
 > `optional` **responseTypesSupported?**: `string`[]
 
-Defined in: [packages/duck-auth/src/oidc/index.ts:256](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/index.ts#L256)
+Defined in: [packages/duck-auth/src/oidc/index.ts:345](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/index.ts#L345)
 
 Default `['code']`; add `'token'`/`'id_token'` to enable hybrid flows.
 
@@ -101,7 +89,7 @@ Default `['code']`; add `'token'`/`'id_token'` to enable hybrid flows.
 
 > `optional` **scopesSupported?**: `string`[]
 
-Defined in: [packages/duck-auth/src/oidc/index.ts:254](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/index.ts#L254)
+Defined in: [packages/duck-auth/src/oidc/index.ts:343](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/index.ts#L343)
 
 oauth2 scopes the server is willing to honor.
 
@@ -111,7 +99,7 @@ oauth2 scopes the server is willing to honor.
 
 > `optional` **signingAlgs?**: (`"HS256"` \| `"ES256"` \| `"RS256"`)[]
 
-Defined in: [packages/duck-auth/src/oidc/index.ts:252](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/index.ts#L252)
+Defined in: [packages/duck-auth/src/oidc/index.ts:341](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/index.ts#L341)
 
 Algorithms advertised. Should match the JwtTransport keys.
 
@@ -121,7 +109,7 @@ Algorithms advertised. Should match the JwtTransport keys.
 
 > `optional` **subjectTypesSupported?**: `string`[]
 
-Defined in: [packages/duck-auth/src/oidc/index.ts:260](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/index.ts#L260)
+Defined in: [packages/duck-auth/src/oidc/index.ts:349](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/index.ts#L349)
 
 Default `['public']`.
 
@@ -131,7 +119,7 @@ Default `['public']`.
 
 > `optional` **tokenEndpointAuthMethodsSupported?**: `string`[]
 
-Defined in: [packages/duck-auth/src/oidc/index.ts:262](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/index.ts#L262)
+Defined in: [packages/duck-auth/src/oidc/index.ts:351](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/index.ts#L351)
 
 Default `['client_secret_basic', 'client_secret_post']`; add `'none'` for PKCE-only public clients.
 

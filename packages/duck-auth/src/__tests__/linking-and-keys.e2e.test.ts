@@ -45,7 +45,7 @@ suite('E2E provider linking and API keys on real Postgres', () => {
     auth = new AuthEngine<Profile>({
       baseUrl: 'https://app.test',
       stores: { credentials: stores.credentials, identities: stores.identities, sessions: stores.sessions },
-      transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+      transport: new CookieTransport({ name: 'duck-sid' }),
     })
     auth.providers.register(passwords<Profile>({ hasher: new ScryptHasher({ keylen: 32, N: 1 << 10 }) }))
     keys = new ApiKeysFacet(stores.credentials, new InMemoryEvents(), { randomToken, sha256 })
@@ -70,9 +70,10 @@ suite('E2E provider linking and API keys on real Postgres', () => {
         identityId: id,
         providerId: 'oauth:google',
         providerSub,
+        session: null,
       })
 
-      const found = await stores.identities.find({ providerId: 'oauth:google', providerSub })
+      const found = await stores.identities.find({ providerId: 'oauth:google', providerSub, tenantId: null })
       expect(found?.id).toBe(id)
     })
 
@@ -85,12 +86,14 @@ suite('E2E provider linking and API keys on real Postgres', () => {
         identityId: id,
         providerId: 'oauth:google',
         providerSub: g,
+        session: null,
       })
       await auth.flows.linkProvider({
         authorize: ALLOW_LINK,
         identityId: id,
         providerId: 'oauth:github',
         providerSub: gh,
+        session: null,
       })
 
       const row = await stores.identities.find({ id })
@@ -105,12 +108,14 @@ suite('E2E provider linking and API keys on real Postgres', () => {
         identityId: id,
         providerId: 'oauth:google',
         providerSub,
+        session: null,
       })
       await auth.flows.linkProvider({
         authorize: ALLOW_LINK,
         identityId: id,
         providerId: 'oauth:google',
         providerSub,
+        session: null,
       })
 
       const row = await stores.identities.find({ id })
@@ -128,6 +133,7 @@ suite('E2E provider linking and API keys on real Postgres', () => {
         identityId: mine,
         providerId: 'oauth:google',
         providerSub,
+        session: null,
       })
 
       await expect(
@@ -136,6 +142,7 @@ suite('E2E provider linking and API keys on real Postgres', () => {
           identityId: theirs,
           providerId: 'oauth:google',
           providerSub,
+          session: null,
         }),
       ).rejects.toMatchObject({ code: 'AUTH_PROVIDER_FAILED' })
     })
@@ -147,6 +154,7 @@ suite('E2E provider linking and API keys on real Postgres', () => {
           identityId: '00000000-0000-4000-8000-000000000000',
           providerId: 'oauth:google',
           providerSub: sub('ghost'),
+          session: null,
         }),
       ).rejects.toMatchObject({ code: 'AUTH_UNAUTHENTICATED' })
     })
@@ -159,6 +167,7 @@ suite('E2E provider linking and API keys on real Postgres', () => {
           identityId: id,
           providerId: 'x'.repeat(200),
           providerSub: sub('s'),
+          session: null,
         }),
       ).rejects.toMatchObject({ code: 'AUTH_PROVIDER_FAILED', meta: { providerId: 'invalid' } })
     })
@@ -171,6 +180,7 @@ suite('E2E provider linking and API keys on real Postgres', () => {
           identityId: id,
           providerId: 'oauth:google',
           providerSub: 'y'.repeat(600),
+          session: null,
         }),
       ).rejects.toMatchObject({ code: 'AUTH_PROVIDER_FAILED' })
     })
@@ -183,16 +193,19 @@ suite('E2E provider linking and API keys on real Postgres', () => {
         identityId: id,
         providerId: 'oauth:google',
         providerSub,
+        session: null,
       })
       await stores.identities.softDelete(id, 60_000)
 
-      await expect(stores.identities.find({ providerId: 'oauth:google', providerSub })).rejects.toMatchObject({
+      await expect(
+        stores.identities.find({ providerId: 'oauth:google', providerSub, tenantId: null }),
+      ).rejects.toMatchObject({
         code: 'AUTH_IDENTITY_NOT_FOUND',
       })
     })
 
     it('keeps the provider sub while the holder is soft-deleted, so cancelling gets the login back', async () => {
-      // `uq_auth_identity_providers_sub` is unconditional, matching the address: the sub is unreachable
+      // `uq_auth_identity_providers_sub` ignores a soft delete, matching the address: the sub is unreachable
       // while the holder is hidden, which the case above pins, but it is not free for another identity to
       // claim. The pair is what makes the grace window mean anything.
       const first = await newUser('link-held-a')
@@ -203,6 +216,7 @@ suite('E2E provider linking and API keys on real Postgres', () => {
         identityId: first,
         providerId: 'oauth:google',
         providerSub,
+        session: null,
       })
       await stores.identities.softDelete(first, 60_000)
 
@@ -212,6 +226,7 @@ suite('E2E provider linking and API keys on real Postgres', () => {
           identityId: second,
           providerId: 'oauth:google',
           providerSub,
+          session: null,
         }),
       ).rejects.toMatchObject({ code: 'AUTH_PROVIDER_TAKEN' })
     })
@@ -227,20 +242,26 @@ suite('E2E provider linking and API keys on real Postgres', () => {
         identityId: id,
         providerId: 'oauth:google',
         providerSub: g,
+        session: null,
       })
       await auth.flows.linkProvider({
         authorize: ALLOW_LINK,
         identityId: id,
         providerId: 'oauth:github',
         providerSub: gh,
+        session: null,
       })
 
-      await auth.flows.unlinkProvider({ identityId: id, providerId: 'oauth:google' })
+      await auth.flows.unlinkProvider({ identityId: id, providerId: 'oauth:google', session: null })
 
-      await expect(stores.identities.find({ providerId: 'oauth:google', providerSub: g })).rejects.toMatchObject({
+      await expect(
+        stores.identities.find({ providerId: 'oauth:google', providerSub: g, tenantId: null }),
+      ).rejects.toMatchObject({
         code: 'AUTH_IDENTITY_NOT_FOUND',
       })
-      expect((await stores.identities.find({ providerId: 'oauth:github', providerSub: gh }))?.id).toBe(id)
+      expect((await stores.identities.find({ providerId: 'oauth:github', providerSub: gh, tenantId: null }))?.id).toBe(
+        id,
+      )
     })
 
     it('lets the provider sub be linked again afterwards', async () => {
@@ -252,22 +273,25 @@ suite('E2E provider linking and API keys on real Postgres', () => {
         identityId: id,
         providerId: 'oauth:github',
         providerSub: sub('gh'),
+        session: null,
       })
       await auth.flows.linkProvider({
         authorize: ALLOW_LINK,
         identityId: id,
         providerId: 'oauth:google',
         providerSub,
+        session: null,
       })
-      await auth.flows.unlinkProvider({ identityId: id, providerId: 'oauth:google' })
+      await auth.flows.unlinkProvider({ identityId: id, providerId: 'oauth:google', session: null })
       await auth.flows.linkProvider({
         authorize: ALLOW_LINK,
         identityId: id,
         providerId: 'oauth:google',
         providerSub,
+        session: null,
       })
 
-      expect((await stores.identities.find({ providerId: 'oauth:google', providerSub }))?.id).toBe(id)
+      expect((await stores.identities.find({ providerId: 'oauth:google', providerSub, tenantId: null }))?.id).toBe(id)
     })
 
     it('refuses to unlink the last way into an account', async () => {
@@ -279,9 +303,12 @@ suite('E2E provider linking and API keys on real Postgres', () => {
         identityId: id,
         providerId: 'oauth:google',
         providerSub: sub('only'),
+        session: null,
       })
 
-      await expect(auth.flows.unlinkProvider({ identityId: id, providerId: 'oauth:google' })).rejects.toMatchObject({
+      await expect(
+        auth.flows.unlinkProvider({ identityId: id, providerId: 'oauth:google', session: null }),
+      ).rejects.toMatchObject({
         code: 'AUTH_PROVIDER_FAILED',
       })
     })
@@ -294,10 +321,13 @@ suite('E2E provider linking and API keys on real Postgres', () => {
         identityId: id,
         providerId: 'oauth:google',
         providerSub,
+        session: null,
       })
 
-      await auth.flows.unlinkProvider({ allowLockout: true, identityId: id, providerId: 'oauth:google' })
-      await expect(stores.identities.find({ providerId: 'oauth:google', providerSub })).rejects.toMatchObject({
+      await auth.flows.unlinkProvider({ allowLockout: true, identityId: id, providerId: 'oauth:google', session: null })
+      await expect(
+        stores.identities.find({ providerId: 'oauth:google', providerSub, tenantId: null }),
+      ).rejects.toMatchObject({
         code: 'AUTH_IDENTITY_NOT_FOUND',
       })
     })
@@ -310,11 +340,14 @@ suite('E2E provider linking and API keys on real Postgres', () => {
         identityId: id,
         providerId: 'oauth:google',
         providerSub,
+        session: null,
       })
-      await auth.passwords.set(id, 'correct-horse-battery', stores.credentials)
+      await auth.passwords.set(id, 'correct-horse-battery', stores.credentials, null)
 
-      await auth.flows.unlinkProvider({ identityId: id, providerId: 'oauth:google' })
-      await expect(stores.identities.find({ providerId: 'oauth:google', providerSub })).rejects.toMatchObject({
+      await auth.flows.unlinkProvider({ identityId: id, providerId: 'oauth:google', session: null })
+      await expect(
+        stores.identities.find({ providerId: 'oauth:google', providerSub, tenantId: null }),
+      ).rejects.toMatchObject({
         code: 'AUTH_IDENTITY_NOT_FOUND',
       })
     })
@@ -323,7 +356,7 @@ suite('E2E provider linking and API keys on real Postgres', () => {
   describe('API keys', () => {
     it('issues a key that verifies back to its owner', async () => {
       const id = await newUser('key-issue')
-      const { plaintext } = await keys.create(id, { name: 'ci', scopes: ['read'] })
+      const { plaintext } = await keys.create(id, { name: 'ci', scopes: ['read'], session: null })
 
       const verified = await keys.verify(plaintext)
       expect(verified.identityId).toBe(id)
@@ -334,7 +367,7 @@ suite('E2E provider linking and API keys on real Postgres', () => {
       // Only the hash is stored; a listing that could reproduce the secret would
       // make a database read equivalent to holding every key.
       const id = await newUser('key-once')
-      const { plaintext } = await keys.create(id, { name: 'ci', scopes: ['read'] })
+      const { plaintext } = await keys.create(id, { name: 'ci', scopes: ['read'], session: null })
       const listed = await keys.list(id)
 
       expect(JSON.stringify(listed)).not.toContain(plaintext)
@@ -342,7 +375,7 @@ suite('E2E provider linking and API keys on real Postgres', () => {
 
     it('refuses a revoked key, and says so distinctly', async () => {
       const id = await newUser('key-revoke')
-      const { key, plaintext } = await keys.create(id, { name: 'ci', scopes: ['read'] })
+      const { key, plaintext } = await keys.create(id, { name: 'ci', scopes: ['read'], session: null })
       await keys.revoke(key.id)
 
       await expect(keys.verify(plaintext)).rejects.toMatchObject({ code: 'AUTH_APIKEY_REVOKED' })
@@ -351,7 +384,7 @@ suite('E2E provider linking and API keys on real Postgres', () => {
     it('the revocation is in the row, not in this process', async () => {
       // A second facet reading the same table fresh must refuse it too.
       const id = await newUser('key-revoke-row')
-      const { key, plaintext } = await keys.create(id, { name: 'ci', scopes: ['read'] })
+      const { key, plaintext } = await keys.create(id, { name: 'ci', scopes: ['read'], session: null })
       await keys.revoke(key.id)
 
       const otherProcess = new ApiKeysFacet(stores.credentials, new InMemoryEvents(), { randomToken, sha256 })
@@ -360,8 +393,8 @@ suite('E2E provider linking and API keys on real Postgres', () => {
 
     it('a revoked key drops out of the listing', async () => {
       const id = await newUser('key-list')
-      const a = await keys.create(id, { name: 'keep', scopes: ['read'] })
-      const b = await keys.create(id, { name: 'drop', scopes: ['read'] })
+      const a = await keys.create(id, { name: 'keep', scopes: ['read'], session: null })
+      const b = await keys.create(id, { name: 'drop', scopes: ['read'], session: null })
       await keys.revoke(b.key.id)
 
       const listed = await keys.list(id)
@@ -382,8 +415,8 @@ suite('E2E provider linking and API keys on real Postgres', () => {
 
     it('rotating issues a new secret and kills the old one', async () => {
       const id = await newUser('key-rotate')
-      const first = await keys.create(id, { name: 'ci', scopes: ['read'] })
-      const rotated = await keys.rotate(first.key.id)
+      const first = await keys.create(id, { name: 'ci', scopes: ['read'], session: null })
+      const rotated = await keys.rotate(first.key.id, null)
 
       expect(rotated.plaintext).not.toBe(first.plaintext)
       expect((await keys.verify(rotated.plaintext)).identityId).toBe(id)
@@ -393,15 +426,15 @@ suite('E2E provider linking and API keys on real Postgres', () => {
     it('a key belonging to one identity does not verify as another', async () => {
       const mine = await newUser('key-mine')
       const theirs = await newUser('key-theirs')
-      const { plaintext } = await keys.create(mine, { name: 'ci', scopes: ['read'] })
+      const { plaintext } = await keys.create(mine, { name: 'ci', scopes: ['read'], session: null })
 
       expect((await keys.verify(plaintext)).identityId).not.toBe(theirs)
     })
 
     it('keys survive alongside each other', async () => {
       const id = await newUser('key-many')
-      const a = await keys.create(id, { name: 'a', scopes: ['read'] })
-      const b = await keys.create(id, { name: 'b', scopes: ['write'] })
+      const a = await keys.create(id, { name: 'a', scopes: ['read'], session: null })
+      const b = await keys.create(id, { name: 'b', scopes: ['write'], session: null })
 
       expect((await keys.verify(a.plaintext)).scopes).toEqual(['read'])
       expect((await keys.verify(b.plaintext)).scopes).toEqual(['write'])
@@ -409,7 +442,7 @@ suite('E2E provider linking and API keys on real Postgres', () => {
 
     it('erasing the identity takes its keys with it', async () => {
       const id = await newUser('key-cascade')
-      const { plaintext } = await keys.create(id, { name: 'ci', scopes: ['read'] })
+      const { plaintext } = await keys.create(id, { name: 'ci', scopes: ['read'], session: null })
       await stores.identities.erase(id)
 
       await expect(keys.verify(plaintext)).rejects.toMatchObject({ code: 'AUTH_APIKEY_INVALID' })

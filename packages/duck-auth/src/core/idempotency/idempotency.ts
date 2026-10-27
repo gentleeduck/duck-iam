@@ -66,35 +66,8 @@ export class IdempotencyImpl {
 
     const existing = await orNull(this._store.get(scopedKey, ctx))
     if (existing) return replay(existing)
-
-    const claimed = await this._store.claim(scopedKey, this._cfg.ttlMs, ctx)
-    if (claimed) {
-      let response: Idempotency.CachedResponse
-      try {
-        response = await executor()
-      } catch (err) {
-        // SECURITY: the claim is a lock on an executor that is no longer running, so it is released here
-        // rather than left to `ttlMs` - a day by default - which stranded every retry of the key on a 409,
-        // the one case an Idempotency-Key exists for. The 409 below covers what a release cannot: a
-        // process that died mid-execution. A failed release must not cost the caller the executor's error.
-        await this._store.delete(scopedKey, ctx).catch(() => {})
-        throw err
-      }
-      // SECURITY: a 5xx is not an outcome, it is the absence of one, and pinning it to the key leaves the
-      // client no way to ever complete that operation - the same defect the throw above was fixed for, since
-      // whether a failing executor throws or catches its own error and answers 500 is its own style. 4xx is
-      // cached deliberately: a 422 is a decision about the request, and replaying it is both cheap and right.
-      if (response.status >= 500) {
-        await this._store.delete(scopedKey, ctx).catch(() => {})
-        return response
-      }
-      await this._store.put(
-        scopedKey,
-        opts.fingerprint === undefined ? response : { ...response, fingerprint: opts.fingerprint },
-        this._cfg.ttlMs,
-        ctx,
-      )
-      return response
+    if (await this._store.claim(scopedKey, this._cfg.ttlMs, ctx)) {
+      return this._execute(scopedKey, ctx, executor, opts.fingerprint)
     }
 
     // Claim refused, so poll with bounded backoff for the originator's put: executing twice would
@@ -105,11 +78,64 @@ export class IdempotencyImpl {
       await new Promise((r) => setTimeout(r, delay))
       const settled = await orNull(this._store.get(scopedKey, ctx))
       if (settled) return replay(settled)
+      // The originator failed and released the key, so this request runs instead of waiting out the poll for a 409.
+      if (await this._store.claim(scopedKey, this._cfg.ttlMs, ctx)) {
+        return this._execute(scopedKey, ctx, executor, opts.fingerprint)
+      }
       delay = Math.min(delay * 2, 250)
     }
     // The originator's process died mid-execution, or the store is unreachable. A 409 beats executing
     // twice. An executor that merely failed has already released the key above, so it is not this.
     return { status: 409, body: { error: 'idempotency-conflict' }, createdAt: new Date() }
+  }
+
+  /** Runs `executor` under the claim this caller holds, and caches its answer. */
+  private async _execute(
+    scopedKey: string,
+    ctx: TenantContext,
+    executor: () => Promise<Idempotency.CachedResponse>,
+    fingerprint: string | undefined,
+  ): Promise<Idempotency.CachedResponse> {
+    const release = (): Promise<void> =>
+      this._store.delete(scopedKey, ctx).catch((err) => {
+        console.error('[@gentleduck/auth] idempotency could not release a failed key; a repeat answers 409:', err)
+      })
+    let response: Idempotency.CachedResponse
+    try {
+      response = await executor()
+    } catch (err) {
+      // SECURITY: the claim is a lock on an executor that is no longer running, so it is released here
+      // rather than left to `ttlMs` - a day by default - which stranded every retry of the key on a 409,
+      // the one case an Idempotency-Key exists for. The 409 in `handle` covers what a release cannot: a
+      // process that died mid-execution. A failed release must not cost the caller the executor's error.
+      await release()
+      throw err
+    }
+    // SECURITY: a 5xx is not an outcome, it is the absence of one, and pinning it to the key leaves the
+    // client no way to ever complete that operation - the same defect the throw above was fixed for, since
+    // whether a failing executor throws or catches its own error and answers 500 is its own style. 4xx is
+    // cached deliberately: a 422 is a decision about the request, and replaying it is both cheap and right.
+    if (response.status >= 500) {
+      await release()
+      return response
+    }
+    // `Set-Cookie` stays off the cached copy, so a replay cannot hand out the session the original minted.
+    const headers =
+      response.headers &&
+      Object.fromEntries(Object.entries(response.headers).filter(([name]) => name.toLowerCase() !== 'set-cookie'))
+    try {
+      await this._store.put(
+        scopedKey,
+        { ...response, ...(headers && { headers }), ...(fingerprint !== undefined && { fingerprint }) },
+        this._cfg.ttlMs,
+        ctx,
+      )
+    } catch (err) {
+      // Logged, not thrown, since the executor has run: thrown, a charge that went through reached the client
+      // as an error while its claim answered every retry of the key 409.
+      console.error('[@gentleduck/auth] idempotency could not cache a response; a repeat of its key answers 409:', err)
+    }
+    return response
   }
 }
 

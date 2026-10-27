@@ -30,9 +30,10 @@ export class BearerTransport implements Transport.ITransport {
         detail: `@gentleduck/auth BearerTransport: scheme must be non-blank and carry no surrounding whitespace (got ${JSON.stringify(cfg.scheme)})`,
       })
     }
-    if (this._header.trim() === '') {
+    // RFC 9110 token, which `Headers.get` enforces by throwing: a stray space made every `extract` a TypeError.
+    if (!/^[A-Za-z0-9!#$%&'*+\-.^_`|~]+$/.test(this._header)) {
       throw new AuthError('AUTH_MISCONFIGURED', {
-        detail: '@gentleduck/auth BearerTransport: header must be a non-blank header name',
+        detail: `@gentleduck/auth BearerTransport: header must be a valid header name (got ${JSON.stringify(cfg.header)})`,
       })
     }
   }

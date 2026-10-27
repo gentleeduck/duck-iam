@@ -60,8 +60,7 @@ export function withNormalisedEmail<Write extends { profile?: unknown }>(write: 
 /**
  * The identity rules every dialect carries as table constraints, so the unit tier is held to what
  * production enforces rather than to the in-process store's lack of a schema. Both logins must be a string
- * that says something and fits the column, and neither half of a provider link may be blank — a blank names
- * nobody, and the pair is what a lookup matches.
+ * that says something and fits the column, and no part of a provider link may be blank.
  *
  * An update is held to the same list, because `profile` is one column: a dialect writing a patch that omits
  * `email` drops the address, so a partial profile is refused there too.
@@ -87,6 +86,9 @@ export function assertIdentityAllowed(write: {
   for (const link of write.providers ?? []) {
     if (link.providerId === '' || link.providerSub === '') {
       throw new AuthError('AUTH_INVALID_PARAMETERS', { detail: 'provider link has a blank providerId or providerSub' })
+    }
+    if (link.tenantId === '') {
+      throw new AuthError('AUTH_INVALID_PARAMETERS', { detail: 'provider link has a blank tenant' })
     }
   }
 }

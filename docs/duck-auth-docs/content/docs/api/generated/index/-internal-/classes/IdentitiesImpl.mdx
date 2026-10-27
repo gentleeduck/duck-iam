@@ -3,7 +3,7 @@ title: "Class: IdentitiesImpl"
 description: "Every mutating write goes through update(expectedVersion), so a stale caller sees AUTH_STALE_WRITE."
 ---
 
-Defined in: [packages/duck-auth/src/core/identities/identities.ts:18](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.ts#L18)
+Defined in: [packages/duck-auth/src/core/identities/identities.ts:19](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/identities/identities.ts#L19)
 
 Every mutating write goes through `update(expectedVersion)`, so a stale caller sees `AUTH_STALE_WRITE`.
 
@@ -17,9 +17,9 @@ Every mutating write goes through `update(expectedVersion)`, so a stale caller s
 
 ### Constructor
 
-> **new IdentitiesImpl**\<`Profile` *extends* [`ProfileMetadataBase`](../../namespaces/Identities/type-aliases/ProfileMetadataBase) = [`ProfileMetadataBase`](../../namespaces/Identities/type-aliases/ProfileMetadataBase)\>(`_store`: [`Store`](../../namespaces/Identities/type-aliases/Store)\<`Profile`\>, `_events`: [`IBus`](../../namespaces/Events/interfaces/IBus), `_cfg?`: [`Cfg`](../../namespaces/Identities/interfaces/Cfg), `_credentials?`: [`Store`](../../namespaces/Credential/type-aliases/Store)): `IdentitiesImpl`\<`Profile`\>
+> **new IdentitiesImpl**\<`Profile` *extends* [`ProfileMetadataBase`](../../namespaces/Identities/type-aliases/ProfileMetadataBase) = [`ProfileMetadataBase`](../../namespaces/Identities/type-aliases/ProfileMetadataBase)\>(`_store`: [`Store`](../../namespaces/Identities/type-aliases/Store)\<`Profile`\>, `_events`: [`IBus`](../../namespaces/Events/interfaces/IBus), `_cfg`: [`Cfg`](../../namespaces/Identities/interfaces/Cfg), `_credentials`: [`Store`](../../namespaces/Credential/type-aliases/Store)): `IdentitiesImpl`\<`Profile`\>
 
-Defined in: [packages/duck-auth/src/core/identities/identities.ts:19](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.ts#L19)
+Defined in: [packages/duck-auth/src/core/identities/identities.ts:20](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/identities/identities.ts#L20)
 
 #### Parameters
 
@@ -31,15 +31,15 @@ Defined in: [packages/duck-auth/src/core/identities/identities.ts:19](https://gi
 
 [`IBus`](../../namespaces/Events/interfaces/IBus)
 
-##### \_cfg?
+##### \_cfg
 
-[`Cfg`](../../namespaces/Identities/interfaces/Cfg) = `DEFAULT_IDENTITIES_CONFIG`
+[`Cfg`](../../namespaces/Identities/interfaces/Cfg)
 
-##### \_credentials?
+##### \_credentials
 
 [`Store`](../../namespaces/Credential/type-aliases/Store)
 
-Read by [IdentitiesImpl.unlink](#unlink) alone, to count the ways in that are not links. Absent means none can be.
+What `link` and `unlink` ask a step-up for, and the ways in `unlink` counts beside the links.
 
 #### Returns
 
@@ -53,7 +53,7 @@ Read by [IdentitiesImpl.unlink](#unlink) alone, to count the ways in that are no
 
 > **get** **softDeleteGracePeriodMs**(): `number`
 
-Defined in: [packages/duck-auth/src/core/identities/identities.ts:41](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.ts#L41)
+Defined in: [packages/duck-auth/src/core/identities/identities.ts:42](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/identities/identities.ts#L42)
 
 Exposed for `FlowsImpl.requestAccountDeletion`, which needs it for `restorableUntil`.
 
@@ -67,7 +67,7 @@ Exposed for `FlowsImpl.requestAccountDeletion`, which needs it for `restorableUn
 
 > **assertProfileWithinCap**(`profile`: `unknown`): `void`
 
-Defined in: [packages/duck-auth/src/core/identities/identities.ts:132](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.ts#L132)
+Defined in: [packages/duck-auth/src/core/identities/identities.ts:136](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/identities/identities.ts#L136)
 
 Public and typed `unknown` because the signup flow stages a partial profile for up to 24 hours, and
  a cap the profile only meets on the last hop is not a cap.
@@ -86,25 +86,30 @@ Public and typed `unknown` because the signup flow stages a partial profile for 
 
 ### bulkCreate()
 
-> **bulkCreate**(`rows`: \{ `profile`: `Profile`; `providers?`: [`ProviderLinkInput`](../../namespaces/Identities/type-aliases/ProviderLinkInput)[]; \}[], `opts?`: \{ `mode?`: `"replace"` \| `"skipExisting"` \| `"merge"`; \}): `Promise`\<\{ `created`: `number`; `failed`: `number`; `skipped`: `number`; \}\>
+> **bulkCreate**(`rows`: \{ `profile`: `Profile`; `providers?`: `Omit`\<[`ProviderLinkInput`](../../namespaces/Identities/type-aliases/ProviderLinkInput), `"tenantId"`\>[]; \}[], `opts?`: \{ `mode?`: `"replace"` \| `"skipExisting"` \| `"merge"`; \}, `ctx?`: [`TenantContext`](../../interfaces/TenantContext)): `Promise`\<\{ `created`: `number`; `failed`: `number`; `skipped`: `number`; \}\>
 
-Defined in: [packages/duck-auth/src/core/identities/identities.ts:225](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.ts#L225)
+Defined in: [packages/duck-auth/src/core/identities/identities.ts:241](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/identities/identities.ts#L241)
 
-`skipExisting` passes over an address already present, `merge` folds the new logins into it, `replace`
- erases it and creates the row fresh. A refusal met after that erase is raised, not counted: run a
- replace inside `withTransaction` for the erase to roll back with it.
+`skipExisting` passes over an address already present, `merge` folds the new logins into it unless it holds a
+ factor beside the password, `replace` erases it, emitting `identity.erased`, and creates the row fresh. A
+ refusal met after that erase is raised, not counted: run a replace inside `withTransaction` for the erase to
+ roll back with it.
 
 #### Parameters
 
 ##### rows
 
-\{ `profile`: `Profile`; `providers?`: [`ProviderLinkInput`](../../namespaces/Identities/type-aliases/ProviderLinkInput)[]; \}[]
+\{ `profile`: `Profile`; `providers?`: `Omit`\<[`ProviderLinkInput`](../../namespaces/Identities/type-aliases/ProviderLinkInput), `"tenantId"`\>[]; \}[]
 
 ##### opts?
 
 ###### mode?
 
 `"replace"` \| `"skipExisting"` \| `"merge"`
+
+##### ctx?
+
+[`TenantContext`](../../interfaces/TenantContext) = `{}`
 
 #### Returns
 
@@ -114,11 +119,11 @@ Defined in: [packages/duck-auth/src/core/identities/identities.ts:225](https://g
 
 ### create()
 
-> **create**(`input`: \{ `emailVerified?`: `boolean`; `profile`: `Profile`; `providers?`: [`ProviderLinkInput`](../../namespaces/Identities/type-aliases/ProviderLinkInput)[]; \}): `Promise`\<[`Me`](../../namespaces/Identities/type-aliases/Me)\<`Profile`\>\>
+> **create**(`input`: \{ `emailVerified?`: `boolean`; `profile`: `Profile`; `providers?`: `Omit`\<[`ProviderLinkInput`](../../namespaces/Identities/type-aliases/ProviderLinkInput), `"tenantId"`\>[]; \}, `ctx?`: [`TenantContext`](../../interfaces/TenantContext)): `Promise`\<[`Me`](../../namespaces/Identities/type-aliases/Me)\<`Profile`\>\>
 
-Defined in: [packages/duck-auth/src/core/identities/identities.ts:71](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.ts#L71)
+Defined in: [packages/duck-auth/src/core/identities/identities.ts:72](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/identities/identities.ts#L72)
 
-Creates an identity, with its provider links in the same write.
+Creates an identity, with its provider links in `ctx`'s tenant in the same write.
 
 #### Parameters
 
@@ -134,7 +139,11 @@ Creates an identity, with its provider links in the same write.
 
 ###### providers?
 
-[`ProviderLinkInput`](../../namespaces/Identities/type-aliases/ProviderLinkInput)[]
+`Omit`\<[`ProviderLinkInput`](../../namespaces/Identities/type-aliases/ProviderLinkInput), `"tenantId"`\>[]
+
+##### ctx?
+
+[`TenantContext`](../../interfaces/TenantContext) = `{}`
 
 #### Returns
 
@@ -146,7 +155,7 @@ Creates an identity, with its provider links in the same write.
 
 > **erase**(`id`: `string`, `opts`: \{ `operatorId?`: `string`; `reason`: `string`; \}): [`Me`](../../namespaces/Answer/interfaces/Me)\<[`Me`](../../namespaces/Identities/type-aliases/Me)\<`Profile`\>\>
 
-Defined in: [packages/duck-auth/src/core/identities/identities.ts:212](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.ts#L212)
+Defined in: [packages/duck-auth/src/core/identities/identities.ts:227](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/identities/identities.ts#L227)
 
 Irreversible. Answers the row as it was, since nothing can read it now, and emits `identity.erased`
  stamped with `operatorId` as its actor.
@@ -177,7 +186,7 @@ Irreversible. Answers the row as it was, since nothing can read it now, and emit
 
 > **eraseMany**(`ids`: `string`[], `opts`: \{ `operatorId?`: `string`; `reason`: `string`; \}): `Promise`\<[`Me`](../../namespaces/Identities/type-aliases/Me)\<`Profile`\>[]\>
 
-Defined in: [packages/duck-auth/src/core/identities/identities.ts:323](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.ts#L323)
+Defined in: [packages/duck-auth/src/core/identities/identities.ts:344](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/identities/identities.ts#L344)
 
 Erases every id in one adapter call, emitting `identity.erased` per row as [IdentitiesImpl.erase](#erase) does.
 
@@ -207,10 +216,10 @@ Erases every id in one adapter call, emitting `identity.erased` per row as [Iden
 
 > **exportAll**(`id`: `string`, `credentials`: [`Store`](../../namespaces/Credential/type-aliases/Store), `ctx?`: [`TenantContext`](../../interfaces/TenantContext), `opts?`: \{ `sessions?`: [`Store`](../../namespaces/Sessions/type-aliases/Store); \}): `Promise`\<[`ExportBlob`](../../namespaces/Identities/interfaces/ExportBlob)\<`Profile`\>\>
 
-Defined in: [packages/duck-auth/src/core/identities/identities.ts:277](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.ts#L277)
+Defined in: [packages/duck-auth/src/core/identities/identities.ts:295](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/identities/identities.ts#L295)
 
-GDPR right-to-access, with every credential `secret` and session `csrfHash` stripped, and both
- lists narrowed to `ctx`.
+GDPR right-to-access, with every credential `secret` and session `csrfHash` stripped, and the links,
+ credentials and sessions narrowed to `ctx`.
 
 #### Parameters
 
@@ -242,10 +251,11 @@ GDPR right-to-access, with every credential `secret` and session `csrfHash` stri
 
 > **gc**(): `Promise`\<\{ `deleted`: `number`; \}\>
 
-Defined in: [packages/duck-auth/src/core/identities/identities.ts:335](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.ts#L335)
+Defined in: [packages/duck-auth/src/core/identities/identities.ts:357](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/identities/identities.ts#L357)
 
 The caller schedules it, under a leader lock in a distributed deployment. Until it runs, a row whose
- window closed is hidden but still there, which is not what a deletion promised.
+ window closed is hidden but still there, which is not what a deletion promised. Emits `identity.erased`
+ with `reason: 'gc'` for each row erased.
 
 #### Returns
 
@@ -257,7 +267,7 @@ The caller schedules it, under a leader lock in a distributed deployment. Until 
 
 > **getByEmail**(`email`: `string`): [`Me`](../../namespaces/Answer/interfaces/Me)\<[`Me`](../../namespaces/Identities/type-aliases/Me)\<`Profile`\>\>
 
-Defined in: [packages/duck-auth/src/core/identities/identities.ts:51](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.ts#L51)
+Defined in: [packages/duck-auth/src/core/identities/identities.ts:52](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/identities/identities.ts#L52)
 
 The identity holding this email address.
 
@@ -277,7 +287,7 @@ The identity holding this email address.
 
 > **getById**(`id`: `string`): [`Me`](../../namespaces/Answer/interfaces/Me)\<[`Me`](../../namespaces/Identities/type-aliases/Me)\<`Profile`\>\>
 
-Defined in: [packages/duck-auth/src/core/identities/identities.ts:46](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.ts#L46)
+Defined in: [packages/duck-auth/src/core/identities/identities.ts:47](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/identities/identities.ts#L47)
 
 The identity with this id.
 
@@ -295,11 +305,11 @@ The identity with this id.
 
 ### getByProviderSub()
 
-> **getByProviderSub**(`providerId`: `string`, `sub`: `string`): [`Me`](../../namespaces/Answer/interfaces/Me)\<[`Me`](../../namespaces/Identities/type-aliases/Me)\<`Profile`\>\>
+> **getByProviderSub**(`providerId`: `string`, `sub`: `string`, `ctx?`: [`TenantContext`](../../interfaces/TenantContext)): [`Me`](../../namespaces/Answer/interfaces/Me)\<[`Me`](../../namespaces/Identities/type-aliases/Me)\<`Profile`\>\>
 
-Defined in: [packages/duck-auth/src/core/identities/identities.ts:61](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.ts#L61)
+Defined in: [packages/duck-auth/src/core/identities/identities.ts:62](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/identities/identities.ts#L62)
 
-The identity linked to this provider's subject.
+The identity linked to this provider's subject in `ctx`'s tenant.
 
 #### Parameters
 
@@ -311,6 +321,10 @@ The identity linked to this provider's subject.
 
 `string`
 
+##### ctx?
+
+[`TenantContext`](../../interfaces/TenantContext) = `{}`
+
 #### Returns
 
 [`Me`](../../namespaces/Answer/interfaces/Me)\<[`Me`](../../namespaces/Identities/type-aliases/Me)\<`Profile`\>\>
@@ -319,11 +333,11 @@ The identity linked to this provider's subject.
 
 ### link()
 
-> **link**(`identityId`: `string`, `link`: [`ProviderLinkInput`](../../namespaces/Identities/type-aliases/ProviderLinkInput)): `Promise`\<[`Me`](../../namespaces/Identities/type-aliases/Me)\<`Profile`\>\>
+> **link**(`identityId`: `string`, `link`: `Omit`\<[`ProviderLinkInput`](../../namespaces/Identities/type-aliases/ProviderLinkInput), `"tenantId"`\>, `session`: [`Me`](../../namespaces/Sessions/type-aliases/Me) \| `null`, `ctx?`: [`TenantContext`](../../interfaces/TenantContext)): `Promise`\<[`Me`](../../namespaces/Identities/type-aliases/Me)\<`Profile`\>\>
 
-Defined in: [packages/duck-auth/src/core/identities/identities.ts:152](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.ts#L152)
+Defined in: [packages/duck-auth/src/core/identities/identities.ts:156](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/identities/identities.ts#L156)
 
-Refuses a provider the identity already holds, where the store takes a repeat as a no-op.
+Links a login in `ctx`'s tenant, refusing a provider held there; `session` must be stepped up in it.
 
 #### Parameters
 
@@ -333,7 +347,15 @@ Refuses a provider the identity already holds, where the store takes a repeat as
 
 ##### link
 
-[`ProviderLinkInput`](../../namespaces/Identities/type-aliases/ProviderLinkInput)
+`Omit`\<[`ProviderLinkInput`](../../namespaces/Identities/type-aliases/ProviderLinkInput), `"tenantId"`\>
+
+##### session
+
+[`Me`](../../namespaces/Sessions/type-aliases/Me) \| `null`
+
+##### ctx?
+
+[`TenantContext`](../../interfaces/TenantContext) = `{}`
 
 #### Returns
 
@@ -343,18 +365,27 @@ Refuses a provider the identity already holds, where the store takes a repeat as
 
 ### linkMany()
 
-> **linkMany**(`links`: \{ `identityId`: `string`; `link`: [`ProviderLinkInput`](../../namespaces/Identities/type-aliases/ProviderLinkInput); \}[]): `Promise`\<[`Me`](../../namespaces/Identities/type-aliases/Me)\<`Profile`\>[]\>
+> **linkMany**(`links`: \{ `identityId`: `string`; `link`: `Omit`\<[`ProviderLinkInput`](../../namespaces/Identities/type-aliases/ProviderLinkInput), `"tenantId"`\>; \}[], `session`: [`Me`](../../namespaces/Sessions/type-aliases/Me) \| `null`, `ctx?`: [`TenantContext`](../../interfaces/TenantContext)): `Promise`\<[`Me`](../../namespaces/Identities/type-aliases/Me)\<`Profile`\>[]\>
 
-Defined in: [packages/duck-auth/src/core/identities/identities.ts:370](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.ts#L370)
+Defined in: [packages/duck-auth/src/core/identities/identities.ts:395](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/identities/identities.ts#L395)
 
 Adds each provider link, one write per identity. Through [IdentitiesImpl.link](#link), so a
- providerId already on the identity is skipped here as it is refused there.
+ providerId already on the identity is skipped here as it is refused there, and so is an identity
+ `session` may not change.
 
 #### Parameters
 
 ##### links
 
-\{ `identityId`: `string`; `link`: [`ProviderLinkInput`](../../namespaces/Identities/type-aliases/ProviderLinkInput); \}[]
+\{ `identityId`: `string`; `link`: `Omit`\<[`ProviderLinkInput`](../../namespaces/Identities/type-aliases/ProviderLinkInput), `"tenantId"`\>; \}[]
+
+##### session
+
+[`Me`](../../namespaces/Sessions/type-aliases/Me) \| `null`
+
+##### ctx?
+
+[`TenantContext`](../../interfaces/TenantContext) = `{}`
 
 #### Returns
 
@@ -366,7 +397,7 @@ Adds each provider link, one write per identity. Through [IdentitiesImpl.link](#
 
 > **markEmailVerified**(`id`: `string`, `email`: `string`): `Promise`\<[`Me`](../../namespaces/Identities/type-aliases/Me)\<`Profile`\>\>
 
-Defined in: [packages/duck-auth/src/core/identities/identities.ts:108](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.ts#L108)
+Defined in: [packages/duck-auth/src/core/identities/identities.ts:112](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/identities/identities.ts#L112)
 
 Marks `email` verified, refusing with `AUTH_INVALID_PARAMETERS` once the identity no longer holds it.
 A lost version race is retried once, since the caller has already spent their single-use token.
@@ -394,7 +425,7 @@ filtering keys, so routing verification through it would let the account holder 
 
 > **restore**(`id`: `string`): [`Me`](../../namespaces/Answer/interfaces/Me)\<[`Me`](../../namespaces/Identities/type-aliases/Me)\<`Profile`\>\>
 
-Defined in: [packages/duck-auth/src/core/identities/identities.ts:206](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.ts#L206)
+Defined in: [packages/duck-auth/src/core/identities/identities.ts:221](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/identities/identities.ts#L221)
 
 A window already closed throws `AUTH_GRACE_EXPIRED`, as an id matching nothing throws not-found.
 
@@ -414,7 +445,7 @@ A window already closed throws `AUTH_GRACE_EXPIRED`, as an id matching nothing t
 
 > **restoreMany**(`ids`: `string`[]): `Promise`\<[`Me`](../../namespaces/Identities/type-aliases/Me)\<`Profile`\>[]\>
 
-Defined in: [packages/duck-auth/src/core/identities/identities.ts:312](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.ts#L312)
+Defined in: [packages/duck-auth/src/core/identities/identities.ts:333](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/identities/identities.ts#L333)
 
 One whose window has closed is left out, as a missing row is, where [IdentitiesImpl.restore](#restore) throws.
 
@@ -434,7 +465,7 @@ One whose window has closed is left out, as a missing row is, where [IdentitiesI
 
 > **softDelete**(`id`: `string`): [`Me`](../../namespaces/Answer/interfaces/Me)\<[`Me`](../../namespaces/Identities/type-aliases/Me)\<`Profile`\>\>
 
-Defined in: [packages/duck-auth/src/core/identities/identities.ts:201](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.ts#L201)
+Defined in: [packages/duck-auth/src/core/identities/identities.ts:216](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/identities/identities.ts#L216)
 
 Hides the identity and starts the configured grace period before erasure.
 
@@ -454,7 +485,7 @@ Hides the identity and starts the configured grace period before erasure.
 
 > **softDeleteMany**(`ids`: `string`[]): `Promise`\<[`Me`](../../namespaces/Identities/type-aliases/Me)\<`Profile`\>[]\>
 
-Defined in: [packages/duck-auth/src/core/identities/identities.ts:305](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.ts#L305)
+Defined in: [packages/duck-auth/src/core/identities/identities.ts:326](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/identities/identities.ts#L326)
 
 Soft-deletes every id in one adapter call.
 
@@ -472,11 +503,11 @@ Soft-deletes every id in one adapter call.
 
 ### unlink()
 
-> **unlink**(`identityId`: `string`, `providerId`: `string`): `Promise`\<[`Me`](../../namespaces/Identities/type-aliases/Me)\<`Profile`\>\>
+> **unlink**(`identityId`: `string`, `providerId`: `string`, `session`: [`Me`](../../namespaces/Sessions/type-aliases/Me) \| `null`, `ctx?`: [`TenantContext`](../../interfaces/TenantContext)): `Promise`\<[`Me`](../../namespaces/Identities/type-aliases/Me)\<`Profile`\>\>
 
-Defined in: [packages/duck-auth/src/core/identities/identities.ts:177](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.ts#L177)
+Defined in: [packages/duck-auth/src/core/identities/identities.ts:187](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/identities/identities.ts#L187)
 
-Drops one provider link from the identity.
+Drops the link at `providerId` in `ctx`'s tenant; `session` must be stepped up in it.
 
 #### Parameters
 
@@ -488,6 +519,14 @@ Drops one provider link from the identity.
 
 `string`
 
+##### session
+
+[`Me`](../../namespaces/Sessions/type-aliases/Me) \| `null`
+
+##### ctx?
+
+[`TenantContext`](../../interfaces/TenantContext) = `{}`
+
 #### Returns
 
 `Promise`\<[`Me`](../../namespaces/Identities/type-aliases/Me)\<`Profile`\>\>
@@ -496,19 +535,28 @@ Drops one provider link from the identity.
 
 ### unlinkMany()
 
-> **unlinkMany**(`links`: \{ `identityId`: `string`; `providerId`: `string`; \}[]): `Promise`\<[`Me`](../../namespaces/Identities/type-aliases/Me)\<`Profile`\>[]\>
+> **unlinkMany**(`links`: \{ `identityId`: `string`; `providerId`: `string`; \}[], `session`: [`Me`](../../namespaces/Sessions/type-aliases/Me) \| `null`, `ctx?`: [`TenantContext`](../../interfaces/TenantContext)): `Promise`\<[`Me`](../../namespaces/Identities/type-aliases/Me)\<`Profile`\>[]\>
 
-Defined in: [packages/duck-auth/src/core/identities/identities.ts:385](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.ts#L385)
+Defined in: [packages/duck-auth/src/core/identities/identities.ts:413](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/identities/identities.ts#L413)
 
 Drops each provider link, one write per identity. Through [IdentitiesImpl.unlink](#unlink), not the
  store: a row that would leave the account with no way in is skipped rather than stranding it, and
- the batch is the path a bulk admin action takes, so it is the one that most needs the guard.
+ the batch is the path a bulk admin action takes, so it is the one that most needs the guard. An identity
+ `session` may not change is skipped too.
 
 #### Parameters
 
 ##### links
 
 \{ `identityId`: `string`; `providerId`: `string`; \}[]
+
+##### session
+
+[`Me`](../../namespaces/Sessions/type-aliases/Me) \| `null`
+
+##### ctx?
+
+[`TenantContext`](../../interfaces/TenantContext) = `{}`
 
 #### Returns
 
@@ -520,7 +568,7 @@ Drops each provider link, one write per identity. Through [IdentitiesImpl.unlink
 
 > **updateProfile**(`id`: `string`, `profilePatch`: `Partial`\<`Profile`\>, `expectedVersion`: `number`): `Promise`\<[`Me`](../../namespaces/Identities/type-aliases/Me)\<`Profile`\>\>
 
-Defined in: [packages/duck-auth/src/core/identities/identities.ts:88](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.ts#L88)
+Defined in: [packages/duck-auth/src/core/identities/identities.ts:92](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/identities/identities.ts#L92)
 
 Merges a partial profile onto the row, refusing a concurrent edit. A new address is an unproven one,
  so a patch that moves `email` clears `emailVerified` in the same write.
@@ -549,7 +597,7 @@ Merges a partial profile onto the row, refusing a concurrent edit. A new address
 
 > **updateProfileMany**(`rows`: \{ `expectedVersion`: `number`; `id`: `string`; `patch`: `Partial`\<`Profile`\>; \}[]): `Promise`\<[`Me`](../../namespaces/Identities/type-aliases/Me)\<`Profile`\>[]\>
 
-Defined in: [packages/duck-auth/src/core/identities/identities.ts:341](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.ts#L341)
+Defined in: [packages/duck-auth/src/core/identities/identities.ts:365](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/identities/identities.ts#L365)
 
 Every patch is cap-checked up front, so one oversized patch fails the whole batch. A lost version
  race is left out.
@@ -570,7 +618,7 @@ Every patch is cap-checked up front, so one oversized patch fails the whole batc
 
 > `static` **exportToJson**\<`P` *extends* [`ProfileMetadataBase`](../../namespaces/Identities/type-aliases/ProfileMetadataBase)\>(`blob`: [`ExportBlob`](../../namespaces/Identities/interfaces/ExportBlob)\<`P`\>): `string`
 
-Defined in: [packages/duck-auth/src/core/identities/identities.ts:300](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.ts#L300)
+Defined in: [packages/duck-auth/src/core/identities/identities.ts:321](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/identities/identities.ts#L321)
 
 Stable key ordering, so checksums compare across runs.
 

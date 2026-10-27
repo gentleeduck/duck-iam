@@ -3,7 +3,7 @@ title: "Class: AuthRecaptchaV3Verifier"
 description: "reCAPTCHA v3 verifier: passes only at or above minScore, by default Google's suggested 0.5."
 ---
 
-Defined in: [packages/duck-auth/src/core/captcha/captcha.ts:72](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/captcha/captcha.ts#L72)
+Defined in: [packages/duck-auth/src/core/captcha/captcha.ts:66](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/captcha/captcha.ts#L66)
 
 reCAPTCHA v3 verifier: passes only at or above `minScore`, by default Google's suggested 0.5.
 
@@ -17,7 +17,7 @@ reCAPTCHA v3 verifier: passes only at or above `minScore`, by default Google's s
 
 > **new AuthRecaptchaV3Verifier**(`cfg`: [`ICfgBase`](../namespaces/AuthCaptcha/interfaces/ICfgBase) & \{ `expectedAction?`: `string`; `minScore?`: `number`; \}): `AuthRecaptchaV3Verifier`
 
-Defined in: [packages/duck-auth/src/core/captcha/captcha.ts:79](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/captcha/captcha.ts#L79)
+Defined in: [packages/duck-auth/src/core/captcha/captcha.ts:71](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/captcha/captcha.ts#L71)
 
 #### Parameters
 
@@ -31,21 +31,11 @@ Defined in: [packages/duck-auth/src/core/captcha/captcha.ts:79](https://github.c
 
 ## Properties
 
-### \_\_insecureCaptchaEndpoint
-
-> `readonly` **\_\_insecureCaptchaEndpoint**: `boolean`
-
-Defined in: [packages/duck-auth/src/core/captcha/captcha.ts:75](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/captcha/captcha.ts#L75)
-
-Read by `strict()`, which refuses a plaintext endpoint in production: the secret would go in the clear.
-
-***
-
 ### id
 
 > `readonly` **id**: `"recaptcha-v3"` = `'recaptcha-v3'`
 
-Defined in: [packages/duck-auth/src/core/captcha/captcha.ts:73](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/captcha/captcha.ts#L73)
+Defined in: [packages/duck-auth/src/core/captcha/captcha.ts:67](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/captcha/captcha.ts#L67)
 
 Stable per implementation - `'turnstile'`, `'hcaptcha'`, `'recaptcha-v3'`, `'null'`,
  `'unconfigured'`. A caller-visible string, so it is not what `strict()` keys its null check on.
@@ -60,7 +50,7 @@ Stable per implementation - `'turnstile'`, `'hcaptcha'`, `'recaptcha-v3'`, `'nul
 
 > **verify**(`input`: [`IVerifyInput`](../namespaces/AuthCaptcha/interfaces/IVerifyInput)): `Promise`\<[`IVerifyResult`](../namespaces/AuthCaptcha/interfaces/IVerifyResult)\>
 
-Defined in: [packages/duck-auth/src/core/captcha/captcha.ts:93](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/captcha/captcha.ts#L93)
+Defined in: [packages/duck-auth/src/core/captcha/captcha.ts:84](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/captcha/captcha.ts#L84)
 
 Refuses an absent score, or one under `minScore`.
 

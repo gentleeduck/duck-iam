@@ -4,6 +4,7 @@ import { randomToken, sha256 } from '../crypto'
 import { AuthError } from '../errors'
 import type { Identities } from '../identities/identities.types'
 import { isFiniteNumber } from '../predicates/predicates'
+import { ALL_TENANTS } from '../tenant/tenant'
 import type { TenantContext } from '../tenant/tenant.types'
 import { DEFAULT_SESSION_CONFIG, SESSION_COLUMN_CAPS } from './sessions.constants'
 import { isFactorMethod, type Sessions } from './sessions.types'
@@ -62,12 +63,19 @@ export class SessionsImpl {
 
   /** `session.id` is the hashed row key, `sid` the plaintext for `Transport.issue()`; only the sha-256
    *  of it is ever stored, and the same holds for `csrfToken`.
-   *  Raises `AUTH_STALE_WRITE` when the identity's sessions were revoked wholesale while this one was
-   *  being minted. Not retried here: the point of the refusal is that a revoke stops a sign-in already
-   *  in flight, and re-stamping the clock to get past it would undo exactly that. Whether to attempt
-   *  the sign-in again is the caller's. `createdAt` is read from the clock below, so the re-mint
-   *  `rotateOrCreate` does straight after its own sweep is never the one refused. */
+   *  On the memory and redis stores, raises `AUTH_STALE_WRITE` when the identity's sessions were revoked
+   *  wholesale while this one was being minted; the Drizzle stores let it through. Not retried here: the
+   *  point of the refusal is that a revoke stops a session minted before it, and re-stamping the clock to
+   *  get past it would undo exactly that. Whether to attempt the sign-in again is the caller's. `createdAt`
+   *  is read from the clock below, so the re-mint `rotateOrCreate` does straight after its own sweep is
+   *  never the one refused. */
   async create(input: Sessions.MintInput): Promise<{ session: Sessions.Me; sid: string; csrfToken: string }> {
+    const minted = await this._mint(input)
+    await this._enforceCap(minted.session)
+    return minted
+  }
+
+  private async _mint(input: Sessions.MintInput): Promise<{ session: Sessions.Me; sid: string; csrfToken: string }> {
     // Real flows mint 1 to 3; the cap is so a buggy caller cannot bloat the JSON column.
     if (!Array.isArray(input.factors) || input.factors.length > 16) {
       throw new AuthError('AUTH_MISCONFIGURED', {
@@ -143,20 +151,25 @@ export class SessionsImpl {
 
     await this._store.create(session)
     await this._events.emit('session.created', { session, identity: input.identity ?? null })
-    // After the write, never before it: evicting first would drop a live session and then, if this
-    // create failed, leave the person with fewer than they started with and no replacement.
-    const cap = this._cfg.maxSessionsPerIdentity
-    if (cap !== undefined && input.identityId) {
-      const all = await this._store.listByIdentity(input.identityId)
-      const excess = all.length - cap
-      if (excess > 0) {
-        // Oldest first by `createdAt`, and the one just minted is the newest, so it is never its own
-        // victim however low the cap is set.
-        const doomed = [...all].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime()).slice(0, excess)
-        await this.revokeByHashes(doomed.map((s) => s.id))
-      }
-    }
     return { session, sid, csrfToken }
+  }
+
+  /** Revokes the oldest live sessions of `fresh`'s kind over `maxSessionsPerIdentity`. Runs after the write, never
+   *  before it: evicting first would drop a live session and then, if the mint failed, leave no replacement. An
+   *  expired row signs nothing in, so it neither counts nor saves a live device from eviction, and `fresh` is never
+   *  its own victim. */
+  private async _enforceCap(fresh: Sessions.Me): Promise<void> {
+    const cap = this._cfg.maxSessionsPerIdentity
+    if (cap === undefined || !fresh.identityId) return
+    const now = Date.now()
+    const others = (await this._store.listByIdentity(fresh.identityId, ALL_TENANTS)).filter(
+      // One kind at a time: an m2m exchange's row, whose JWT resolves without it, evicted its owner's browser sessions.
+      (s) => s.id !== fresh.id && s.kind === fresh.kind && !isSessionExpired(s, now),
+    )
+    const excess = others.length + 1 - cap
+    if (excess <= 0) return
+    const doomed = others.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime()).slice(0, excess)
+    await this.revokeByHashes(doomed.map((s) => s.id))
   }
 
   /** One code path for every transition that changes a session's identity, AAL or privilege, so
@@ -202,8 +215,8 @@ export class SessionsImpl {
     if (input.purpose === 'credential-change') {
       if (input.identityId) {
         const identityId = input.identityId
-        const doomed = await this._store.listByIdentity(identityId)
-        await this._store.deleteAllForIdentity(identityId)
+        const doomed = await this._store.listByIdentity(identityId, ALL_TENANTS)
+        await this._store.deleteAllForIdentity(identityId, ALL_TENANTS)
         await Promise.all(doomed.map((s) => this._events.emit('session.revoked', { sessionId: s.id, identityId })))
       }
       // A guest has no identity to sweep; it still mints and rotates.
@@ -215,7 +228,9 @@ export class SessionsImpl {
       return fresh
     }
 
-    const fresh = await this.create(minted)
+    // The cap is enforced once `prev` is settled: counted while it still stood, the row being replaced cost
+    // the person another device, and a step-up whose `prev` it evicted failed with no session left.
+    const fresh = await this._mint(minted)
     // Only a row that exists: a stale cookie names none, and its revoke would be an audit event for nothing.
     if (prev) {
       switch (input.purpose) {
@@ -245,9 +260,11 @@ export class SessionsImpl {
         }
       }
       await this._events.emit('session.rotated', { session: fresh.session, previousSessionId: prev.id })
+      await this._enforceCap(fresh.session)
       return fresh
     }
     await this._events.emit('session.rotated', { session: fresh.session })
+    await this._enforceCap(fresh.session)
     return fresh
   }
 
@@ -282,7 +299,8 @@ export class SessionsImpl {
     return s
   }
 
-  /** Removes every row, and answers the ones that were live, so "signed out of 4 devices" needs no second query. */
+  /** Removes every row `ctx` reaches, as {@link Sessions.Store.listByIdentity} does, and answers the ones that were
+   *  live, so "signed out of 4 devices" needs no second query. */
   async revokeAllForIdentity(identityId: string, ctx?: TenantContext): Promise<Sessions.Me[]> {
     const all = await this._store.listByIdentity(identityId, ctx)
     await this._store.deleteAllForIdentity(identityId, ctx)
@@ -399,8 +417,8 @@ export class SessionsImpl {
    *  built to be handed to the person it belongs to, and the browser holds the plaintext in its cookie
    *  and never needs the hash. The store's `listByIdentity` still answers whole rows, which is what the
    *  revoke and concurrency paths read.
-   *  WARN: pass a `ctx` in a multi-tenant deployment. Identities are global, so an unscoped call shows
-   *  tenant A the same person's tenant B sessions, IP and user-agent included. */
+   *  WARN: identities are global, so `ALL_TENANTS` shows tenant A the same person's tenant B sessions, IP and
+   *  user-agent included. */
   async listForIdentity(identityId: string, ctx?: TenantContext): Promise<Sessions.Public[]> {
     const rows = await this._store.listByIdentity(identityId, ctx)
     const now = Date.now()
@@ -477,7 +495,7 @@ export class SessionsImpl {
    *
    * SECURITY: an unrecognised `keepSid` revokes everything. Failing closed, because the alternative is
    * silently keeping a session the caller did not mean to keep, and a typo would then read as success.
-   * Pass a `ctx` in a multi-tenant deployment, for the reason {@link SessionsImpl.listForIdentity} gives.
+   * Held to `ctx` as {@link Sessions.Store.listByIdentity} is, so naming no tenant leaves a tenant's sessions.
    */
   async revokeAllExcept(identityId: string, keepSid: string, ctx?: TenantContext): Promise<{ revoked: number }> {
     // Not `assertSid`: a malformed sid here is a caller mistake, and throwing would leave every other
@@ -596,7 +614,10 @@ export async function resolveBySid<Profile extends Identities.ProfileMetadataBas
   sessions: Sessions.Store,
   identities: Identities.Store<Profile>,
   opts: {
+    /** The tenant the session must belong to; naming none accepts only a session with no tenant. */
     expectedTenantId?: string
+    /** Accepts the session in whatever tenant it is, over `expectedTenantId`. */
+    allTenants?: true
     freshnessMs?: number
     /** Called when a row is refused for age, so the caller can emit `session.expired` from a bus this
      *  function has no business holding. It must not throw: it runs between the delete and the refusal,
@@ -612,7 +633,7 @@ export async function resolveBySid<Profile extends Identities.ProfileMetadataBas
   const session = await orNull(sessions.getByHash(hash))
   if (!session) throw new AuthError('AUTH_SESSION_REVOKED', { reason: 'no session for that sid' })
   // A foreign tenant's token must look absent, not fail, and the throw below never hands it over.
-  if (opts.expectedTenantId !== undefined && session.tenantId !== opts.expectedTenantId) {
+  if (!opts.allTenants && session.tenantId !== (opts.expectedTenantId ?? null)) {
     throw new AuthError('AUTH_SESSION_REVOKED', { reason: 'the session belongs to another tenant' })
   }
   const now = Date.now()

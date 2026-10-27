@@ -4,10 +4,10 @@ export type { Limiter } from '../limiters.types'
 
 import type { Limiter } from '../limiters.types'
 
-/** Allows everything, for when no limiter is configured. `strict({ env: 'production' })` rejects it:
+/** Allows everything, for when no limiter is configured. `strict()` rejects it in production:
  *  production needs a real limiter for brute-force protection. */
 export class NoopLimiter implements Limiter.Me {
-  /** Read by `AuthEngine.strict({ env: 'production' })` to recognise this class. A tag, not a
+  /** Read by `AuthEngine.strict()` to recognise this class. A tag, not a
    *  class-identity compare, which breaks across bundler rewrites: treeshaken duplicates and
    *  nested workspaces each produce their own copy of the class. */
   readonly __isNoopLimiter = true as const

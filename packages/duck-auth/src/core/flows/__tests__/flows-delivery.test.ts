@@ -41,7 +41,7 @@ describe('a flow that mails a link reads what deliver answered', () => {
         identities: adapter.identities,
         sessions: adapter.sessions,
       },
-      transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+      transport: new CookieTransport({ name: 'duck-sid' }),
     })
     const ident = await auth.identities.create({ profile: { email: 'a@x.com', username: 'a@x.com' } })
     identityId = ident.id
@@ -98,7 +98,7 @@ describe('a link mailed without awaiting', () => {
         passwords({ hasher: new ScryptHasher({ keylen: 32, N: 1 << 10 }) }),
       ],
       stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
-      transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+      transport: new CookieTransport({ name: 'duck-sid' }),
     })
     return { auth, lookup }
   }

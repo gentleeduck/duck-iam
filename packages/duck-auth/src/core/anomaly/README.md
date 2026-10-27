@@ -130,7 +130,9 @@ getCaller: (req) => ({ ...expressCaller(req), geo: lookup(req.ip) }),
 
 `onAnomaly` takes the verdict over from there, and it is the only way to act on a `step-up`: the
 default deliberately ignores that one, because it shares its threshold with the device detector's own
-score and refusing on it would demand MFA at every first sight of a device.
+score and refusing on it would demand MFA at every first sight of a device. Refuse one only on a session that is not
+`fresh`. A device is remembered once a request is let through, so a `step-up` refused every time is
+asked for forever, even right after `completeStepUp`, which leaves the session fresh.
 
 ## What this is not
 

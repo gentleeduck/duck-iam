@@ -3,19 +3,30 @@ title: "Type Alias: Code"
 description: "A pending authorization code. TTL ~10 min."
 ---
 
-> **Code** = \{ `client_id`: `string`; `code`: `string`; `code_challenge`: `string` \| `null`; `code_challenge_method`: [`CodeChallengeMethod`](CodeChallengeMethod) \| `null`; `exp`: `number`; `identity_id`: `string`; `nonce`: `string` \| `null`; `redirect_uri`: `string`; `scope`: `string`[]; `sid`: `string`; `tenant_id`: `string` \| `null`; \}
+> **Code** = \{ `auth_time`: `number` \| `null`; `client_id`: `string`; `code`: `string`; `code_challenge`: `string` \| `null`; `code_challenge_method`: [`CodeChallengeMethod`](CodeChallengeMethod) \| `null`; `exp`: `number`; `identity_id`: `string`; `nonce`: `string` \| `null`; `redirect_uri`: `string`; `scope`: `string`[]; `sid`: `string`; `tenant_id`: `string` \| `null`; \}
 
-Defined in: [packages/duck-auth/src/oidc/op/types.ts:37](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L37)
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:37](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/op/types.ts#L37)
 
 A pending authorization code. TTL ~10 min.
 
 ## Properties
 
+### auth\_time
+
+> **auth\_time**: `number` \| `null`
+
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:52](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/op/types.ts#L52)
+
+When the person last presented a factor, ms epoch, for the id_token `auth_time` claim. `null` when
+ the caller did not say, which omits the claim rather than asserting a time nobody measured.
+
+***
+
 ### client\_id
 
 > **client\_id**: `string`
 
-Defined in: [packages/duck-auth/src/oidc/op/types.ts:39](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L39)
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:39](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/op/types.ts#L39)
 
 ***
 
@@ -23,7 +34,7 @@ Defined in: [packages/duck-auth/src/oidc/op/types.ts:39](https://github.com/gent
 
 > **code**: `string`
 
-Defined in: [packages/duck-auth/src/oidc/op/types.ts:38](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L38)
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:38](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/op/types.ts#L38)
 
 ***
 
@@ -31,7 +42,7 @@ Defined in: [packages/duck-auth/src/oidc/op/types.ts:38](https://github.com/gent
 
 > **code\_challenge**: `string` \| `null`
 
-Defined in: [packages/duck-auth/src/oidc/op/types.ts:44](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L44)
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:44](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/op/types.ts#L44)
 
 ***
 
@@ -39,7 +50,7 @@ Defined in: [packages/duck-auth/src/oidc/op/types.ts:44](https://github.com/gent
 
 > **code\_challenge\_method**: [`CodeChallengeMethod`](CodeChallengeMethod) \| `null`
 
-Defined in: [packages/duck-auth/src/oidc/op/types.ts:45](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L45)
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:45](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/op/types.ts#L45)
 
 ***
 
@@ -47,7 +58,7 @@ Defined in: [packages/duck-auth/src/oidc/op/types.ts:45](https://github.com/gent
 
 > **exp**: `number`
 
-Defined in: [packages/duck-auth/src/oidc/op/types.ts:51](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L51)
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:54](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/op/types.ts#L54)
 
 Expiry, ms epoch.
 
@@ -57,7 +68,7 @@ Expiry, ms epoch.
 
 > **identity\_id**: `string`
 
-Defined in: [packages/duck-auth/src/oidc/op/types.ts:40](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L40)
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:40](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/op/types.ts#L40)
 
 ***
 
@@ -65,7 +76,7 @@ Defined in: [packages/duck-auth/src/oidc/op/types.ts:40](https://github.com/gent
 
 > **nonce**: `string` \| `null`
 
-Defined in: [packages/duck-auth/src/oidc/op/types.ts:43](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L43)
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:43](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/op/types.ts#L43)
 
 ***
 
@@ -73,7 +84,7 @@ Defined in: [packages/duck-auth/src/oidc/op/types.ts:43](https://github.com/gent
 
 > **redirect\_uri**: `string`
 
-Defined in: [packages/duck-auth/src/oidc/op/types.ts:41](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L41)
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:41](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/op/types.ts#L41)
 
 ***
 
@@ -81,7 +92,7 @@ Defined in: [packages/duck-auth/src/oidc/op/types.ts:41](https://github.com/gent
 
 > **scope**: `string`[]
 
-Defined in: [packages/duck-auth/src/oidc/op/types.ts:42](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L42)
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:42](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/op/types.ts#L42)
 
 ***
 
@@ -89,7 +100,7 @@ Defined in: [packages/duck-auth/src/oidc/op/types.ts:42](https://github.com/gent
 
 > **sid**: `string`
 
-Defined in: [packages/duck-auth/src/oidc/op/types.ts:49](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L49)
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:49](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/op/types.ts#L49)
 
 Session id used to mint this code; surfaced into id_token sid claim.
 
@@ -99,7 +110,7 @@ Session id used to mint this code; surfaced into id_token sid claim.
 
 > **tenant\_id**: `string` \| `null`
 
-Defined in: [packages/duck-auth/src/oidc/op/types.ts:47](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L47)
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:47](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/op/types.ts#L47)
 
 Tenant binding for cross-tenant guard.
 

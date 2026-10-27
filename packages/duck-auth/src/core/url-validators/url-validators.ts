@@ -1,5 +1,13 @@
+import { isProduction } from '~/core/env'
 import { AuthError } from '~/core/errors'
-import { isBlockedHostname, isBlockedIpv4, isBlockedIpv6, parseIpv4, parseIpv6 } from './url-validators.constants'
+import {
+  isBlockedHostname,
+  isBlockedIpv4,
+  isBlockedIpv6,
+  isLoopbackHost,
+  parseIpv4,
+  parseIpv6,
+} from './url-validators.constants'
 
 /** True for a same-origin path safe to concatenate onto `baseUrl`.
  *  SECURITY: rejects anything that could swap the resulting URL's authority: a missing leading `/`, the
@@ -14,6 +22,13 @@ export function isSafeCallbackPath(value: unknown): value is string {
   return true
 }
 
+/** `value` without its trailing slashes. A loop, since `/\/+$/` backtracks quadratically over a long run of them. */
+export function withoutTrailingSlashes(value: string): string {
+  let end = value.length
+  while (end > 0 && value[end - 1] === '/') end--
+  return value.slice(0, end)
+}
+
 function hasControlChar(s: string): boolean {
   for (let i = 0; i < s.length; i++) {
     const c = s.charCodeAt(i)
@@ -22,19 +37,19 @@ function hasControlChar(s: string): boolean {
   return false
 }
 
-/** Refuse an outbound URL that points at loopback, a private range, link-local or cloud metadata. */
-export function assertSafeOutboundUrl(rawUrl: string, opts: { label: string; allowInsecure?: boolean }): void {
+/** Refuse an outbound URL that points at loopback, a private range, link-local or cloud metadata, or that is
+ *  not HTTPS. Outside production, plain http and loopback are admitted. */
+export function assertSafeOutboundUrl(rawUrl: string, opts: { label: string }): void {
   const { label } = opts
-  const allowInsecure = opts.allowInsecure ?? false
   let parsed: URL
   try {
     parsed = new URL(rawUrl)
   } catch {
     throw new AuthError('AUTH_MISCONFIGURED', { detail: `${label} is not a valid URL: ${rawUrl}` })
   }
-  if (parsed.protocol !== 'https:' && !(allowInsecure && parsed.protocol === 'http:')) {
+  if (parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && !isProduction())) {
     throw new AuthError('AUTH_MISCONFIGURED', {
-      detail: `${label} must use HTTPS (${parsed.protocol}). Pass allowInsecure: true for dev only.`,
+      detail: `${label} must use HTTPS (${parsed.protocol}); plain http is admitted only outside production`,
     })
   }
   // Userinfo travels in the request line and in anything that records the endpoint afterwards, so a
@@ -57,6 +72,8 @@ export function assertResolvedHostIsPublic(address: string, label: string): void
 
 function assertSafeOutboundHost(rawHost: string, label: string): void {
   const host = rawHost.toLowerCase()
+  // Outside production, a receiver on this machine is admitted.
+  if (!isProduction() && isLoopbackHost(host)) return
   const v6 = parseIpv6(host)
   if (v6 === null ? classifyName(host) : isBlockedIpv6(v6)) {
     throw new AuthError('AUTH_MISCONFIGURED', {

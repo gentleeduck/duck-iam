@@ -64,7 +64,6 @@ suite('OIDC OP security invariants on real Postgres', () => {
     op = createOidcOP<ProfileShape>({
       auth,
       config: {
-        allowHttp: true,
         issuer: 'http://localhost:8787/auth',
         supportedScopes: ['openid', 'profile', 'offline_access'],
       },
@@ -106,6 +105,7 @@ suite('OIDC OP security invariants on real Postgres', () => {
   async function plantCode(over: Partial<OidcOP.Code> = {}): Promise<string> {
     const code = `code-${randomUUID()}`
     await stores.codes.insert({
+      auth_time: null,
       client_id: 'app-a',
       code,
       code_challenge: null,

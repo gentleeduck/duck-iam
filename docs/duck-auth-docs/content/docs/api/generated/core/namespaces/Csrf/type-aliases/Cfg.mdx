@@ -5,7 +5,7 @@ description: "The CSRF check's options."
 
 > **Cfg** = \{ `allowedOrigins?`: `string`[]; `cookieName?`: `string`; `headerName?`: `string`; `mode?`: `"double-submit"` \| `"origin-only"`; \}
 
-Defined in: [packages/duck-auth/src/core/csrf/csrf.ts:171](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/csrf/csrf.ts#L171)
+Defined in: [packages/duck-auth/src/core/csrf/csrf.ts:188](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/csrf/csrf.ts#L188)
 
 The CSRF check's options.
 
@@ -15,7 +15,7 @@ The CSRF check's options.
 
 > `optional` **allowedOrigins?**: `string`[]
 
-Defined in: [packages/duck-auth/src/core/csrf/csrf.ts:185](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/csrf/csrf.ts#L185)
+Defined in: [packages/duck-auth/src/core/csrf/csrf.ts:203](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/csrf/csrf.ts#L203)
 
 Allowed Origin headers for cross-site checks.
 
@@ -25,9 +25,10 @@ Allowed Origin headers for cross-site checks.
 
 > `optional` **cookieName?**: `string`
 
-Defined in: [packages/duck-auth/src/core/csrf/csrf.ts:173](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/csrf/csrf.ts#L173)
+Defined in: [packages/duck-auth/src/core/csrf/csrf.ts:191](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/csrf/csrf.ts#L191)
 
-Cookie name carrying the plaintext token. Default `__Host-duck-csrf`.
+Cookie name carrying the plaintext token. Default `__Host-duck-csrf`, which outside production drops its
+ prefix along with Secure.
 
 ***
 
@@ -35,7 +36,7 @@ Cookie name carrying the plaintext token. Default `__Host-duck-csrf`.
 
 > `optional` **headerName?**: `string`
 
-Defined in: [packages/duck-auth/src/core/csrf/csrf.ts:175](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/csrf/csrf.ts#L175)
+Defined in: [packages/duck-auth/src/core/csrf/csrf.ts:193](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/csrf/csrf.ts#L193)
 
 Header name the client puts the token on. Default `x-csrf-token`.
 
@@ -45,7 +46,7 @@ Header name the client puts the token on. Default `x-csrf-token`.
 
 > `optional` **mode?**: `"double-submit"` \| `"origin-only"`
 
-Defined in: [packages/duck-auth/src/core/csrf/csrf.ts:183](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/csrf/csrf.ts#L183)
+Defined in: [packages/duck-auth/src/core/csrf/csrf.ts:201](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/csrf/csrf.ts#L201)
 
 - `'double-submit'` (default): header, cookie and the session-stored hash must agree.
 - `'origin-only'`: no token, Origin and Sec-Fetch-Site alone.

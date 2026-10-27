@@ -2,7 +2,13 @@
  *  token but is still held to the origin checks"), so it must decide it from the headers it already has
  *  rather than only when a caller remembers to say so. */
 import { describe, expect, it } from 'vitest'
-import { issueCsrfToken, verifyCsrf } from '~/core/csrf'
+import { MemoryAdapter } from '~/adapters/memory'
+import { createAuth } from '~/core/config/config'
+import { csrfGuard, issueCsrfToken, verifyCsrf } from '~/core/csrf'
+import { BearerTransport } from '~/core/transport/bearer.transport'
+import { CompositeTransport } from '~/core/transport/composite.transport'
+import { CookieTransport } from '~/core/transport/cookie.transport'
+import { identityInput } from '~/test/store-inputs'
 
 function headers(init: Record<string, string>): Headers {
   return new Headers(init)
@@ -85,5 +91,44 @@ describe('verifyCsrf derives the bearer exemption from the Authorization header'
   it('a valid double-submit token still passes on a cookie request', () => {
     const { token, hash } = issueCsrfToken()
     expect(refusal({ headers: headers({ 'x-csrf-token': token }), method: 'POST', sessionCsrfHash: hash })).toBe('')
+  })
+})
+
+describe('a bearer configured on another header or scheme', () => {
+  async function engineWith(bearer: BearerTransport) {
+    const adapter = new MemoryAdapter()
+    const auth = createAuth({
+      baseUrl: 'https://x.test',
+      providers: [],
+      stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
+      transport: new CompositeTransport([new CookieTransport({ name: 'duck-sid' }), bearer]),
+    })
+    const identity = await adapter.identities.create(
+      identityInput({ profile: { email: 'a@b.test', username: 'a' }, providers: [] }),
+    )
+    const { sid } = await auth.sessions.create({ aal: 1, factors: [], identityId: identity.id, kind: 'user' })
+    return { auth, sid }
+  }
+
+  it('is exempt, as the default shape is', async () => {
+    for (const [bearer, name, scheme] of [
+      [new BearerTransport({ scheme: 'Token' }), 'authorization', 'Token'],
+      [new BearerTransport({ header: 'x-api-token' }), 'x-api-token', 'Bearer'],
+    ] as const) {
+      const { auth, sid } = await engineWith(bearer)
+
+      await expect(
+        csrfGuard(auth, { headers: new Headers({ [name]: `${scheme} ${sid}` }), method: 'POST' }),
+      ).resolves.toBeUndefined()
+    }
+  })
+
+  it('does not exempt the cookie request beside it, whose token check still runs', async () => {
+    const { auth, sid } = await engineWith(new BearerTransport({ scheme: 'Token' }))
+    const cookie = `duck-sid=${sid}`
+
+    await expect(csrfGuard(auth, { headers: new Headers({ cookie }), method: 'POST' })).rejects.toMatchObject({
+      code: 'AUTH_CSRF',
+    })
   })
 })

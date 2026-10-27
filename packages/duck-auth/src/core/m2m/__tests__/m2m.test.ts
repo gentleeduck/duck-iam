@@ -14,7 +14,7 @@ interface MyProfile extends Identities.ProfileMetadataBase {
   email: string
 }
 
-function build() {
+function build(session?: { maxSessionsPerIdentity: number }) {
   const adapter = new MemoryAdapter<MyProfile>()
   const transport = new JwtTransport({
     signKey: { kid: 'k1', key: 'secret-32-bytes-of-test-material' },
@@ -32,6 +32,7 @@ function build() {
     },
     limiter: new MemoryLimiter({ max: 20, windowMs: 60_000 }),
     providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) }), apiKeyProvider()],
+    ...(session && { session }),
   })
   const m2m = new M2MImpl(auth.apiKeys, auth.sessions, auth.transport, new NoopLimiter())
   return { auth, adapter, transport, m2m }
@@ -52,6 +53,7 @@ describe('M2MFacet - client_credentials grant', () => {
     const created = await env.auth.apiKeys.create(ident.id, {
       name: 'ci-runner',
       scopes: ['read:users', 'write:users', 'read:orders'],
+      session: null,
     })
     clientId = created.key.id
     clientSecret = created.plaintext
@@ -63,6 +65,20 @@ describe('M2MFacet - client_credentials grant', () => {
     expect(result.access_token.split('.').length).toBe(3)
     expect(result.expires_in).toBeGreaterThan(0)
     expect(result.scope).toContain('read:users')
+  })
+
+  it("signs none of the key owner's devices out at the session cap", async () => {
+    // The token resolves without its row, so evicting the row ends nothing and counting it only evicted the browser.
+    const capped = build({ maxSessionsPerIdentity: 2 })
+    const owner = await capped.adapter.identities.create(
+      identityInput({ profile: { username: 'o@app.test', email: 'o@app.test' }, providers: [] }),
+    )
+    const key = await capped.auth.apiKeys.create(owner.id, { name: 'script', scopes: ['read:users'], session: null })
+    const browser = await capped.auth.sessions.create({ aal: 1, factors: [], identityId: owner.id, kind: 'user' })
+    for (let i = 0; i < 3; i++) await capped.m2m.exchange({ clientId: key.key.id, clientSecret: key.plaintext })
+    const live = await capped.auth.sessions.listForIdentity(owner.id)
+    expect(live.map((s) => s.id)).toContain(browser.session.id)
+    expect(live.filter((s) => s.kind === 'apikey')).toHaveLength(2)
   })
 
   it('access_token verifies via the JwtTransport (round-trip)', async () => {
@@ -134,7 +150,7 @@ describe('M2MFacet - client_credentials grant', () => {
   })
 
   it('mismatched (client_id, secret) pair throws AUTH_APIKEY_INVALID', async () => {
-    const other = await env.auth.apiKeys.create(identityId, { name: 'other', scopes: [] })
+    const other = await env.auth.apiKeys.create(identityId, { name: 'other', scopes: [], session: null })
     await expect(env.m2m.exchange({ clientId: other.key.id, clientSecret })).rejects.toMatchObject({
       code: 'AUTH_APIKEY_INVALID',
     })

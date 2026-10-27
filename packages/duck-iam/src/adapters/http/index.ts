@@ -89,7 +89,8 @@ export namespace IamHttp {
      */
     allowedHosts?: string[]
     /**
-     * Permits a `baseUrl` that is a private, loopback, or link-local IP literal. Defaults to `false`.
+     * Permits a `baseUrl` that is an IP literal outside the public internet: private, loopback, link-local, CGNAT,
+     * multicast, reserved or documentation, or an IPv6 form carrying an IPv4. Defaults to `false`.
      * INFO: DNS names are not resolved (that would need sync I/O), so only `allowedHosts` constrains them.
      */
     allowPrivateHosts?: boolean
@@ -99,95 +100,109 @@ export namespace IamHttp {
 /** One-time latch for the omitted-`allowedHosts` warning; module-level so repeated constructions do not spam. */
 const _ALLOWED_HOSTS_WARNED = { fired: false }
 
-/** Converts a two-group hex IPv4 tail (`7f00:1`) to dotted-quad (`127.0.0.1`), or `null` if malformed. */
-function _hexTailToDottedQuad(tail: string): string | null {
-  const m = /^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(tail)
-  if (!m || m[1] === undefined || m[2] === undefined) return null
-  const hi = parseInt(m[1], 16)
-  const lo = parseInt(m[2], 16)
-  if (!Number.isFinite(hi) || !Number.isFinite(lo)) return null
-  if (hi < 0 || hi > 0xffff || lo < 0 || lo > 0xffff) return null
-  return `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`
+/** RFC 1918, RFC 6598, RFC 5735 and the ranges that are not routable on the public internet. */
+const V4_BLOCKED: Array<{ mask: number; net: number }> = [
+  { mask: 0xff000000, net: 0x00000000 }, // 0.0.0.0/8 this network
+  { mask: 0xff000000, net: 0x0a000000 }, // 10.0.0.0/8
+  { mask: 0xffc00000, net: 0x64400000 }, // 100.64.0.0/10 cgnat
+  { mask: 0xff000000, net: 0x7f000000 }, // 127.0.0.0/8 loopback
+  { mask: 0xffff0000, net: 0xa9fe0000 }, // 169.254.0.0/16 link-local, incl. 169.254.169.254
+  { mask: 0xfff00000, net: 0xac100000 }, // 172.16.0.0/12
+  { mask: 0xffffff00, net: 0xc0000000 }, // 192.0.0.0/24 ietf protocol assignments
+  { mask: 0xffffff00, net: 0xc0000200 }, // 192.0.2.0/24 documentation, RFC 5737 TEST-NET-1
+  { mask: 0xffff0000, net: 0xc0a80000 }, // 192.168.0.0/16
+  { mask: 0xfffe0000, net: 0xc6120000 }, // 198.18.0.0/15 benchmarking
+  { mask: 0xffffff00, net: 0xc6336400 }, // 198.51.100.0/24 documentation, RFC 5737 TEST-NET-2
+  { mask: 0xffffff00, net: 0xcb007100 }, // 203.0.113.0/24 documentation, RFC 5737 TEST-NET-3
+  { mask: 0xf0000000, net: 0xe0000000 }, // 224.0.0.0/4 multicast
+  { mask: 0xf0000000, net: 0xf0000000 }, // 240.0.0.0/4 reserved, incl. 255.255.255.255
+]
+
+/** Parses a dotted-quad into a 32-bit number, or `null` when the string is not one. */
+function _parseIpv4(host: string): number | null {
+  const parts = host.split('.')
+  if (parts.length !== 4) return null
+  let value = 0
+  for (const part of parts) {
+    if (part.length === 0 || part.length > 3 || !/^[0-9]+$/.test(part)) return null
+    const octet = Number(part)
+    if (octet > 255) return null
+    value = value * 256 + octet
+  }
+  return value >>> 0
+}
+
+/** Parses an IPv6 literal, with or without brackets, into its eight hextets, or `null` when it is not one. */
+function _parseIpv6(host: string): number[] | null {
+  let text = host
+  if (text.startsWith('[') && text.endsWith(']')) text = text.slice(1, -1)
+  const zone = text.indexOf('%')
+  if (zone !== -1) text = text.slice(0, zone)
+  if (!text.includes(':')) return null
+
+  const [head, tail, ...rest] = text.split('::')
+  if (rest.length > 0 || head === undefined) return null
+
+  const expand = (group: string): number[] | null => {
+    if (group === '') return []
+    const out: number[] = []
+    const pieces = group.split(':')
+    for (const [i, piece] of pieces.entries()) {
+      // A trailing dotted-quad occupies the last two hextets (`::ffff:1.2.3.4`).
+      if (i === pieces.length - 1 && piece.includes('.')) {
+        const v4 = _parseIpv4(piece)
+        if (v4 === null) return null
+        out.push(v4 >>> 16, v4 & 0xffff)
+        continue
+      }
+      if (!/^[0-9a-f]{1,4}$/i.test(piece)) return null
+      out.push(Number.parseInt(piece, 16))
+    }
+    return out
+  }
+
+  const left = expand(head)
+  const right = tail === undefined ? [] : expand(tail)
+  if (left === null || right === null) return null
+  if (tail === undefined) return left.length === 8 ? left : null
+  const gap = 8 - left.length - right.length
+  if (gap < 1) return null
+  return [...left, ...Array.from({ length: gap }, () => 0), ...right]
+}
+
+/** Whether parsed hextets fall outside the public internet. */
+function _isBlockedIpv6(h: number[]): boolean {
+  const [h0 = 0, h1 = 0, h2 = 0, h3 = 0, h4 = 0, h5 = 0] = h
+  if (h.every((x) => x === 0)) return true // ::
+  if (h0 === 0 && h1 === 0 && h2 === 0 && h3 === 0 && h4 === 0 && h5 === 0) return true // ::1 and ::a.b.c.d
+  if (h0 === 0 && h1 === 0 && h2 === 0 && h3 === 0 && h4 === 0 && h5 === 0xffff) return true // ::ffff:0:0/96
+  if (h0 === 0 && h1 === 0 && h2 === 0 && h3 === 0 && h4 === 0xffff && h5 === 0) return true // ::ffff:0:0:0/96 siit
+  if ((h0 & 0xfe00) === 0xfc00) return true // fc00::/7 unique-local
+  if ((h0 & 0xffc0) === 0xfe80) return true // fe80::/10 link-local
+  if ((h0 & 0xffc0) === 0xfec0) return true // fec0::/10 site-local, deprecated but still routed where configured
+  if ((h0 & 0xff00) === 0xff00) return true // ff00::/8 multicast
+  if (h0 === 0x0100 && h1 === 0 && h2 === 0 && h3 === 0) return true // 100::/64 discard-only
+  if (h0 === 0x0064 && h1 === 0xff9b) return true // 64:ff9b::/32 nat64
+  if (h0 === 0x2002) return true // 2002::/16 6to4
+  if (h0 === 0x2001 && h1 === 0x0000) return true // 2001::/32 teredo
+  if (h0 === 0x2001 && h1 === 0x0002 && h2 === 0) return true // 2001:2::/48 benchmarking, RFC 5180
+  if (h0 === 0x2001 && h1 === 0x0db8) return true // 2001:db8::/32 documentation, RFC 3849
+  if (h0 === 0x3fff && (h1 & 0xf000) === 0) return true // 3fff::/20 documentation, RFC 9637
+  if (h0 === 0x5f00) return true // 5f00::/16 srv6 segment ids, RFC 9602
+  return false
 }
 
 /**
- * True for an IP literal in a private, loopback, link-local, or unique-local range; DNS names return `false`.
- * SECURITY: unwraps IPv4 embedded in IPv6 (mapped, compatible, 6to4, NAT64) so those forms cannot bypass it.
+ * True for an IP literal outside the public internet; DNS names return `false`.
+ * SECURITY: an IPv6 form that carries an IPv4 (mapped, compatible, SIIT, 6to4, NAT64, Teredo) is refused whole, so
+ * no unwrapping can miss a private address inside one.
  */
 function _isPrivateHost(hostname: string): boolean {
-  // Strip IPv6 brackets and one trailing FQDN dot, so `127.0.0.1.` is checked as `127.0.0.1`.
-  let h = hostname.startsWith('[') && hostname.endsWith(']') ? hostname.slice(1, -1) : hostname
-  if (h.endsWith('.')) h = h.slice(0, -1)
-  // IPv4 dotted-quad
-  const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h)
-  if (v4) {
-    const a = Number(v4[1])
-    const b = Number(v4[2])
-    if (a === 127) return true // loopback
-    if (a === 10) return true // RFC1918
-    if (a === 192 && b === 168) return true // RFC1918
-    if (a === 172 && b >= 16 && b <= 31) return true // RFC1918
-    if (a === 169 && b === 254) return true // link-local
-    if (a === 0) return true // "this network" - includes 0.0.0.0 unspecified
-    return false
-  }
-  // IPv6 literal
-  if (h.includes(':')) {
-    const lower = h.toLowerCase()
-    if (lower === '::1' || lower === '0:0:0:0:0:0:0:1') return true
-    // Unspecified `::` often reaches a local interface; block its expanded form too.
-    if (lower === '::' || lower === '0:0:0:0:0:0:0:0') return true
-    // fc00::/7 - first byte 0xfc or 0xfd
-    if (/^f[cd][0-9a-f]{0,2}:/.test(lower)) return true
-    // fe80::/10 - fe8x, fe9x, feax, febx
-    if (/^fe[89ab][0-9a-f]?:/.test(lower)) return true
-    // IPv4-mapped: `::ffff:a.b.c.d`, the `::ffff:hhhh:hhhh` form Node's URL parser emits, or `0:0:0:0:0:ffff:...`.
-    let mappedTail: string | null = null
-    if (lower.startsWith('::ffff:')) mappedTail = lower.slice(7)
-    else if (lower.startsWith('0:0:0:0:0:ffff:')) mappedTail = lower.slice(15)
-    if (mappedTail !== null) {
-      // Dotted-quad tail (`::ffff:127.0.0.1`).
-      if (mappedTail.includes('.')) return _isPrivateHost(mappedTail)
-      // Hex tail (`::ffff:7f00:1`) - convert to dotted-quad then re-check.
-      const dotted = _hexTailToDottedQuad(mappedTail)
-      if (dotted) return _isPrivateHost(dotted)
-      return false
-    }
-    // IPv4-compatible `::a.b.c.d` (deprecated, RFC 4291 2.5.5.1). Node normalises this to the hex tail
-    // (`http://[::127.0.0.1]` arrives as `[::7f00:1]`), so the hex form is the one that actually reaches here;
-    // the textual form is covered too, as the mapped, 6to4 and NAT64 branches beside it do.
-    if (lower.startsWith('::')) {
-      const tail = lower.slice(2)
-      if (/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.test(tail)) return _isPrivateHost(tail)
-      const dotted = _hexTailToDottedQuad(tail)
-      if (dotted) return _isPrivateHost(dotted)
-    }
-    // 6to4 `2002::/16` embeds an IPv4 in the next two groups: `2002:7f00:1::` carries `127.0.0.1`.
-    if (lower.startsWith('2002:')) {
-      const m = /^2002:([0-9a-f]{1,4}):([0-9a-f]{1,4})(?::|$)/.exec(lower)
-      if (m) {
-        const dotted = _hexTailToDottedQuad(`${m[1]}:${m[2]}`)
-        if (dotted) return _isPrivateHost(dotted)
-      }
-    }
-    // NAT64 `64:ff9b::/96`; accept both canonical and `0064:ff9b:` spellings.
-    if (lower.startsWith('64:ff9b:') || lower.startsWith('0064:ff9b:')) {
-      const tail = lower.startsWith('0064:') ? lower.slice(10) : lower.slice(8)
-      // Dotted-quad tail (`64:ff9b::127.0.0.1`).
-      if (tail.includes('.')) {
-        const v4match = /(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/.exec(tail)
-        if (v4match?.[1]) return _isPrivateHost(v4match[1])
-      }
-      // Hex tail - last two non-empty hex groups form the 32-bit v4.
-      const groups = tail.split(':').filter((g) => g.length > 0)
-      if (groups.length >= 2) {
-        const dotted = _hexTailToDottedQuad(`${groups[groups.length - 2]}:${groups[groups.length - 1]}`)
-        if (dotted) return _isPrivateHost(dotted)
-      }
-    }
-    return false
-  }
-  return false
+  const host = hostname.endsWith('.') ? hostname.slice(0, -1) : hostname
+  const v4 = _parseIpv4(host)
+  if (v4 !== null) return V4_BLOCKED.some((range) => (v4 & range.mask) >>> 0 === range.net)
+  const v6 = _parseIpv6(host)
+  return v6 !== null && _isBlockedIpv6(v6)
 }
 
 /** Lowercase, strip trailing FQDN dot, IDN -> punycode via `new URL`; invalid input falls back to lowercased input. */

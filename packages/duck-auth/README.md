@@ -65,7 +65,7 @@ export const auth = createAuth({
 })
 
 const identity = await auth.identities.create({ profile: { username: 'a', email: 'a@x.com' } })
-await auth.passwords.set(identity.id, 'correct-horse-battery', auth.cfg.stores.credentials)
+await auth.passwords.set(identity.id, 'correct-horse-battery', auth.cfg.stores.credentials, null)
 
 const result = await auth.flows.signIn({
   providerId: 'password',
@@ -74,7 +74,7 @@ const result = await auth.flows.signIn({
 // result.session, result.sid, result.intents[]
 ```
 
-`createAuth` is the factory that wires the facets, picks sane defaults (a `CookieTransport` named `duck-sid`, `InMemoryEvents`), and registers the providers you pass. `passwords()` hashes with `Argon2idHasher` unless you pass `hasher`, so install `@node-rs/argon2` or pass `ScryptHasher`. For full control, instantiate `AuthEngine` directly - both APIs accept the same primitives.
+`createAuth` is the factory that wires the facets, picks sane defaults (a `CookieTransport` named `__Host-duck-sid`, `InMemoryEvents`), and registers the providers you pass. `passwords()` hashes with `Argon2idHasher` unless you pass `hasher`, so install `@node-rs/argon2` or pass `ScryptHasher`. For full control, instantiate `AuthEngine` directly - both APIs accept the same primitives.
 
 ## Architecture
 
@@ -318,7 +318,7 @@ auth.events.on('authz.revoked', ({ identityId }) => decisionCache.drop(identityI
 ```
 
 `fleet` handlers need `redisEvents` once there is more than one server, since the in-process default
-runs them on one. `strict({ env: 'production' })` refuses the in-process bus while it holds a `fleet`
+runs them on one. In production `strict()` refuses the in-process bus while it holds a `fleet`
 handler, and passes it when every handler is `origin`. It sees only the handlers registered before it
 runs, so call it after every `on()` and `use()`. Webhooks go out as `origin`, once per emit.
 
@@ -378,9 +378,12 @@ What your routes now own:
 - **The OAuth callback stays unguarded.** Apple posts it cross-site by design and the signed state is the
   proof. Read the query on a GET, the urlencoded body on a POST, and pass `cookieHeader` and `previousSid`.
 - **`csrfHash` out of any session you answer with.** It is server-side state; the browser holds the plaintext.
-- **A step-up before destroying a factor.** Check `auth.flows.checkStepUp(session, { aal: 2 })` before
-  removing TOTP or regenerating backup codes, and rate-limit TOTP verification on `stepup:${identityId}`.
-- **The session's tenant** passed to `auth.mfa.*`, which reads unscoped without one.
+- **The session passed to every factor change.** Adding, removing or replacing a factor, minting backup codes
+  and remembering a device take the caller's session, and refuse one below AAL 2 once the account holds any
+  factor beside the password. Rate-limit any TOTP verification of your own on `stepup:${identityId}`.
+- **The session's tenant** passed to `auth.mfa.*`, which without one reaches only the factors with no tenant.
+- **The request's tenant**, in a multi-tenant app, named on the actor scope (`tenantId: (req) => ...`) and on
+  `resolveSession`. Without it a session in a tenant resolves as nobody.
 
 `examples/duck-auth` has the full route set for all eight frameworks.
 
@@ -426,14 +429,14 @@ import {
 
 ## Production primitives
 
-- **`AuthEngine.strict({ env: 'production' })`** - boot-time validation: rejects `secure: false` cookie transport, `NoopLimiter`, memory stores, missing `lockout` listener, non-HTTPS `baseUrl`
+- **`AuthEngine.strict()`** - boot-time validation whenever `NODE_ENV` is not `development` or `test`, unset included: rejects `NoopLimiter`, memory stores, missing `lockout` listener, non-HTTPS `baseUrl`
 - **`JwtTransport.rotateSignKey()` + `retireVerifyKey(kid)`** - zero-downtime JWKS rotation with overlap window
 - **`applyCompliancePreset(cfg, 'gdpr' | 'hipaa' | 'soc2' | 'fips')`** - a free function over the config, not an engine method: it ratchets the three session TTLs down to the named floor. The password, MFA and api-key floors are provider-level - pass the same preset to `passwords({ compliance })` and its siblings - and `strict()` enforces the rest, including data-at-rest
 - **`WebhookDeliverer`** - HMAC body + timestamp + freshness tolerance, exponential backoff, dead-letter sink, SSRF guard on endpoint URLs, `redirect: 'error'` on dispatch
 - **`auth.hijack` + `auth.anomaly`** - drift detection, decision ladder (allow / step-up / deny), pluggable signals
 - **`redisIdempotency` / `valkeyIdempotency`** - per-(identity, key) tombstone + poll for the host's replay-safe mutating routes; the host holds it, the engine does not
 - **DPoP** (RFC 9449) - proof-of-possession on bearer tokens with `ath` binding and server nonce
-- **Tenant boundary**: every adapter respects `ctx.tenantId`; M2M + api-key providers refuse cross-tenant identification
+- **Tenant boundary**: a call naming no tenant reaches only the records with no tenant and `ALL_TENANTS` every tenant's; a session or API key resolves only in its own tenant
 
 ## Security posture
 

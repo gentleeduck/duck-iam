@@ -3,7 +3,7 @@ title: "Class: DrizzleSqliteAdapter"
 description: "One class: the three stores share the handle, the STORE_RAISES mapper and the run boundary that names  what threw. Each is declared as its slot in Adapter.Me, so the contract states what it answers."
 ---
 
-Defined in: [packages/duck-auth/src/adapters/drizzle/sqlite/sqlite.ts:40](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/adapters/drizzle/sqlite/sqlite.ts#L40)
+Defined in: [packages/duck-auth/src/adapters/drizzle/sqlite/sqlite.ts:43](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/adapters/drizzle/sqlite/sqlite.ts#L43)
 
 One class: the three stores share the handle, the `STORE_RAISES` mapper and the `run` boundary that names
  what threw. Each is declared as its slot in `Adapter.Me`, so the contract states what it answers.
@@ -32,7 +32,7 @@ One class: the three stores share the handle, the `STORE_RAISES` mapper and the 
 
 > **new DrizzleSqliteAdapter**\<`TSchema` *extends* `Record`\<`string`, `unknown`\> = `Record`\<`string`, `unknown`\>, `Profile` *extends* [`ProfileMetadataBase`](../../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase) = [`ProfileMetadataBase`](../../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase)\>(`input`: `string` \| [`SqliteClientLike`](../namespaces/Sqlite/type-aliases/SqliteClientLike) \| [`Db`](../-internal-/type-aliases/Db)\<`TSchema`\>): `DrizzleSqliteAdapter`\<`TSchema`, `Profile`\>
 
-Defined in: [packages/duck-auth/src/adapters/drizzle/sqlite/sqlite.ts:52](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/adapters/drizzle/sqlite/sqlite.ts#L52)
+Defined in: [packages/duck-auth/src/adapters/drizzle/sqlite/sqlite.ts:55](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/adapters/drizzle/sqlite/sqlite.ts#L55)
 
 Over a file path, a driver `Database`, or a drizzle handle you already have.
 
@@ -56,7 +56,7 @@ Over a file path, a driver `Database`, or a drizzle handle you already have.
 
 > `readonly` **credentials**: [`Store`](../../../../index/namespaces/Credential/type-aliases/Store)
 
-Defined in: [packages/duck-auth/src/adapters/drizzle/sqlite/sqlite.ts:422](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/adapters/drizzle/sqlite/sqlite.ts#L422)
+Defined in: [packages/duck-auth/src/adapters/drizzle/sqlite/sqlite.ts:443](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/adapters/drizzle/sqlite/sqlite.ts#L443)
 
 #### Implementation of
 
@@ -68,7 +68,7 @@ Defined in: [packages/duck-auth/src/adapters/drizzle/sqlite/sqlite.ts:422](https
 
 > `readonly` **identities**: [`Store`](../../../../index/namespaces/Identities/type-aliases/Store)\<`Profile`\>
 
-Defined in: [packages/duck-auth/src/adapters/drizzle/sqlite/sqlite.ts:208](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/adapters/drizzle/sqlite/sqlite.ts#L208)
+Defined in: [packages/duck-auth/src/adapters/drizzle/sqlite/sqlite.ts:214](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/adapters/drizzle/sqlite/sqlite.ts#L214)
 
 #### Implementation of
 
@@ -80,7 +80,7 @@ Defined in: [packages/duck-auth/src/adapters/drizzle/sqlite/sqlite.ts:208](https
 
 > `readonly` **sessions**: [`Store`](../../../../index/namespaces/Sessions/type-aliases/Store)
 
-Defined in: [packages/duck-auth/src/adapters/drizzle/sqlite/sqlite.ts:567](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/adapters/drizzle/sqlite/sqlite.ts#L567)
+Defined in: [packages/duck-auth/src/adapters/drizzle/sqlite/sqlite.ts:587](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/adapters/drizzle/sqlite/sqlite.ts#L587)
 
 #### Implementation of
 
@@ -92,7 +92,7 @@ Defined in: [packages/duck-auth/src/adapters/drizzle/sqlite/sqlite.ts:567](https
 
 > `protected` `readonly` **toError**: [`ErrorMap`](../../../../core/errors/type-aliases/ErrorMap)\<`"AUTH_SESSION_REVOKED"` \| `"AUTH_STALE_WRITE"` \| `"AUTH_GRACE_EXPIRED"` \| `"AUTH_EMAIL_TAKEN"` \| `"AUTH_USERNAME_TAKEN"` \| `"AUTH_PROVIDER_TAKEN"` \| `"AUTH_MISCONFIGURED"` \| `"AUTH_IDENTITY_NOT_FOUND"` \| `"AUTH_CREDENTIAL_NOT_FOUND"` \| `"AUTH_NOT_ENOUGH_PARAMETERS"` \| `"AUTH_ADAPTER_FAILED"` \| `"AUTH_ALREADY_EXISTS"` \| `"AUTH_INVALID_PARAMETERS"` \| `"AUTH_ADAPTER_UNAVAILABLE"`\>
 
-Defined in: [packages/duck-auth/src/adapters/adapter.ts:21](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/adapters/adapter.ts#L21)
+Defined in: [packages/duck-auth/src/adapters/adapter.ts:21](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/adapters/adapter.ts#L21)
 
 #### Inherited from
 
@@ -104,7 +104,7 @@ Defined in: [packages/duck-auth/src/adapters/adapter.ts:21](https://github.com/g
 
 > `protected` **run**\<`T`\>(`call`: () => `Promise`\<`T`\>): `Promise`\<`T`\>
 
-Defined in: [packages/duck-auth/src/adapters/drizzle/sqlite/sqlite.ts:69](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/adapters/drizzle/sqlite/sqlite.ts#L69)
+Defined in: [packages/duck-auth/src/adapters/drizzle/sqlite/sqlite.ts:72](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/adapters/drizzle/sqlite/sqlite.ts#L72)
 
 Every facet calls through here, so an async driver cannot answer a query before the pragma has
  landed — fire-and-forget, the first writes of a freshly built adapter raced it with foreign keys
@@ -136,7 +136,7 @@ Every facet calls through here, so an async driver cannot answer a query before 
 
 > **withClient**(`client`: `unknown`): `DrizzleSqliteAdapter`\<`TSchema`, `Profile`\>
 
-Defined in: [packages/duck-auth/src/adapters/drizzle/sqlite/sqlite.ts:693](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/adapters/drizzle/sqlite/sqlite.ts#L693)
+Defined in: [packages/duck-auth/src/adapters/drizzle/sqlite/sqlite.ts:713](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/adapters/drizzle/sqlite/sqlite.ts#L713)
 
 Rebinds all three stores onto a transaction handle, so one unit of work shares it.
 

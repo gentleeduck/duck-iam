@@ -21,7 +21,7 @@ function buildAuth(opts: { credentials?: (base: Credential.Store) => Credential.
   const adapter = new MemoryAdapter<MyProfile>()
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app',
-    transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
+    transport: new CookieTransport({ name: 'duck-sid' }),
     stores: {
       identities: adapter.identities,
       sessions: adapter.sessions,
@@ -365,6 +365,62 @@ describe('FlowsImpl - impersonation', () => {
     const released = await auth.flows.releaseImpersonation(out.sid)
     const live = await auth.sessions.listForIdentity(adminId)
     expect(live.map((s) => s.id)).toEqual([released.session?.id])
+  })
+
+  describe('the tenant', () => {
+    async function tenantAdmin(): Promise<string> {
+      const { sid } = await auth.sessions.create({
+        aal: 2,
+        factors: [{ completedAt: new Date(), method: 'password' }],
+        identityId: adminId,
+        kind: 'user',
+        tenantId: 'acme',
+      })
+      return sid
+    }
+
+    it('is the operator session tenant, named, and release returns the operator there', async () => {
+      const out = await auth.flows.impersonate({
+        authorize: async () => true,
+        realSid: await tenantAdmin(),
+        reason: 'x',
+        targetIdentityId: targetId,
+        tenantId: 'acme',
+      })
+      expect(out.session.tenantId).toBe('acme')
+      const back = await auth.flows.releaseImpersonation(out.sid)
+      expect(back.session?.tenantId).toBe('acme')
+    })
+
+    it('refuses a tenant operator session to a call naming no tenant, before asking authorize', async () => {
+      const authorize = vi.fn(async () => true)
+      await expect(
+        auth.flows.impersonate({ authorize, realSid: await tenantAdmin(), reason: 'x', targetIdentityId: targetId }),
+      ).rejects.toMatchObject({ code: 'AUTH_UNAUTHENTICATED' })
+      expect(authorize).not.toHaveBeenCalled()
+    })
+
+    it('refuses another, before asking authorize, and leaves the operator signed in', async () => {
+      const realSid = await tenantAdmin()
+      const authorize = vi.fn(async () => true)
+      await expect(
+        auth.flows.impersonate({ authorize, realSid, reason: 'x', targetIdentityId: targetId, tenantId: 'globex' }),
+      ).rejects.toMatchObject({ code: 'AUTH_UNAUTHENTICATED' })
+      expect(authorize).not.toHaveBeenCalled()
+      await expect(auth.sessions.getBySid(realSid)).resolves.toMatchObject({ tenantId: 'acme' })
+    })
+
+    it('refuses a tenant named for a global operator session', async () => {
+      await expect(
+        auth.flows.impersonate({
+          authorize: async () => true,
+          realSid: adminSid,
+          reason: 'x',
+          targetIdentityId: targetId,
+          tenantId: 'acme',
+        }),
+      ).rejects.toMatchObject({ code: 'AUTH_UNAUTHENTICATED' })
+    })
   })
 
   it('releaseImpersonation with non-impersonation SID surfaces AUTH_IMPERSONATE_EXPIRED', async () => {

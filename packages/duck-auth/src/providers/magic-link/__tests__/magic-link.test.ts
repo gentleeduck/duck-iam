@@ -28,6 +28,7 @@ function fakeChannel(): Deliver & { sent: Array<{ to: string; url: string }> } {
 function buildAuth(
   opts: {
     autoCreate?: boolean
+    callbackPath?: string
     channel?: Deliver & { sent: Array<{ to: string; url: string }> }
     credentials?: (base: Credential.Store) => Credential.Store
     lookup?: (email: string, tenantId?: string) => Promise<{ id: string } | null>
@@ -41,7 +42,7 @@ function buildAuth(
   const channel = opts.channel ?? fakeChannel()
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app.example.com',
-    transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
+    transport: new CookieTransport({ name: 'duck-sid' }),
     stores: {
       identities: adapter.identities,
       sessions: adapter.sessions,
@@ -56,6 +57,7 @@ function buildAuth(
       autoCreateIdentity: opts.autoCreate ?? false,
       autoCreateProfile: (email) => ({ username: email, email }),
       ttlMs: 1_000,
+      ...(opts.callbackPath !== undefined && { callbackPath: opts.callbackPath }),
     }),
   )
   return { auth, adapter, channel }
@@ -158,7 +160,7 @@ describe('magic-link provider', () => {
         limiter: new MemoryLimiter({ max: 3, windowMs: 60_000 }),
         providers: [magicLink<MyProfile>({ findIdentityByEmail: async () => null })],
         stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
-        transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+        transport: new CookieTransport({ name: 'duck-sid' }),
       })
       await auth.identities.create({ profile: { email: 'a@x.com', username: 'a' } })
       await expect(auth.flows.beginProvider('magic-link', { email: 'a@x.com' })).rejects.toMatchObject({
@@ -210,11 +212,14 @@ describe('magic-link provider', () => {
   })
 
   describe('the link lifetime', () => {
-    it.each([Number.NaN, 0, -1, Number.POSITIVE_INFINITY])('refuses ttlMs %o at construction', (ttlMs) => {
-      expect(() =>
-        magicLink<MyProfile>({ deliver: fakeChannel(), findIdentityByEmail: async () => null, ttlMs }),
-      ).toThrow(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
-    })
+    it.each([Number.NaN, 0, -1, Number.POSITIVE_INFINITY, 1e16, 8_000 * 365 * 24 * 60 * 60 * 1000])(
+      'refuses ttlMs %o at construction',
+      (ttlMs) => {
+        expect(() =>
+          magicLink<MyProfile>({ deliver: fakeChannel(), findIdentityByEmail: async () => null, ttlMs }),
+        ).toThrow(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
+      },
+    )
 
     it('stamps the link with the lifetime it was given', async () => {
       const { auth, adapter } = buildAuth()
@@ -238,6 +243,16 @@ describe('magic-link provider', () => {
       const result = await auth.flows.signIn({ providerId: 'magic-link', input: { token } })
       expect(result.session!.factors[0]?.method).toBe('magic-link')
       expect(signinHandler).toHaveBeenCalledOnce()
+    })
+
+    it('signs in from a link whose callbackPath carries a query of its own', async () => {
+      const { auth, channel } = buildAuth({ autoCreate: true, callbackPath: '/auth?via=magic' })
+      await auth.flows.beginProvider('magic-link', { email: 'a@x.com' })
+      const link = new URL(channel.sent[0]?.url ?? '')
+      expect(link.pathname).toBe('/auth')
+      expect(link.searchParams.get('via')).toBe('magic')
+      const result = await auth.flows.signIn({ providerId: 'magic-link', input: { token: extractToken(link.href) } })
+      expect(result.session?.factors[0]?.method).toBe('magic-link')
     })
 
     it('replay of same token surfaces AUTH_RECOVERY_TOKEN_INVALID (single-use)', async () => {
@@ -362,7 +377,8 @@ describe('magic-link provider', () => {
       const id = squat.flow.identityId
       const squatter = await auth.flows.completeSignUp({ flowToken: squat.flowToken })
       await adapter.credentials.create(credentialInput({ identityId: id, kind: 'password', secret: 'squatter' }), {})
-      await adapter.identities.link(id, { providerId: 'oauth:github', providerSub: 'squatter' })
+      await adapter.identities.link(id, { providerId: 'oauth:github', providerSub: 'squatter', tenantId: null })
+      await adapter.identities.link(id, { providerId: 'oauth:github', providerSub: 'squatter', tenantId: 'tenant-a' })
       await auth.flows.beginProvider('magic-link', { email: 'a@x.com' })
       const owner = await auth.flows.signIn({
         providerId: 'magic-link',
@@ -374,6 +390,98 @@ describe('magic-link provider', () => {
       const passwords = await adapter.credentials.listByIdentity(id, 'password', {})
       expect(passwords.map((c) => c.revokedAt)).toEqual([expect.any(Date)])
       expect((await adapter.identities.find({ id })).providers).toEqual([])
+    })
+
+    describe('the sweep against a squatter acting while it runs', () => {
+      /** A finished squatter sign-up holding a password, and a hook into each of the sweep's credential reads. */
+      async function squatted(
+        onSweep: (ctx: {
+          adapter: MemoryAdapter<MyProfile>
+          auth: AuthEngine<MyProfile>
+          id: string
+          read: number
+        }) => Promise<void>,
+      ) {
+        let id = ''
+        let reads = 0
+        let builtRef: ReturnType<typeof buildAuth> | null = null
+        const built = buildAuth({
+          credentials: (base) => ({
+            ...base,
+            listByIdentity: async (...args: Parameters<Credential.Store['listByIdentity']>) => {
+              const rows = await base.listByIdentity(...args)
+              if (builtRef && args[0] === id && args[1] === null) {
+                await onSweep({ adapter: builtRef.adapter, auth: builtRef.auth, id, read: reads++ })
+              }
+              return rows
+            },
+          }),
+        })
+        builtRef = built
+        const squat = await built.auth.flows.beginSignUp({ email: 'a@x.com', required: [] })
+        id = squat.flow.identityId
+        await built.auth.flows.completeSignUp({ flowToken: squat.flowToken })
+        await built.adapter.credentials.create(
+          credentialInput({ identityId: id, kind: 'password', secret: 'squatter' }),
+          {},
+        )
+        return { ...built, id }
+      }
+
+      const redeem = async (built: Awaited<ReturnType<typeof squatted>>, n: number) => {
+        await built.auth.flows.beginProvider('magic-link', { email: 'a@x.com' })
+        return built.auth.flows.signIn({
+          providerId: 'magic-link',
+          input: { token: extractToken(built.channel.sent[n]?.url ?? '') },
+        })
+      }
+      const livePasswords = async (built: Awaited<ReturnType<typeof squatted>>) =>
+        (await built.adapter.credentials.listByIdentity(built.id, 'password', {})).filter((c) => c.revokedAt == null)
+
+      it('ends their sessions before it reads their credentials', async () => {
+        let liveWhileSwept = -1
+        const built = await squatted(async ({ adapter, id, read }) => {
+          if (read === 0) liveWhileSwept = (await adapter.sessions.listByIdentity(id)).length
+        })
+        await redeem(built, 0)
+        expect(liveWhileSwept).toBe(0)
+      })
+
+      it('is not stopped by a row they delete under it, and catches the one their password change writes', async () => {
+        const built = await squatted(async ({ adapter, id, read }) => {
+          if (read !== 0) return
+          await adapter.credentials.deleteByKind(id, 'password', {})
+          await adapter.credentials.create(
+            credentialInput({ identityId: id, kind: 'password', secret: 'squatter-2' }),
+            {},
+          )
+        })
+        await expect(redeem(built, 0)).resolves.toMatchObject({ session: { identityId: built.id } })
+        expect(await livePasswords(built)).toEqual([])
+      })
+
+      it('leaves the address unproven when it fails part-way, so the next link sweeps again', async () => {
+        const built = await squatted(async ({ read }) => {
+          if (read === 0) throw new AuthError('AUTH_ADAPTER_FAILED')
+        })
+        await expect(redeem(built, 0)).rejects.toMatchObject({ code: 'AUTH_ADAPTER_FAILED' })
+        expect((await built.adapter.identities.find({ id: built.id })).emailVerified).toBe(false)
+        await expect(redeem(built, 1)).resolves.toMatchObject({ session: { identityId: built.id } })
+        expect(await livePasswords(built)).toEqual([])
+      })
+
+      it('cannot be overtaken by a sign-up that reads the swept row as abandoned', async () => {
+        let begun = ''
+        const built = await squatted(async ({ auth, read }) => {
+          if (read !== 1) return
+          begun = await auth.flows.beginSignUp({ email: 'a@x.com', required: [] }).then(
+            () => 'reclaimed',
+            (err: { code?: string }) => err.code ?? 'threw',
+          )
+        })
+        await redeem(built, 0)
+        expect(begun).toBe('AUTH_EMAIL_TAKEN')
+      })
     })
 
     it('a second link retires the first, as a password reset does', async () => {

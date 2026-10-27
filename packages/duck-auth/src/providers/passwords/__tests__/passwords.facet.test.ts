@@ -18,7 +18,7 @@ describe('PasswordsFacet', () => {
 
   describe('strength validation', () => {
     it('rejects passwords shorter than minLength as AUTH_INVALID_CREDENTIALS', async () => {
-      await expect(facet.set('u', 'short', adapter.credentials)).rejects.toMatchObject({
+      await expect(facet.set('u', 'short', adapter.credentials, null)).rejects.toMatchObject({
         code: 'AUTH_INVALID_CREDENTIALS',
       })
     })
@@ -30,13 +30,13 @@ describe('PasswordsFacet', () => {
     })
 
     it('rejects common passwords as AUTH_INVALID_CREDENTIALS', async () => {
-      await expect(facet.set('u', 'password1', adapter.credentials)).rejects.toMatchObject({
+      await expect(facet.set('u', 'password1', adapter.credentials, null)).rejects.toMatchObject({
         code: 'AUTH_INVALID_CREDENTIALS',
       })
     })
 
     it('common-list check is case-insensitive', async () => {
-      await expect(facet.set('u', 'PASSWORD1', adapter.credentials)).rejects.toMatchObject({
+      await expect(facet.set('u', 'PASSWORD1', adapter.credentials, null)).rejects.toMatchObject({
         code: 'AUTH_INVALID_CREDENTIALS',
       })
     })
@@ -46,7 +46,7 @@ describe('PasswordsFacet', () => {
       // whole blob (several seconds of CPU per attempt). The cap stops
       // it at the strength gate, never reaching the hasher.
       const huge = 'x'.repeat(2048)
-      await expect(facet.set('u', huge, adapter.credentials)).rejects.toMatchObject({
+      await expect(facet.set('u', huge, adapter.credentials, null)).rejects.toMatchObject({
         code: 'AUTH_INVALID_CREDENTIALS',
       })
     })
@@ -55,7 +55,7 @@ describe('PasswordsFacet', () => {
       // Set a legitimate password first, then try to verify with a
       // pathologically long input. The verify path must short-circuit
       // before invoking the hasher.
-      await facet.set('u', 'correct-horse-battery', adapter.credentials)
+      await facet.set('u', 'correct-horse-battery', adapter.credentials, null)
       const huge = 'x'.repeat(10_000)
       const r = await facet.verify('u', huge, adapter.credentials)
       expect(r.ok).toBe(false)
@@ -64,13 +64,13 @@ describe('PasswordsFacet', () => {
 
   describe('set + verify happy path', () => {
     it('set stores a hashed credential; verify returns ok for the right plaintext', async () => {
-      await facet.set('user-1', 'correct-horse-battery', adapter.credentials)
+      await facet.set('user-1', 'correct-horse-battery', adapter.credentials, null)
       const r = await facet.verify('user-1', 'correct-horse-battery', adapter.credentials)
       expect(r.ok).toBe(true)
     })
 
     it('credential row has kind=password and algorithm metadata', async () => {
-      await facet.set('user-1', 'correct-horse-battery', adapter.credentials)
+      await facet.set('user-1', 'correct-horse-battery', adapter.credentials, null)
       const rows = await adapter.credentials.listByIdentity('user-1', 'password', {})
       expect(rows).toHaveLength(1)
       expect(rows[0]?.kind).toBe('password')
@@ -79,8 +79,8 @@ describe('PasswordsFacet', () => {
     })
 
     it('set replaces any previous password credential', async () => {
-      await facet.set('user-1', 'first-password', adapter.credentials)
-      await facet.set('user-1', 'second-password', adapter.credentials)
+      await facet.set('user-1', 'first-password', adapter.credentials, null)
+      await facet.set('user-1', 'second-password', adapter.credentials, null)
       const rows = await adapter.credentials.listByIdentity('user-1', 'password', {})
       expect(rows).toHaveLength(1)
       const r = await facet.verify('user-1', 'second-password', adapter.credentials)
@@ -90,7 +90,7 @@ describe('PasswordsFacet', () => {
 
   describe('verify failure paths', () => {
     it('wrong password returns ok:false', async () => {
-      await facet.set('user-1', 'right-password', adapter.credentials)
+      await facet.set('user-1', 'right-password', adapter.credentials, null)
       const r = await facet.verify('user-1', 'wrong-password', adapter.credentials)
       expect(r.ok).toBe(false)
     })
@@ -101,7 +101,7 @@ describe('PasswordsFacet', () => {
     })
 
     it('revoked credential is ignored', async () => {
-      await facet.set('user-1', 'password-1234', adapter.credentials)
+      await facet.set('user-1', 'password-1234', adapter.credentials, null)
       const rows = await adapter.credentials.listByIdentity('user-1', 'password', {})
       const row = rows[0]
       if (!row) throw new Error('expected a credential row')
@@ -113,7 +113,7 @@ describe('PasswordsFacet', () => {
 
   describe('needsRehash', () => {
     it('needsRehash=false when stored hash matches current params', async () => {
-      await facet.set('user-1', 'password-1234', adapter.credentials)
+      await facet.set('user-1', 'password-1234', adapter.credentials, null)
       const r = await facet.verify('user-1', 'password-1234', adapter.credentials)
       expect(r.ok).toBe(true)
       if (r.ok) expect(r.needsRehash).toBe(false)
@@ -121,7 +121,7 @@ describe('PasswordsFacet', () => {
 
     it('needsRehash=true when a stronger hasher is wired post-set', async () => {
       // First set with the fast (weak) hasher.
-      await facet.set('user-1', 'password-1234', adapter.credentials)
+      await facet.set('user-1', 'password-1234', adapter.credentials, null)
       // Now wire a stronger hasher into a new facet and re-verify.
       const stronger = new ScryptHasher({ N: 1 << 12, keylen: 32 })
       const strongerFacet = new PasswordsImpl({
@@ -136,7 +136,7 @@ describe('PasswordsFacet', () => {
 
   describe('rehash()', () => {
     it('rehash replaces the existing hash with current params', async () => {
-      await facet.set('user-1', 'password-1234', adapter.credentials)
+      await facet.set('user-1', 'password-1234', adapter.credentials, null)
       const beforeRows = await adapter.credentials.listByIdentity('user-1', 'password', {})
       const before = beforeRows[0]
       if (!before) throw new Error('expected credential row')

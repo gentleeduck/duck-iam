@@ -5,7 +5,7 @@ description: "What issue needs besides the session."
 
 > **IssueOpts** = \{ `absolute`: `boolean`; `csrfToken?`: `string`; `fresh`: `boolean`; `scope?`: `string`; \}
 
-Defined in: [packages/duck-auth/src/core/transport/transport.types.ts:21](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/transport.types.ts#L21)
+Defined in: [packages/duck-auth/src/core/transport/transport.types.ts:21](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/transport/transport.types.ts#L21)
 
 What `issue` needs besides the session.
 
@@ -15,7 +15,7 @@ What `issue` needs besides the session.
 
 > **absolute**: `boolean`
 
-Defined in: [packages/duck-auth/src/core/transport/transport.types.ts:25](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/transport.types.ts#L25)
+Defined in: [packages/duck-auth/src/core/transport/transport.types.ts:25](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/transport/transport.types.ts#L25)
 
 Hitting the absolute TTL forces re-auth rather than a refresh.
 
@@ -25,7 +25,7 @@ Hitting the absolute TTL forces re-auth rather than a refresh.
 
 > `optional` **csrfToken?**: `string`
 
-Defined in: [packages/duck-auth/src/core/transport/transport.types.ts:31](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/transport.types.ts#L31)
+Defined in: [packages/duck-auth/src/core/transport/transport.types.ts:31](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/transport/transport.types.ts#L31)
 
 Plaintext CSRF token to emit beside the session cookie, minted by `SessionsImpl.create` with its hash on
  the session row. `CookieTransport.issue` emits it as the CSRF companion cookie, not httpOnly so JS can
@@ -37,7 +37,7 @@ Plaintext CSRF token to emit beside the session cookie, minted by `SessionsImpl.
 
 > **fresh**: `boolean`
 
-Defined in: [packages/duck-auth/src/core/transport/transport.types.ts:23](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/transport.types.ts#L23)
+Defined in: [packages/duck-auth/src/core/transport/transport.types.ts:23](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/transport/transport.types.ts#L23)
 
 Newly created or just rotated; drives the cookie `Max-Age` and the JWT `exp`.
 
@@ -47,7 +47,7 @@ Newly created or just rotated; drives the cookie `Max-Age` and the JWT `exp`.
 
 > `optional` **scope?**: `string`
 
-Defined in: [packages/duck-auth/src/core/transport/transport.types.ts:27](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/transport.types.ts#L27)
+Defined in: [packages/duck-auth/src/core/transport/transport.types.ts:27](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/transport/transport.types.ts#L27)
 
 Embedded in the bearer as the JWT `scope` claim; CookieTransport ignores it.
 

@@ -1,6 +1,12 @@
 import { createHash } from 'node:crypto'
 import { type Answer, answer, orNull } from '~/core/answer'
-import { isCredentialExpired, isRevoked, toCredentialCreate, toPublicCredential } from '~/core/credentials/credentials'
+import {
+  isCredentialExpired,
+  isRevoked,
+  refuseWithoutStepUp,
+  toCredentialCreate,
+  toPublicCredential,
+} from '~/core/credentials/credentials'
 import type { Credential } from '~/core/credentials/credentials.types'
 import { AuthError } from '~/core/errors'
 import { refuseRateLimited } from '~/core/events/events.lockout'
@@ -8,6 +14,7 @@ import { canonicalEmail } from '~/core/identities'
 import type { Identities } from '~/core/identities/identities.types'
 import { isFiniteNumber, isRecord } from '~/core/predicates/predicates'
 import type { Provider } from '~/core/provider/provider.types'
+import type { Sessions } from '~/core/sessions/sessions.types'
 import type { TenantContext } from '~/core/tenant'
 import { MemoryPasskeyChallengeStore } from './internal/challenge-store'
 import { DEFAULT_PASSKEY_CONFIG } from './passkey.constants'
@@ -32,6 +39,29 @@ export async function loadWebAuthn(
         'WebAuthn requires the @simplewebauthn/server peerDep. ' +
         'Install via `bun add @simplewebauthn/server` (or `npm install @simplewebauthn/server`).',
     })
+  }
+}
+
+/** Refuses a relying party no browser completes a ceremony against: `rpID` a bare host, and each origin exactly as a
+ *  browser sends it, on `rpID`. A trailing slash, a default port or a capital failed every ceremony as
+ *  `AUTH_PASSKEY_MISMATCH`, the verifier's reason swallowed with it. WebAuthn MFA calls it too. */
+export function refuseUnusableRelyingParty(rpID: string, expectedOrigins: string | string[]): void {
+  if (typeof rpID !== 'string' || !/^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*$/.test(rpID)) {
+    throw new AuthError('AUTH_MISCONFIGURED', {
+      detail: `passkey: rpID must be a bare host, no scheme, port or path (got ${JSON.stringify(rpID)})`,
+    })
+  }
+  const origins = Array.isArray(expectedOrigins) ? expectedOrigins : [expectedOrigins]
+  const domain = rpID.toLowerCase()
+  for (const origin of origins.length > 0 ? origins : [undefined]) {
+    // An Android app's origin, which the verifier accepts and which has no host.
+    if (typeof origin === 'string' && origin.startsWith('android:apk-key-hash:')) continue
+    const url = typeof origin === 'string' && URL.canParse(origin) ? new URL(origin) : null
+    if (!url || url.origin !== origin || (url.hostname !== domain && !url.hostname.endsWith(`.${domain}`))) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: `passkey: each of expectedOrigins must be an origin as a browser sends it, on ${rpID}, such as https://${domain} (got ${JSON.stringify(origin)})`,
+      })
+    }
   }
 }
 
@@ -79,6 +109,7 @@ export class PasskeyImpl<Profile extends Identities.ProfileMetadataBase = Identi
         detail: `passkey: challengeTtlMs must be a finite positive number (got ${this.challengeTtlMs})`,
       })
     }
+    refuseUnusableRelyingParty(opts.rpID, opts.expectedOrigins)
     this.uv = opts.userVerification ?? DEFAULT_PASSKEY_CONFIG.userVerification
     this.prefix = opts.limiterKeyPrefix ?? DEFAULT_PASSKEY_CONFIG.limiterKeyPrefix
     this.__requestsDirectAttestation = (opts.attestationType ?? DEFAULT_PASSKEY_CONFIG.attestationType) === 'direct'
@@ -137,6 +168,38 @@ export class PasskeyImpl<Profile extends Identities.ProfileMetadataBase = Identi
 
   /** Verifies the authenticator's response and answers the intents that open the session. */
   async complete(ctx: Provider.Context<Profile>, input: Passkey.CompleteInput): Promise<Provider.InternalIntent[]> {
+    const { identityId, userVerified } = await this._assert(ctx, input)
+    return [
+      {
+        type: 'startSession',
+        identityId,
+        factors: [{ method: 'passkey', completedAt: new Date() }],
+        // SECURITY: two factors only when the authenticator verified the user. Presence alone, which
+        // `userVerification: 'preferred'` accepts from a security key with no PIN, is possession.
+        aal: userVerified ? 2 : 1,
+      },
+    ]
+  }
+
+  /** Whether `input` answers the challenge `begin` issued for its `sessionId` with one of `identityId`'s passkeys,
+   *  the user verified, which is what `completeStepUp` takes for the `passkey` method. */
+  async verifyStepUp(ctx: Provider.Context<Profile>, identityId: string, input: Passkey.StepUpInput): Promise<boolean> {
+    try {
+      await this._assert(ctx, input, identityId)
+      return true
+    } catch (err) {
+      if (err instanceof AuthError && err.code === 'AUTH_PASSKEY_MISMATCH') return false
+      throw err
+    }
+  }
+
+  /** Verifies an assertion, records its count and answers whose passkey made it. With `identityId`, a step-up's, the
+   *  passkey has to be that identity's and the user verified. */
+  private async _assert(
+    ctx: Provider.Context<Profile>,
+    input: Passkey.CompleteInput,
+    identityId?: string,
+  ): Promise<{ identityId: string; userVerified: boolean }> {
     if (typeof input.sessionId !== 'string' || input.sessionId.length === 0 || input.sessionId.length > 256) {
       throw new AuthError('AUTH_MISCONFIGURED', {
         detail: 'passkey.complete requires sessionId (string, 1-256 chars)',
@@ -175,6 +238,10 @@ export class PasskeyImpl<Profile extends Identities.ProfileMetadataBase = Identi
       if (!hintedIdentity || hintedIdentity.id !== cred.identityId) {
         throw new AuthError('AUTH_PASSKEY_MISMATCH')
       }
+    }
+    // Before the count is written, so another account's passkey leaves no trace on it.
+    if (identityId !== undefined && cred.identityId !== identityId) {
+      throw new AuthError('AUTH_PASSKEY_MISMATCH')
     }
 
     // `credential.identityId` is bound to `response.userHandle` when one is present.
@@ -221,6 +288,10 @@ export class PasskeyImpl<Profile extends Identities.ProfileMetadataBase = Identi
     if (!verification.verified) {
       throw new AuthError('AUTH_PASSKEY_MISMATCH')
     }
+    // A step-up needs the user verified whatever `userVerification` says, checked before the count is written.
+    if (identityId !== undefined && verification.authenticationInfo.userVerified !== true) {
+      throw new AuthError('AUTH_PASSKEY_MISMATCH')
+    }
 
     // Counter-rollback detection, WebAuthn L2 section 6.1.3. `parsePasskeyMetadata` already refused a stored
     // count that is not finite; a reported NaN or Infinity would short-circuit both `!== 0` and `<= oldCounter`.
@@ -251,17 +322,7 @@ export class PasskeyImpl<Profile extends Identities.ProfileMetadataBase = Identi
       })
       throw new AuthError('AUTH_PASSKEY_MISMATCH')
     }
-
-    return [
-      {
-        type: 'startSession',
-        identityId: cred.identityId,
-        factors: [{ method: 'passkey', completedAt: new Date() }],
-        // SECURITY: two factors only when the authenticator verified the user. Presence alone, which
-        // `userVerification: 'preferred'` accepts from a security key with no PIN, is possession.
-        aal: verification.authenticationInfo.userVerified ? 2 : 1,
-      },
-    ]
+    return { identityId: cred.identityId, userVerified: verification.authenticationInfo.userVerified }
   }
 
   /** The identity's passkeys that are not revoked. */
@@ -271,11 +332,13 @@ export class PasskeyImpl<Profile extends Identities.ProfileMetadataBase = Identi
   }
 
   /** Revoke one passkey, answering it as it stands revoked. A row that is not a passkey this identity
-   *  holds rejects as absent, so an id read off another account revokes nothing. */
+   *  holds rejects as absent, so an id read off another account revokes nothing. `session` has to be stepped up,
+   *  as `refuseWithoutStepUp` asks. */
   revoke(
     identityId: string,
     credentialId: string,
     credentials: Credential.Store,
+    session: Sessions.Me | null,
     ctx: TenantContext = {},
   ): Answer.Me<Credential.Public> {
     return answer(async () => {
@@ -283,16 +346,20 @@ export class PasskeyImpl<Profile extends Identities.ProfileMetadataBase = Identi
       if (existing.kind !== 'passkey' || existing.identityId !== identityId) {
         throw new AuthError('AUTH_CREDENTIAL_NOT_FOUND')
       }
+      await refuseWithoutStepUp(credentials, identityId, session, ctx)
       return toPublicCredential(await credentials.revoke(credentialId, ctx))
     })
   }
 
-  /** Revoke every live passkey the identity holds in one write, answering them as they stand revoked. */
+  /** Revoke every live passkey the identity holds in one write, answering them as they stand revoked. `session`
+   *  has to be stepped up, as `refuseWithoutStepUp` asks. */
   async revokeAll(
     identityId: string,
     credentials: Credential.Store,
+    session: Sessions.Me | null,
     ctx: TenantContext = {},
   ): Promise<Credential.Public[]> {
+    await refuseWithoutStepUp(credentials, identityId, session, ctx)
     return (await credentials.revokeByKind(identityId, 'passkey', ctx)).map(toPublicCredential)
   }
 }
@@ -304,7 +371,8 @@ export function passkey<Profile extends Identities.ProfileMetadataBase = Identit
   return new PasskeyImpl(opts)
 }
 
-/** Issues a registration ceremony. */
+/** Issues a registration ceremony. Beside any factor but the password, both calls refuse with `AUTH_MFA_REQUIRED`
+ *  unless `session` is the identity's own, stepped up to AAL 2; `null` is a caller with none, at sign-up. */
 export async function beginPasskeyRegistration(
   opts: Passkey.Options,
   input: {
@@ -314,6 +382,7 @@ export async function beginPasskeyRegistration(
     sessionId: string
     credentialStore: Credential.Store
     tenant: { tenantId?: string }
+    session: Sessions.Me | null
   },
 ): Promise<Passkey.RegistrationOptions> {
   const challengeStore = opts.challengeStore ?? DEFAULT_CHALLENGE_STORE
@@ -323,6 +392,8 @@ export async function beginPasskeyRegistration(
       detail: `passkey: challengeTtlMs must be a finite positive number (got ${challengeTtlMs})`,
     })
   }
+  refuseUnusableRelyingParty(opts.rpID, opts.expectedOrigins)
+  await refuseWithoutStepUp(input.credentialStore, input.identityId, input.session, input.tenant)
   const webauthn = await loadWebAuthn(opts.webauthnModule)
   // A revoked passkey is one the user asked to be rid of, so it is not excluded: re-enrolling the same
   // authenticator is the documented way back.
@@ -356,8 +427,11 @@ export async function completePasskeyRegistration(
     response: unknown
     credentialStore: Credential.Store
     tenant: { tenantId?: string }
+    session: Sessions.Me | null
   },
 ): Promise<string> {
+  // Again, so a ceremony begun from a stepped-up session cannot be finished from another.
+  await refuseWithoutStepUp(input.credentialStore, input.identityId, input.session, input.tenant)
   const challengeStore = opts.challengeStore ?? DEFAULT_CHALLENGE_STORE
   const expectedChallenge = await orNull(challengeStore.take(`reg:${input.sessionId}`))
   if (!expectedChallenge) {

@@ -30,7 +30,6 @@ function buildOp(): { op: OidcOpRoot<ProfileShape>; auth: AuthEngine<ProfileShap
     config: {
       issuer: 'http://localhost:8787/auth',
       supportedScopes: ['openid', 'profile', 'email', 'offline_access'],
-      allowHttp: true,
     },
     signIdToken: (payload) => {
       const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url')

@@ -3,9 +3,9 @@ title: "Type Alias: ClientOptions"
 description: "The client credentials and endpoints an OAuthClient talks to."
 ---
 
-> **ClientOptions** = \{ `clientId`: `string`; `clientSecret?`: `string`; `dynamicClientSecret?`: () => `string` \| `Promise`\<`string`\>; `endpoints`: [`Endpoints`](Endpoints) \| (() => `Promise`\<[`Endpoints`](Endpoints)\>); `fetch?`: *typeof* `globalThis.fetch`; `scopes`: `string`[]; \}
+> **ClientOptions** = \{ `clientId`: `string`; `clientSecret?`: `string`; `dynamicClientSecret?`: () => `string` \| `Promise`\<`string`\>; `endpoints`: [`Endpoints`](Endpoints) \| (() => `Promise`\<[`Endpoints`](Endpoints)\>); `fetch?`: *typeof* `globalThis.fetch`; `scopes`: `string`[]; `timeoutMs?`: `number`; \}
 
-Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:15](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L15)
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:15](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L15)
 
 The client credentials and endpoints an `OAuthClient` talks to.
 
@@ -15,7 +15,7 @@ The client credentials and endpoints an `OAuthClient` talks to.
 
 > **clientId**: `string`
 
-Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:17](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L17)
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:17](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L17)
 
 The client id the provider issued.
 
@@ -25,7 +25,7 @@ The client id the provider issued.
 
 > `optional` **clientSecret?**: `string`
 
-Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:19](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L19)
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:19](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L19)
 
 Absent for a PKCE public client.
 
@@ -35,7 +35,7 @@ Absent for a PKCE public client.
 
 > `optional` **dynamicClientSecret?**: () => `string` \| `Promise`\<`string`\>
 
-Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:22](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L22)
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:22](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L22)
 
 Per-request `client_secret`, called on every exchange and refresh. For Sign in with Apple. Wins over
  `clientSecret`.
@@ -50,7 +50,7 @@ Per-request `client_secret`, called on every exchange and refresh. For Sign in w
 
 > **endpoints**: [`Endpoints`](Endpoints) \| (() => `Promise`\<[`Endpoints`](Endpoints)\>)
 
-Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:24](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L24)
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:24](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L24)
 
 Can be promised, for discovery at boot.
 
@@ -60,7 +60,7 @@ Can be promised, for discovery at boot.
 
 > `optional` **fetch?**: *typeof* `globalThis.fetch`
 
-Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:28](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L28)
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:28](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L28)
 
 Override the fetch impl (test stubs).
 
@@ -70,7 +70,17 @@ Override the fetch impl (test stubs).
 
 > **scopes**: `string`[]
 
-Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:26](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L26)
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:26](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L26)
 
 Requested at authorize time.
+
+***
+
+### timeoutMs?
+
+> `optional` **timeoutMs?**: `number`
+
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:30](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L30)
+
+Per request to the IdP, the body included. Default 10 seconds.
 

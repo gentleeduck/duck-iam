@@ -10,6 +10,7 @@ import type { Anomaly } from '../anomaly/anomaly.types'
 import { type Answer, answer } from '../answer'
 import { type AuthCaptcha, AuthUnconfiguredCaptchaVerifier } from '../captcha'
 import type { Compliance } from '../compliance/compliance.types'
+import { normaliseBaseUrl } from '../config/config.constants'
 import { randomToken, sha256, timingSafeEqual } from '../crypto'
 import { AuthError } from '../errors'
 import { type Events, InMemoryEvents, withAuditStamping } from '../events'
@@ -93,7 +94,8 @@ export class AuthEngine<
   }
 
   constructor(cfg: Engine.Cfg<Profile, Tenant, OrgMeta>) {
-    this.cfg = cfg
+    // As `createAuth` does: every emailed link is `${baseUrl}${path}`, so a trailing slash mailed `//path`.
+    this.cfg = { ...cfg, baseUrl: normaliseBaseUrl(cfg.baseUrl) }
     // Installed before any facet exists, so the very first write an engine makes
     // is already attributable. Only when the caller asked for one: passing
     // `undefined` here would clear a resolver someone set directly.
@@ -101,6 +103,7 @@ export class AuthEngine<
     // Wrapped once here so every facet below emits through the stamper. Operator buses
     // included, so a facet never receives `cfg.events` unwrapped.
     this.events = withAuditStamping(cfg.events ?? new InMemoryEvents())
+    cfg.webhooks?.attach(this.events)
     this.transport = cfg.transport
     this.limiter = cfg.limiter ?? new MemoryLimiter()
     // Refusing, not passing. See `Engine.Cfg.captcha`.
@@ -138,7 +141,7 @@ export class AuthEngine<
       (tenantId) => ({
         stores: cfg.stores,
         tenant: tenantId !== undefined ? { tenantId } : {},
-        baseUrl: cfg.baseUrl,
+        baseUrl: this.cfg.baseUrl,
         limiter: this.limiter,
         events: this.events,
         crypto: {
@@ -207,7 +210,11 @@ export class AuthEngine<
   resolveSession(
     req: { headers: Headers },
     opts: {
+      /** The tenant the session must belong to; naming none accepts only a session with no tenant. */
       expectedTenantId?: string
+      /** Accepts the session in whatever tenant it is, over `expectedTenantId`, for a check that grants nothing,
+       *  as CSRF's does. */
+      allTenants?: true
       requestSnapshot?: Anomaly.RequestSnapshot
     } = {},
   ): Answer.Me<Engine.ResolveResult<Profile>> {
@@ -222,9 +229,10 @@ export class AuthEngine<
     return this
   }
 
-  /** Boot-time strict validation; throws `AUTH_MISCONFIGURED` on any production footgun. Its event checks see
-   *  only the handlers registered before it runs, so call it after every `on()` and `use()`. */
-  strict(opts: { env: 'development' | 'production' | 'test'; compliance?: Partial<Compliance.Wired> }): void {
+  /** Boot-time checks, throwing `AUTH_MISCONFIGURED` on any production footgun when `NODE_ENV` is production or
+   *  unset, and on a compliance preset's gaps in every environment. Its event checks see only the handlers
+   *  registered before it runs, so call it after every `on()` and `use()`. */
+  strict(opts: { compliance?: Partial<Compliance.Wired> } = {}): void {
     assertStrict(this, opts)
   }
 }

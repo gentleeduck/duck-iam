@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev --port 4800",
     "db:migrate": "tsx --env-file=.env src/db/migrate.ts",
-    "db:seed": "tsx --env-file=.env src/db/seed.ts",
+    "db:seed": "NODE_ENV=development tsx --env-file=.env src/db/seed.ts",
     "db:setup": "bun run db:migrate && bun run db:seed"
   },
   "dependencies": {

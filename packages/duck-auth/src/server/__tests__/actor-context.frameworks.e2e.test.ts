@@ -38,7 +38,7 @@ const auth = new AuthEngine<Profile>({
   baseUrl: 'https://app.test',
   limiter: new MemoryLimiter({ max: 1_000, windowMs: 60_000 }),
   stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
-  transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+  transport: new CookieTransport({ name: 'duck-sid' }),
 })
 
 /** Every handler counts itself, so a refusal can be shown to have run nothing. */

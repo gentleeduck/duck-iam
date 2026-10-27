@@ -5,9 +5,9 @@ import { readBodyJson } from '@gentleduck/auth/server/generic'
 import { auth, route } from '@/auth'
 
 export const POST = route(async (req) => {
-  const { identity } = await signedIn(auth, req.headers)
+  const { identity, session } = await signedIn(auth, req.headers)
   const code = readString(await readBodyJson(req), 'code') ?? ''
-  const confirmed = await auth.mfa.confirmTotpEnrollment(identity.id, code)
+  const confirmed = await auth.mfa.confirmTotpEnrollment(identity.id, code, session)
   if (!confirmed.ok) throw new AuthError('AUTH_INVALID_CREDENTIALS')
   return Response.json({ backupCodes: confirmed.backupCodes })
 })

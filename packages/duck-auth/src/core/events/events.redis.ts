@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { RedisLike } from '~/core/drivers/redis-like'
+import { SUBSCRIBE_RETRY_MAX_MS, SUBSCRIBE_RETRY_MS } from '~/core/events/events.constants'
 import type { Events } from '~/core/events/events.types'
 
 type Listener = (payload: unknown) => void | Promise<void>
@@ -36,6 +37,8 @@ export class RedisEvents implements Events.IBus {
   private readonly _origin = new Map<Events.EventName, Set<Listener>>()
   private readonly _fleet = new Map<Events.EventName, Set<Listener>>()
   private readonly _subscriptions = new Map<Events.EventName, Promise<(() => Promise<void>) | null>>()
+  /** Ends the wait before a failed subscribe's next attempt, for an event whose subscribe is waiting. */
+  private readonly _retryNow = new Map<Events.EventName, () => void>()
 
   constructor(cfg: RedisEvents.Cfg) {
     this._redis = cfg.redis
@@ -65,11 +68,16 @@ export class RedisEvents implements Events.IBus {
       // the `.then()`, so two `on()` calls for one event in the same tick - handlers registered
       // together at boot, which is the ordinary case - both passed it and both subscribed.
       this._subscriptions.set(event, this._subscribe(event))
+    } else {
+      // A subscribe waiting to retry tries again now.
+      this._retryNow.get(event)?.()
     }
 
     return () => {
       set.delete(wrapped)
       if (set.size > 0) return
+      // A subscribe waiting to retry ends now, finding no handler, rather than holding the process for its wait.
+      this._retryNow.get(event)?.()
       const pending = this._subscriptions.get(event)
       if (!pending) return
       // The teardown stays in the map while it runs, and resubscribes if a handler arrived meanwhile: an
@@ -93,21 +101,34 @@ export class RedisEvents implements Events.IBus {
     }
   }
 
-  /** Opens the channel for `event`, answering the unsubscribe the teardown above awaits. */
-  private _subscribe(event: Events.EventName): Promise<(() => Promise<void>) | null> {
-    return this._redis
-      .subscribe(this._ch(event), async (_channel, message) => {
-        const envelope = parseEnvelope(message)
-        if (envelope === null) return
-        if (envelope.from === this._instanceId) return
-        await this._dispatchLocal(event, envelope.payload, this._fleet.get(event))
+  /** Opens the channel for `event`, answering the unsubscribe the teardown above awaits. A subscribe that
+   *  fails is retried with backoff, or at once on the next `on()`, until it lands or the event has no `fleet`
+   *  handler left. */
+  private async _subscribe(event: Events.EventName): Promise<(() => Promise<void>) | null> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await this._redis.subscribe(this._ch(event), async (_channel, message) => {
+          const envelope = parseEnvelope(message)
+          if (envelope === null) return
+          if (envelope.from === this._instanceId) return
+          await this._dispatchLocal(event, envelope.payload, this._fleet.get(event))
+        })
+      } catch (err) {
+        // Logged, since in-process events still work. Left to the next `on()`, which after boot never comes,
+        // a subscribe made while Redis was down left this server deaf to the fleet for good, saying nothing.
+        console.error(`[@gentleduck/auth] RedisEvents could not subscribe to "${event}", retrying:`, err)
+      }
+      await new Promise<void>((resume) => {
+        const retry = (): void => {
+          clearTimeout(timer)
+          this._retryNow.delete(event)
+          resume()
+        }
+        const timer = setTimeout(retry, Math.min(SUBSCRIBE_RETRY_MS * 2 ** attempt, SUBSCRIBE_RETRY_MAX_MS))
+        this._retryNow.set(event, retry)
       })
-      .catch(() => {
-        // The subscriber failed to register; in-process events still work. Dropped from the map
-        // so the next `on()` for this event tries again rather than assuming one is live.
-        this._subscriptions.delete(event)
-        return null
-      })
+      if (!this._fleet.get(event)?.size) return null
+    }
   }
 
   /** Publishes the event, whether or not this server holds a `fleet` handler, and runs this server's

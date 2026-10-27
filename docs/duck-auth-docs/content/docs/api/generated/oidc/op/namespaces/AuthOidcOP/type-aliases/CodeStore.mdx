@@ -5,7 +5,7 @@ description: "Pending authorization codes."
 
 > **CodeStore** = \{ `consume`: `Promise`\<[`Code`](Code) \| `null`\>; `insert`: `Promise`\<`void`\>; \}
 
-Defined in: [packages/duck-auth/src/oidc/op/types.ts:95](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L95)
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:106](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/op/types.ts#L106)
 
 Pending authorization codes.
 
@@ -15,7 +15,7 @@ Pending authorization codes.
 
 > **consume**(`code`: `string`, `now`: `number`): `Promise`\<[`Code`](Code) \| `null`\>
 
-Defined in: [packages/duck-auth/src/oidc/op/types.ts:99](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L99)
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:110](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/op/types.ts#L110)
 
 Consume = atomic find-and-delete. Returns null if missing or expired.
 
@@ -39,7 +39,7 @@ Consume = atomic find-and-delete. Returns null if missing or expired.
 
 > **insert**(`c`: [`Code`](Code)): `Promise`\<`void`\>
 
-Defined in: [packages/duck-auth/src/oidc/op/types.ts:97](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L97)
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:108](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/op/types.ts#L108)
 
 Stores a code.
 

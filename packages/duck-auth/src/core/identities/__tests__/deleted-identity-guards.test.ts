@@ -12,6 +12,7 @@ import { apiKeyProvider } from '~/providers/api-key'
 import { magicLink } from '~/providers/magic-link'
 import { mfaProvider } from '~/providers/mfa'
 import { passwords, ScryptHasher } from '~/providers/passwords'
+import { authTestDataAtRest } from '~/test'
 
 /**
  * Deleting an account must end every way into it, not just the ones that go
@@ -36,7 +37,11 @@ function build() {
     baseUrl: 'https://app.test',
     deliver: channel,
     limiter: new MemoryLimiter({ max: 50, windowMs: 60_000 }),
-    providers: [apiKeyProvider(), passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) }), mfaProvider()],
+    providers: [
+      apiKeyProvider(),
+      passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) }),
+      mfaProvider({ dataAtRest: authTestDataAtRest() }),
+    ],
     stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
     transport: new JwtTransport({
       issuer: 'https://app.test',
@@ -58,7 +63,7 @@ function build() {
 }
 
 async function issueKey(auth: AuthEngine<P>, identityId: string) {
-  const created = await auth.apiKeys.create(identityId, { name: 'ci', scopes: ['read:users'] })
+  const created = await auth.apiKeys.create(identityId, { name: 'ci', scopes: ['read:users'], session: null })
   return { plaintext: created.plaintext, id: created.key.id }
 }
 
@@ -193,6 +198,18 @@ describe('a deleted identity cannot be authenticated', () => {
 })
 
 describe('the identities facet answers with the row or rejects', () => {
+  it('finds by email every address create stores, up to its 320-character cap', async () => {
+    const { auth } = build()
+    const email = `${'a'.repeat(64)}@${'b'.repeat(251)}.com`
+    expect(email).toHaveLength(320)
+    const created = await auth.identities.create({ profile: { email, username: 'long-address' }, providers: [] })
+    expect((await auth.identities.getByEmail(email)).id).toBe(created.id)
+    await expect(auth.identities.getByEmail(`a${email}`)).rejects.toMatchObject({ code: 'AUTH_INVALID_PARAMETERS' })
+    await expect(
+      auth.identities.create({ profile: { email: `a${email}`, username: 'too-long' }, providers: [] }),
+    ).rejects.toMatchObject({ code: 'AUTH_INVALID_PARAMETERS' })
+  })
+
   it('rejects a missing identity, and orNull reads that back as null', async () => {
     const { auth } = build()
     await expect(auth.identities.getById('nope')).rejects.toMatchObject({ code: 'AUTH_IDENTITY_NOT_FOUND' })
@@ -204,7 +221,7 @@ describe('the identities facet answers with the row or rejects', () => {
     // AUTH_INVALID_PARAMETERS is not in ABSENT, so it stays loud even through the escape hatch.
     for (const call of [
       () => auth.identities.getByEmail(''),
-      () => auth.identities.getByEmail('x'.repeat(255)),
+      () => auth.identities.getByEmail('x'.repeat(321)),
       () => auth.identities.getByProviderSub('', 'sub'),
     ]) {
       await expect(call()).rejects.toMatchObject({ code: 'AUTH_INVALID_PARAMETERS' })

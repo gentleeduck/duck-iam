@@ -49,7 +49,12 @@ export function fastifyWithActor<Req extends FastifyAdapter.Request, Reply exten
       auth,
       { headers: toFetchHeaders(req.headers) },
       () => handler(req, reply),
-      requestSecurity(auth, { caller: opts.getCaller?.(req), onAnomaly: opts.onAnomaly, onHijack: opts.onHijack }),
+      requestSecurity(auth, {
+        caller: opts.getCaller?.(req),
+        onAnomaly: opts.onAnomaly,
+        onHijack: opts.onHijack,
+        tenantId: opts.tenantId?.(req),
+      }),
     )
 }
 

@@ -1,7 +1,7 @@
 /**
  * The sibling of `session-invariants-parity.test.ts`, for the table that names the account. pg, mysql and
- * sqlite each declare five constraints over an identity and its provider links: both logins must be a
- * string that says something, each must fit its column, and neither half of a link may be blank. The
+ * sqlite each declare six constraints over an identity and its provider links: both logins must be a
+ * string that says something, each must fit its column, and no part of a link may be blank. The
  * in-process store carried none of them, and neither did the facet, whose only check on a profile is a
  * byte cap — so a blank, missing, over-long or non-string login was written in dev and refused in
  * production, and a row holding one is not findable by the address it was supposed to carry.
@@ -44,8 +44,15 @@ const VIOLATIONS: Record<string, Array<Partial<Identities.CreateInput<Identities
     { profile: without('username') },
   ],
   chk_auth_identities_username_length: [{ profile: profile({ username: 'n'.repeat(192) }) }],
-  chk_auth_identity_providers_provider_not_blank: [{ providers: [{ providerId: '', providerSub: 'sub-1' }] }],
-  chk_auth_identity_providers_sub_not_blank: [{ providers: [{ providerId: 'github', providerSub: '' }] }],
+  chk_auth_identity_providers_provider_not_blank: [
+    { providers: [{ providerId: '', providerSub: 'sub-1', tenantId: null }] },
+  ],
+  chk_auth_identity_providers_sub_not_blank: [
+    { providers: [{ providerId: 'github', providerSub: '', tenantId: null }] },
+  ],
+  chk_auth_identity_providers_tenant_not_blank: [
+    { providers: [{ providerId: 'github', providerSub: 'sub-1', tenantId: '' }] },
+  ],
 }
 
 const declaredIn = (dialect: string): string[] =>
@@ -96,11 +103,12 @@ describe('the in-process identity store enforces what every dialect CHECKs', () 
     })
   }
 
-  for (const link of [
-    { providerId: '', providerSub: 'sub-1' },
-    { providerId: 'github', providerSub: '' },
-  ]) {
-    it(`link refuses ${link.providerId === '' ? 'a blank providerId' : 'a blank providerSub'}`, async () => {
+  for (const [what, link] of [
+    ['a blank providerId', { providerId: '', providerSub: 'sub-1', tenantId: null }],
+    ['a blank providerSub', { providerId: 'github', providerSub: '', tenantId: null }],
+    ['a blank tenant', { providerId: 'github', providerSub: 'sub-1', tenantId: '' }],
+  ] as const) {
+    it(`link refuses ${what}`, async () => {
       const row = await store.create(identityInput({ profile: profile(), providers: [] }))
 
       await expect(store.link(row.id, link)).rejects.toMatchObject({ code: 'AUTH_INVALID_PARAMETERS' })

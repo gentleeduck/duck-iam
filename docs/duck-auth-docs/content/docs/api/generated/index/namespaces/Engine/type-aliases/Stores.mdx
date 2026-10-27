@@ -5,7 +5,7 @@ description: "What the engine is handed: an adapter, or facets picked off one an
 
 > **Stores**\<`Profile` *extends* [`ProfileMetadataBase`](../../Identities/type-aliases/ProfileMetadataBase) = [`ProfileMetadataBase`](../../Identities/type-aliases/ProfileMetadataBase), `OrgMeta` = `unknown`\> = \{ `credentials`: [`Store`](../../Credential/type-aliases/Store); `identities`: [`Store`](../../Identities/type-aliases/Store)\<`Profile`\>; `orgs?`: [`Store`](../../Org/type-aliases/Store)\<`OrgMeta`\>; `sessions`: [`Store`](../../Sessions/type-aliases/Store); `withClient?`: `Stores`\<`Profile`, `OrgMeta`\>; \}
 
-Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:21](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.types.ts#L21)
+Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:22](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/engine/engine.types.ts#L22)
 
 What the engine is handed: an adapter, or facets picked off one and mixed, redis sessions beside a
  drizzle identities store say. `withClient` rebinds the whole bag onto a transaction handle at once
@@ -28,7 +28,7 @@ What the engine is handed: an adapter, or facets picked off one and mixed, redis
 
 > **credentials**: [`Store`](../../Credential/type-aliases/Store)
 
-Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:27](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.types.ts#L27)
+Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:28](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/engine/engine.types.ts#L28)
 
 ***
 
@@ -36,7 +36,7 @@ Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:27](https://gith
 
 > **identities**: [`Store`](../../Identities/type-aliases/Store)\<`Profile`\>
 
-Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:25](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.types.ts#L25)
+Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:26](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/engine/engine.types.ts#L26)
 
 ***
 
@@ -44,7 +44,7 @@ Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:25](https://gith
 
 > `optional` **orgs?**: [`Store`](../../Org/type-aliases/Store)\<`OrgMeta`\>
 
-Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:28](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.types.ts#L28)
+Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:29](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/engine/engine.types.ts#L29)
 
 ***
 
@@ -52,7 +52,7 @@ Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:28](https://gith
 
 > **sessions**: [`Store`](../../Sessions/type-aliases/Store)
 
-Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:26](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.types.ts#L26)
+Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:27](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/engine/engine.types.ts#L27)
 
 ## Methods
 
@@ -60,7 +60,7 @@ Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:26](https://gith
 
 > `optional` **withClient**(`client`: `unknown`): `Stores`\<`Profile`, `OrgMeta`\>
 
-Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:30](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.types.ts#L30)
+Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:31](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/engine/engine.types.ts#L31)
 
 The same stores, rebound onto a transaction handle.
 

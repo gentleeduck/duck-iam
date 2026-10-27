@@ -12,6 +12,7 @@ import { InMemoryEvents } from '~/core/events'
 import type { Identities } from '~/core/identities/identities.types'
 import { RedisSessionImpl } from '~/core/sessions/sessions.redis'
 import type { Sessions } from '~/core/sessions/sessions.types'
+import { ALL_TENANTS, type TenantContext } from '~/core/tenant'
 import { credentialInput, sessionInput } from '~/test/store-inputs'
 import { IdentitiesImpl } from '../identities'
 import { DEFAULT_IDENTITIES_CONFIG } from '../identities.constants'
@@ -58,7 +59,12 @@ describe.each(STORES)('exportAll narrows to the asking tenant (%s sessions)', (_
   beforeEach(async () => {
     adapter = new MemoryAdapter<MyProfile>()
     sessions = makeSessions(adapter)
-    facet = new IdentitiesImpl<MyProfile>(adapter.identities, new InMemoryEvents(), DEFAULT_IDENTITIES_CONFIG)
+    facet = new IdentitiesImpl<MyProfile>(
+      adapter.identities,
+      new InMemoryEvents(),
+      DEFAULT_IDENTITIES_CONFIG,
+      adapter.credentials,
+    )
     id = (await facet.create({ profile: { email: 'a@x.com', username: 'a@x.com' } })).id
     // One person, signed in to two tenants and holding one session that belongs to neither.
     await sessions.create(session('1', A, id))
@@ -72,15 +78,16 @@ describe.each(STORES)('exportAll narrows to the asking tenant (%s sessions)', (_
       credentialInput({ identityId: id, kind: 'api-key', secret: 'hash-b', tenantId: B }),
       {},
     )
+    await adapter.identities.link(id, { providerId: 'oauth:google', providerSub: 'g-a', tenantId: A })
+    await adapter.identities.link(id, { providerId: 'oauth:google', providerSub: 'g-b', tenantId: B })
   })
 
-  const exported = (ctx: { tenantId?: string }) => facet.exportAll(id, adapter.credentials, ctx, { sessions })
+  const exported = (ctx: TenantContext) => facet.exportAll(id, adapter.credentials, ctx, { sessions })
 
-  it('unscoped answers every session, so a single-tenant export is unchanged', async () => {
-    // Live control: `inTenant` treats an absent `tenantId` as matching everything, which is why passing
-    // the context through is not a behaviour change for the deployments that never set one.
-    const blob = await exported({})
-    expect(blob.sessions.map((s) => s.id).sort()).toEqual([sha256('sid-1'), sha256('sid-2'), sha256('sid-3')].sort())
+  it('naming no tenant answers the session with none, and ALL_TENANTS every session', async () => {
+    expect((await exported({})).sessions.map((s) => s.id)).toEqual([sha256('sid-3')])
+    const all = await exported(ALL_TENANTS)
+    expect(all.sessions.map((s) => s.id).sort()).toEqual([sha256('sid-1'), sha256('sid-2'), sha256('sid-3')].sort())
   })
 
   it("does not hand one tenant the other tenant's sessions", async () => {
@@ -119,6 +126,13 @@ describe.each(STORES)('exportAll narrows to the asking tenant (%s sessions)', (_
     // deliberate omission rather than a layer nobody had scoped yet.
     const blob = await exported({ tenantId: A })
     expect(blob.credentials.map((c) => c.kind)).toEqual(['password'])
+  })
+
+  it('narrows the provider links the same way', async () => {
+    expect((await exported({ tenantId: A })).identity.providers.map((l) => l.providerSub)).toEqual(['g-a'])
+    expect((await exported({})).identity.providers).toEqual([])
+    const all = await exported(ALL_TENANTS)
+    expect(all.identity.providers.map((l) => l.providerSub).sort()).toEqual(['g-a', 'g-b'])
   })
 
   it('still strips the csrf hash from every session it does carry', async () => {

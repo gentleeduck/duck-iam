@@ -3,6 +3,7 @@ import { MemoryAdapter } from '~/adapters/memory'
 import { randomToken, sha256, timingSafeEqual } from '~/core/crypto'
 import { InMemoryEvents } from '~/core/events'
 import { Identities } from '~/core/identities'
+import { ALL_TENANTS } from '~/core/tenant'
 import { MemoryLimiter } from '~/limiters/memory'
 import { identityInput } from '~/test/store-inputs'
 import { ApiKeysFacet } from '../api-key'
@@ -44,7 +45,7 @@ describe('api-key provider', () => {
       identityInput({ profile: { email: 'svc@x.com', username: 'svc' }, providers: [] }),
     )
     identityId = ident.id
-    const created = await env.facet.create(ident.id, { name: 'CI runner', scopes: ['read:users'] })
+    const created = await env.facet.create(ident.id, { name: 'CI runner', scopes: ['read:users'], session: null })
     plaintext = created.plaintext
   })
 
@@ -137,6 +138,7 @@ describe('api-key provider', () => {
       const created = await facet.create(ident.id, {
         name: 'tenant-A key',
         scopes: ['read'],
+        session: null,
         tenantId: 'tenant-A',
       })
       const provider = authApiKey<ProfileShape>({ apiKeys: facet })
@@ -167,6 +169,7 @@ describe('api-key provider', () => {
       const created = await facet.create(ident.id, {
         name: 'tenant-A key',
         scopes: ['read'],
+        session: null,
         tenantId: 'tenant-A',
       })
       const provider = authApiKey<ProfileShape>({ apiKeys: facet })
@@ -187,6 +190,32 @@ describe('api-key provider', () => {
       })
     })
 
+    it('rotates a key only in its tenant or across every tenant, and keeps it in its tenant', async () => {
+      const ident = await env.adapter.identities.create(
+        identityInput({ profile: { email: 't4@x.com', username: 't4' }, providers: [] }),
+      )
+      const created = await env.facet.create(ident.id, {
+        name: 'tenant-A key',
+        scopes: ['read'],
+        session: null,
+        tenantId: 'tenant-A',
+      })
+      await expect(env.facet.rotate(created.key.id, null)).rejects.toMatchObject({ code: 'AUTH_APIKEY_INVALID' })
+      const once = await env.facet.rotate(created.key.id, null, { tenantId: 'tenant-A' })
+      const rotated = await env.facet.rotate(once.key.id, null, ALL_TENANTS)
+      expect([once.key.tenantId, rotated.key.tenantId]).toEqual(['tenant-A', 'tenant-A'])
+
+      const provider = authApiKey<ProfileShape>({ apiKeys: env.facet })
+      const at = (tenant: { tenantId?: string }) => ({ ...env.ctx, tenant })
+      for (const tenant of [{}, { tenantId: 'tenant-B' }]) {
+        await expect(provider.complete(at(tenant), { token: rotated.plaintext })).rejects.toMatchObject({
+          code: 'AUTH_APIKEY_INVALID',
+        })
+      }
+      const intents = await provider.complete(at({ tenantId: 'tenant-A' }), { token: rotated.plaintext })
+      expect(intents.map((i) => i.type)).toEqual(['startSession'])
+    })
+
     it('still identifies-confirms a tenant-A key on a tenant-A request (happy path)', async () => {
       const adapter = new MemoryAdapter<ProfileShape>()
       const events = new InMemoryEvents()
@@ -197,6 +226,7 @@ describe('api-key provider', () => {
       const created = await facet.create(ident.id, {
         name: 'tenant-A key',
         scopes: ['read'],
+        session: null,
         tenantId: 'tenant-A',
       })
       const provider = authApiKey<ProfileShape>({ apiKeys: facet })

@@ -8,12 +8,12 @@ import { generateKeyPairSync, randomUUID } from 'node:crypto'
 import { deflateRawSync, inflateRawSync } from 'node:zlib'
 import { SAML } from '@node-saml/node-saml'
 import { signXml } from '@node-saml/node-saml/lib/xml'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { randomToken, sha256, timingSafeEqual } from '~/core/crypto'
 import { InMemoryEvents } from '~/core/events'
 import { MemoryLimiter } from '~/limiters/memory'
-import { type Saml, saml, samlSloController } from '../index'
+import { SAML_RESPONSE_MAX, type Saml, saml, samlSloController } from '../index'
 
 const keys = generateKeyPairSync('rsa', { modulusLength: 2048 })
 const IDP_KEY = keys.privateKey.export({ format: 'pem', type: 'pkcs8' }).toString()
@@ -138,7 +138,11 @@ describe('sign-in through a real node-saml client', () => {
 
   it.each([
     [MFA, 2],
+    ['urn:oasis:names:tc:SAML:2.0:ac:classes:SmartcardPKI', 2],
     [PASSWORD, 1],
+    // A password however it is sent, and a smartcard with no PIN, are one factor each.
+    ['urn:oasis:names:tc:SAML:2.0:ac:classes:SecureRemotePassword', 1],
+    ['urn:oasis:names:tc:SAML:2.0:ac:classes:Smartcard', 1],
   ])('the signed AuthnContextClassRef %s decides aal %i', async (classRef, aal) => {
     const { provider: p } = provider()
     const intents = await p.complete(ctx(), { SAMLResponse: samlResponse({ classRef, id: `_${randomUUID()}` }) })
@@ -301,6 +305,32 @@ describe('Redirect-binding logout through a real node-saml client', () => {
     await expect(
       slo.completeIdp({ originalQuery: `${signed}&SAMLRequest=${unsignedRequest('victim@corp.test')}` }),
     ).rejects.toMatchObject({ code: 'AUTH_PROVIDER_FAILED' })
+  })
+
+  it('a message that inflates past the cap is refused before node-saml inflates it', async () => {
+    // node-saml inflates with no bound before it checks any signature, so a 1 MiB query took over a gigabyte.
+    const c = client()
+    const validate = vi.spyOn(c, 'validateRedirectAsync')
+    const slo = samlSloController({ client: c })
+    const deflated = (bytes: number) => encodeURIComponent(deflateRawSync(Buffer.alloc(bytes, 0x20)).toString('base64'))
+    const past = deflated(SAML_RESPONSE_MAX + 1)
+    await expect(slo.completeIdp({ originalQuery: `SAMLRequest=${past}&SigAlg=x&Signature=y` })).rejects.toMatchObject({
+      code: 'AUTH_PROVIDER_FAILED',
+    })
+    await expect(slo.completeSp({ originalQuery: `SAMLResponse=${past}&SigAlg=x&Signature=y` })).rejects.toMatchObject({
+      code: 'AUTH_PROVIDER_FAILED',
+    })
+    expect(validate).not.toHaveBeenCalled()
+
+    // One at the cap reaches node-saml, which refuses it for what it is.
+    const atCap = deflated(SAML_RESPONSE_MAX)
+    await expect(slo.completeIdp({ originalQuery: `SAMLRequest=${atCap}&SigAlg=x&Signature=y` })).rejects.toMatchObject(
+      { code: 'AUTH_PROVIDER_FAILED' },
+    )
+    expect(validate).toHaveBeenCalledTimes(1)
+    const signed = rawQuery(await idp.getLogoutUrlAsync(user, 'rs', {}))
+    await expect(slo.completeIdp({ originalQuery: signed })).resolves.toMatchObject({ nameID: 'attacker@corp.test' })
+    expect(validate).toHaveBeenCalledTimes(2)
   })
 
   it('an IdP LogoutResponse completes only when the IdP signed it', async () => {

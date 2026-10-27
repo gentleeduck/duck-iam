@@ -13,7 +13,8 @@ import { MemoryAdapter } from '~/adapters/memory'
 import { randomToken, sha256 } from '~/core/crypto'
 import { AuthError } from '~/core/errors'
 import { InMemoryEvents } from '~/core/events'
-import { identityInput } from '~/test/store-inputs'
+import { authTestDataAtRest } from '~/test'
+import { identityInput, makeSession } from '~/test/store-inputs'
 import { DEFAULT_REMEMBER_ME_CONFIG, RememberMeFacet } from '../internal/remember-me'
 import { MfaImpl } from '../mfa'
 
@@ -41,7 +42,7 @@ function refusal(build: () => unknown): string {
 
 describe('MfaImpl refuses a backup-code shape that is not a secret', () => {
   const mfa = (cfg: { backupCodeCount?: number; backupCodeLen?: number }) =>
-    new MfaImpl(new MemoryAdapter().credentials, bus, cfg)
+    new MfaImpl(new MemoryAdapter().credentials, bus, { ...cfg, dataAtRest: authTestDataAtRest() })
 
   it.each([0, 1, 7, 65, Number.NaN, Number.POSITIVE_INFINITY, -1, 10.5])('backupCodeLen %s', (backupCodeLen) => {
     expect(refusal(() => mfa({ backupCodeLen }))).toContain('backupCodeLen must be a whole number between 8 and 64')
@@ -59,10 +60,10 @@ describe('MfaImpl refuses a backup-code shape that is not a secret', () => {
 
   it('mints distinct codes at the shortest length it now allows, and one identity cannot spend another', async () => {
     const adapter = new MemoryAdapter()
-    const impl = new MfaImpl(adapter.credentials, bus, { backupCodeLen: 8 })
+    const impl = new MfaImpl(adapter.credentials, bus, { backupCodeLen: 8, dataAtRest: authTestDataAtRest() })
     const [a, b] = [await identity(adapter), await identity(adapter)]
-    const codes = await impl.regenerateBackupCodes(a)
-    await impl.regenerateBackupCodes(b)
+    const codes = await impl.regenerateBackupCodes(a, makeSession({ aal: 2, identityId: a }))
+    await impl.regenerateBackupCodes(b, makeSession({ aal: 2, identityId: b }))
     expect(codes).toHaveLength(10)
     expect(new Set(codes).size).toBe(10)
     for (const code of codes) expect(code).toMatch(/^[a-z2-9]{5}-[a-z2-9]{3}$/)
@@ -76,12 +77,16 @@ describe('MfaImpl draws every backup-code character with equal odds', () => {
   // 31 characters do not divide 256, so `byte % 31` gave `a` to `h` 9/256 each: 28.1% of draws against 25.8%.
   it('keeps the first eight characters near 8/31 over 65,536 draws', async () => {
     const adapter = new MemoryAdapter()
-    const impl = new MfaImpl(adapter.credentials, bus, { backupCodeCount: 64, backupCodeLen: 64 })
+    const impl = new MfaImpl(adapter.credentials, bus, {
+      backupCodeCount: 64,
+      backupCodeLen: 64,
+      dataAtRest: authTestDataAtRest(),
+    })
     const id = await identity(adapter)
     let low = 0
     let total = 0
     for (let round = 0; round < 16; round++) {
-      for (const code of await impl.regenerateBackupCodes(id)) {
+      for (const code of await impl.regenerateBackupCodes(id, makeSession({ aal: 2, identityId: id }))) {
         for (const ch of code.replace('-', '')) {
           total++
           if (ch >= 'a' && ch <= 'h') low++
@@ -110,7 +115,7 @@ describe('RememberMeFacet mints a token that skips the factor for ninety days', 
     const adapter = new MemoryAdapter()
     const f = new RememberMeFacet(adapter.credentials, CRYPTO)
     const id = await identity(adapter)
-    const issued = await f.issue(id)
+    const issued = await f.issue(id, makeSession({ aal: 2, identityId: id }))
     expect(issued.token.length).toBeGreaterThan(40)
     await expect(f.verify(issued.token)).resolves.toMatchObject({ identityId: id })
   })

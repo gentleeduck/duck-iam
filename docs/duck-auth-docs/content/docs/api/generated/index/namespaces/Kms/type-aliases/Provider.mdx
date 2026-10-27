@@ -5,7 +5,7 @@ description: "A KMS that mints data keys and unwraps them."
 
 > **Provider** = \{ `id`: `string`; `decryptDataKey`: `Promise`\<`Uint8Array`\<`ArrayBufferLike`\>\>; `generateDataKey`: `Promise`\<[`DataKey`](DataKey)\>; \}
 
-Defined in: [packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts:17](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts#L17)
+Defined in: [packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts:17](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts#L17)
 
 A KMS that mints data keys and unwraps them.
 
@@ -15,7 +15,7 @@ A KMS that mints data keys and unwraps them.
 
 > `readonly` **id**: `string`
 
-Defined in: [packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts:19](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts#L19)
+Defined in: [packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts:19](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts#L19)
 
 Stable id for audit logs and strict() reporting, such as 'aws-kms' or 'gcp-kms'.
 
@@ -25,7 +25,7 @@ Stable id for audit logs and strict() reporting, such as 'aws-kms' or 'gcp-kms'.
 
 > **decryptDataKey**(`wrapped`: `Uint8Array`, `ctx?`: [`EncryptionContext`](EncryptionContext)): `Promise`\<`Uint8Array`\<`ArrayBufferLike`\>\>
 
-Defined in: [packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts:24](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts#L24)
+Defined in: [packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts:24](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts#L24)
 
 Must carry the same encryption context the DEK was generated with; AWS and GCP both refuse
  the request otherwise.
@@ -50,7 +50,7 @@ Must carry the same encryption context the DEK was generated with; AWS and GCP b
 
 > **generateDataKey**(`ctx?`: [`EncryptionContext`](EncryptionContext)): `Promise`\<[`DataKey`](DataKey)\>
 
-Defined in: [packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts:21](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts#L21)
+Defined in: [packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts:21](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts#L21)
 
 Most providers answer (plaintext, wrapped) in one call, so there is only one failure mode.
 

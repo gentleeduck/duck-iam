@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { InMemoryEvents } from '~/core/events'
+import { authTestDataAtRest } from '~/test'
 import { credentialInput } from '~/test/store-inputs'
 import { matchTotpStep, TOTP_DEFAULTS, totpAt, verifyTotp } from '../internal/totp'
 import { MfaImpl } from '../mfa'
@@ -34,11 +35,12 @@ describe('a TOTP secret that decodes to no bytes verifies nothing', () => {
 
   it('MfaFacet.verifyTotp does not let a blanked row stand in for a second factor', async () => {
     const adapter = new MemoryAdapter()
-    const facet = new MfaImpl(adapter.credentials, new InMemoryEvents(), DEFAULT_MFA_CONFIG)
+    const dataAtRest = authTestDataAtRest()
+    const facet = new MfaImpl(adapter.credentials, new InMemoryEvents(), { ...DEFAULT_MFA_CONFIG, dataAtRest })
+    // Sealed under the key, so it decrypts, to a secret that decodes to zero bytes.
+    const blank = await dataAtRest.encrypt('', { field: 'totp', identityId: 'u' })
     await adapter.credentials.create(
-      // Padding only, not empty: the memory adapter refuses a secret that trims to nothing, and this
-      // passes that guard while still decoding to zero bytes.
-      credentialInput({ identityId: 'u', kind: 'totp', metadata: { confirmed: true }, secret: '======' }),
+      credentialInput({ identityId: 'u', kind: 'totp', metadata: { confirmed: true }, secret: blank }),
       {},
     )
     expect(await facet.hasTotp('u')).toBe(true)

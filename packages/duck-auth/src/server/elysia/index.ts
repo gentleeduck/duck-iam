@@ -30,7 +30,12 @@ export function elysiaWithActor<Ctx extends ElysiaAdapter.Context, Out>(
       auth,
       { headers: ctx.request.headers },
       () => handler(ctx),
-      requestSecurity(auth, { caller: opts.getCaller?.(ctx), onAnomaly: opts.onAnomaly, onHijack: opts.onHijack }),
+      requestSecurity(auth, {
+        caller: opts.getCaller?.(ctx),
+        onAnomaly: opts.onAnomaly,
+        onHijack: opts.onHijack,
+        tenantId: opts.tenantId?.(ctx),
+      }),
     )
 }
 

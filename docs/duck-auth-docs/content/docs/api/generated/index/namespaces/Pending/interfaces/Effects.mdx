@@ -3,7 +3,7 @@ title: "Interface: Effects"
 description: "The buffer a transaction's events wait in until it commits."
 ---
 
-Defined in: [packages/duck-auth/src/core/pending/pending.types.ts:14](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/pending/pending.types.ts#L14)
+Defined in: [packages/duck-auth/src/core/pending/pending.types.ts:14](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/pending/pending.types.ts#L14)
 
 The buffer a transaction's events wait in until it commits.
 
@@ -13,7 +13,7 @@ The buffer a transaction's events wait in until it commits.
 
 > `readonly` **size**: `number`
 
-Defined in: [packages/duck-auth/src/core/pending/pending.types.ts:16](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/pending/pending.types.ts#L16)
+Defined in: [packages/duck-auth/src/core/pending/pending.types.ts:16](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/pending/pending.types.ts#L16)
 
 Number of buffered events awaiting publication.
 
@@ -23,7 +23,7 @@ Number of buffered events awaiting publication.
 
 > **discard**(): \{ `discarded`: `number`; \}
 
-Defined in: [packages/duck-auth/src/core/pending/pending.types.ts:28](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/pending/pending.types.ts#L28)
+Defined in: [packages/duck-auth/src/core/pending/pending.types.ts:28](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/pending/pending.types.ts#L28)
 
 Drop everything buffered without publishing. For an explicit rollback path.
 
@@ -41,7 +41,7 @@ Drop everything buffered without publishing. For an explicit rollback path.
 
 > **flush**(): `Promise`\<\{ `failed`: `Error`[]; `published`: `number`; \}\>
 
-Defined in: [packages/duck-auth/src/core/pending/pending.types.ts:26](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/pending/pending.types.ts#L26)
+Defined in: [packages/duck-auth/src/core/pending/pending.types.ts:26](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/pending/pending.types.ts#L26)
 
 Publishes in emit order, then empties the buffer. Idempotent, and it never rejects: a throwing listener
 does not stop the drain, and its error comes back in `failed`.
@@ -61,7 +61,7 @@ false. The write happened and an announcement of it did not; a caller wanting th
 
 > **peek**(): readonly [`Event`](../type-aliases/Event)[]
 
-Defined in: [packages/duck-auth/src/core/pending/pending.types.ts:30](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/pending/pending.types.ts#L30)
+Defined in: [packages/duck-auth/src/core/pending/pending.types.ts:30](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/pending/pending.types.ts#L30)
 
 Inspect the buffer without draining it. For tests and custom routing.
 

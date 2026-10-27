@@ -17,7 +17,7 @@ export namespace M2m {
     clientSecret: string
     /** Optional space-separated oauth2 scope string. */
     scope?: string
-    /** Tenant scope. */
+    /** The key's tenant, so a key in a tenant needs it named. */
     tenantId?: string
   }
 

@@ -1,15 +1,28 @@
 /**
- * In-memory stores for the OIDC OP. Suitable for tests and single-instance
- * dev servers. Production deployments wire one of the DB adapters by
- * implementing the same interfaces.
+ * In-memory stores for the OIDC OP, for development and test. Production refuses them: each instance holds only
+ * the rows it wrote, so a revocation landing on another instance revokes nothing, and a restart forgets every
+ * client and grant.
  */
 
+import { isProduction } from '~/core/env'
 import { AuthError } from '~/core/errors'
 import type { OidcOP } from './types'
 
-/** In-memory `AuthOidcOP.ClientStore`. Maps `client_id` → registered client. */
+/** Throws `AUTH_MISCONFIGURED` in production, naming the store refused. */
+function refuseInProduction(store: string): void {
+  if (isProduction()) {
+    throw new AuthError('AUTH_MISCONFIGURED', {
+      detail: `${store} is refused in production; pass the Drizzle stores from \`@gentleduck/auth/oidc/op/drizzle/{pg,mysql,sqlite}\` as \`stores\``,
+    })
+  }
+}
+
+/** In-memory `OidcOP.ClientStore`. Maps `client_id` → registered client. */
 export class AuthMemoryClientStore implements OidcOP.ClientStore {
   private rows = new Map<string, OidcOP.Client>()
+  constructor() {
+    refuseInProduction('AuthMemoryClientStore')
+  }
   async findById(client_id: string): Promise<OidcOP.Client | null> {
     return this.rows.get(client_id) ?? null
   }
@@ -21,9 +34,12 @@ export class AuthMemoryClientStore implements OidcOP.ClientStore {
   }
 }
 
-/** In-memory `AuthOidcOP.CodeStore`. Codes are single-use; `consume` deletes them. */
+/** In-memory `OidcOP.CodeStore`. Codes are single-use; `consume` deletes them. */
 export class AuthMemoryCodeStore implements OidcOP.CodeStore {
   private rows = new Map<string, OidcOP.Code>()
+  constructor() {
+    refuseInProduction('AuthMemoryCodeStore')
+  }
   async insert(c: OidcOP.Code): Promise<void> {
     this.rows.set(c.code, c)
   }
@@ -36,9 +52,13 @@ export class AuthMemoryCodeStore implements OidcOP.CodeStore {
   }
 }
 
-/** In-memory `AuthOidcOP.AccessTokenStore`. Keyed by `token_hash`; expired tokens evicted lazily on read. */
+/** In-memory `OidcOP.AccessTokenStore`. Keyed by `token_hash`, revocable by hash or by grant family;
+ *  expired tokens evicted lazily on read. */
 export class AuthMemoryAccessTokenStore implements OidcOP.AccessTokenStore {
   private rows = new Map<string, OidcOP.AccessToken>()
+  constructor() {
+    refuseInProduction('AuthMemoryAccessTokenStore')
+  }
   async insert(t: OidcOP.AccessToken): Promise<void> {
     this.rows.set(t.token_hash, t)
   }
@@ -54,11 +74,19 @@ export class AuthMemoryAccessTokenStore implements OidcOP.AccessTokenStore {
   async revokeByHash(hash: string): Promise<void> {
     this.rows.delete(hash)
   }
+  async revokeFamily(family_id: string): Promise<void> {
+    for (const [k, v] of this.rows) {
+      if (v.family_id === family_id) this.rows.delete(k)
+    }
+  }
 }
 
-/** In-memory `AuthOidcOP.RefreshTokenStore`. Supports RTR family revocation via `revokeFamily`. */
+/** In-memory `OidcOP.RefreshTokenStore`. Supports RTR family revocation via `revokeFamily`. */
 export class AuthMemoryRefreshTokenStore implements OidcOP.RefreshTokenStore {
   private rows = new Map<string, OidcOP.RefreshToken>()
+  constructor() {
+    refuseInProduction('AuthMemoryRefreshTokenStore')
+  }
   async insert(t: OidcOP.RefreshToken): Promise<void> {
     this.rows.set(t.token_hash, t)
   }
@@ -80,7 +108,6 @@ export class AuthMemoryRefreshTokenStore implements OidcOP.RefreshTokenStore {
     }
     if (row.consumedAt !== null) return null
     row.consumedAt = now
-    this.rows.set(hash, row)
     return row
   }
   async revokeFamily(family_id: string): Promise<void> {
@@ -90,9 +117,12 @@ export class AuthMemoryRefreshTokenStore implements OidcOP.RefreshTokenStore {
   }
 }
 
-/** In-memory `AuthOidcOP.ConsentStore`. Keyed by `identityId:clientId` pair. */
+/** In-memory `OidcOP.ConsentStore`. Keyed by `identityId:clientId` pair. */
 export class AuthMemoryConsentStore implements OidcOP.ConsentStore {
   private rows = new Map<string, OidcOP.Consent>()
+  constructor() {
+    refuseInProduction('AuthMemoryConsentStore')
+  }
   private key(identity_id: string, client_id: string) {
     return `${identity_id}:${client_id}`
   }
@@ -105,34 +135,26 @@ export class AuthMemoryConsentStore implements OidcOP.ConsentStore {
 }
 
 /** Constructs {@link AuthMemoryClientStore}. */
-export function authMemoryClientStore(
-  ...args: ConstructorParameters<typeof AuthMemoryClientStore>
-): AuthMemoryClientStore {
-  return new AuthMemoryClientStore(...args)
+export function authMemoryClientStore(): AuthMemoryClientStore {
+  return new AuthMemoryClientStore()
 }
 
 /** Constructs {@link AuthMemoryCodeStore}. */
-export function authMemoryCodeStore(...args: ConstructorParameters<typeof AuthMemoryCodeStore>): AuthMemoryCodeStore {
-  return new AuthMemoryCodeStore(...args)
+export function authMemoryCodeStore(): AuthMemoryCodeStore {
+  return new AuthMemoryCodeStore()
 }
 
 /** Constructs {@link AuthMemoryAccessTokenStore}. */
-export function authMemoryAccessTokenStore(
-  ...args: ConstructorParameters<typeof AuthMemoryAccessTokenStore>
-): AuthMemoryAccessTokenStore {
-  return new AuthMemoryAccessTokenStore(...args)
+export function authMemoryAccessTokenStore(): AuthMemoryAccessTokenStore {
+  return new AuthMemoryAccessTokenStore()
 }
 
 /** Constructs {@link AuthMemoryRefreshTokenStore}. */
-export function authMemoryRefreshTokenStore(
-  ...args: ConstructorParameters<typeof AuthMemoryRefreshTokenStore>
-): AuthMemoryRefreshTokenStore {
-  return new AuthMemoryRefreshTokenStore(...args)
+export function authMemoryRefreshTokenStore(): AuthMemoryRefreshTokenStore {
+  return new AuthMemoryRefreshTokenStore()
 }
 
 /** Constructs {@link AuthMemoryConsentStore}. */
-export function authMemoryConsentStore(
-  ...args: ConstructorParameters<typeof AuthMemoryConsentStore>
-): AuthMemoryConsentStore {
-  return new AuthMemoryConsentStore(...args)
+export function authMemoryConsentStore(): AuthMemoryConsentStore {
+  return new AuthMemoryConsentStore()
 }

@@ -5,7 +5,7 @@ description: "What a privileged operation demands of the session before it runs.
 
 > **StepUpRequirement** = \{ `aal?`: [`AAL`](../../Sessions/type-aliases/AAL); `freshness?`: `number`; `methods?`: [`FactorMethod`](../../Sessions/type-aliases/FactorMethod)[]; \}
 
-Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:63](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L63)
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:96](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/flows/flows.types.ts#L96)
 
 What a privileged operation demands of the session before it runs.
 
@@ -15,7 +15,7 @@ What a privileged operation demands of the session before it runs.
 
 > `optional` **aal?**: [`AAL`](../../Sessions/type-aliases/AAL)
 
-Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:65](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L65)
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:98](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/flows/flows.types.ts#L98)
 
 Required AAL on the post-step-up session. Default 2.
 
@@ -25,7 +25,7 @@ Required AAL on the post-step-up session. Default 2.
 
 > `optional` **freshness?**: `number`
 
-Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:69](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L69)
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:102](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/flows/flows.types.ts#L102)
 
 Recency window in ms; a last factor older than this needs re-auth.
 
@@ -35,7 +35,7 @@ Recency window in ms; a last factor older than this needs re-auth.
 
 > `optional` **methods?**: [`FactorMethod`](../../Sessions/type-aliases/FactorMethod)[]
 
-Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:67](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L67)
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:100](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/flows/flows.types.ts#L100)
 
 Methods that satisfy the requirement (any-of). Default ['totp'].
 

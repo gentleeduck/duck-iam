@@ -1,6 +1,7 @@
 import { orNull } from '../answer'
 import { randomToken, sha256, timingSafeEqual } from '../crypto'
 import { AuthError } from '../errors'
+import { cookieSecurity } from '../transport/cookie.transport'
 
 export const AUTH_DEFAULT_CSRF_CONFIG: Required<Omit<Csrf.Cfg, 'allowedOrigins'>> & {
   allowedOrigins: string[]
@@ -20,7 +21,8 @@ export function issueCsrfToken(): { token: string; hash: string } {
   return { token, hash: sha256(token) }
 }
 
-/** The double-submit cookie carrying the plaintext token, built for the transport's cookie settings. */
+/** The double-submit cookie carrying the plaintext token. Outside production it is not Secure, and drops a
+ *  `__Host-` prefix with it. */
 export function buildCsrfCookieOptions(
   token: string,
   cfg: Csrf.Cfg = {},
@@ -34,13 +36,14 @@ export function buildCsrfCookieOptions(
     path: string
   }
 } {
+  const { name, secure } = cookieSecurity(cfg.cookieName ?? AUTH_DEFAULT_CSRF_CONFIG.cookieName, 'lax')
   return {
-    name: cfg.cookieName ?? AUTH_DEFAULT_CSRF_CONFIG.cookieName,
+    name,
     value: token,
     options: {
       // WARN: must stay readable by JS, which is what stitches it onto the `x-csrf-token` header.
       httpOnly: false,
-      secure: true,
+      secure,
       sameSite: 'lax',
       path: '/',
     },
@@ -56,6 +59,8 @@ export function verifyCsrf(opts: {
   cfg?: Csrf.Cfg
   /** True when the request authenticated via a non-ambient bearer (header, JWT, DPoP). */
   isBearer?: boolean
+  /** The engine's transport, which decides `isBearer` when it is unset. */
+  transport?: Csrf.Extracting
 }): void {
   const method = opts.method.toUpperCase()
   if (SAFE_METHODS.has(method)) return
@@ -65,7 +70,7 @@ export function verifyCsrf(opts: {
   // Read off the headers when the caller did not say, since this function documents the exemption as its
   // own and `csrfGuard` is not the only way in: a caller that already resolved the session calls straight
   // through, and refused every bearer client because nobody had told it.
-  const isBearer = opts.isBearer ?? hasBearerAuthorization(opts.headers)
+  const isBearer = opts.isBearer ?? presentsHeaderCredential(opts.transport, opts.headers)
 
   // SECURITY: the bearer exemption reaches layer 1 only when the request carries no cookie. That is the
   // whole justification for it - a header credential is not ambient, so a browser cannot make the
@@ -112,6 +117,21 @@ export function verifyCsrf(opts: {
 
 const CSRF_TOKEN_MAX = 256
 
+/** Whether the request carries a credential in a header other than Cookie, which no third-party page can
+ *  attach. The transport is asked too, so a bearer on another header or scheme counts: the fixed
+ *  `Authorization: Bearer` shape alone refused every request from one. */
+function presentsHeaderCredential(transport: Csrf.Extracting | undefined, headers: Headers): boolean {
+  if (hasBearerAuthorization(headers)) return true
+  if (!transport) return false
+  const withoutCookie = new Headers(headers)
+  withoutCookie.delete('cookie')
+  try {
+    return Boolean(transport.extract({ headers: withoutCookie }))
+  } catch {
+    return false
+  }
+}
+
 /** A `,` disqualifies it, matching `BearerTransport.extract`. */
 function hasBearerAuthorization(headers: Headers): boolean {
   const raw = headers.get('authorization')
@@ -128,11 +148,12 @@ export async function csrfGuard(
   auth: {
     resolveSession(
       req: { headers: Headers },
-      opts?: { expectedTenantId?: string },
+      opts?: { allTenants?: true },
     ): Promise<{
       session: { csrfHash?: string | null }
       identity: unknown
     }>
+    transport?: Csrf.Extracting
   },
   req: { method: string; headers: Headers },
   opts: Csrf.GuardOptions = {},
@@ -141,7 +162,7 @@ export async function csrfGuard(
   // Bearer and JWT carry auth in a header rather than an ambient cookie, so the double-submit token is
   // pointless for them. `verifyCsrf` decides how far that exemption reaches; the session still need not
   // be loaded to find out.
-  if (opts.isBearer || hasBearerAuthorization(req.headers)) {
+  if (opts.isBearer || presentsHeaderCredential(auth.transport, req.headers)) {
     verifyCsrf({
       headers: req.headers,
       isBearer: true,
@@ -150,13 +171,9 @@ export async function csrfGuard(
     })
     return
   }
-  // An unauthenticated request still gets the double-submit check below, against the cookie alone.
-  const resolved = await orNull(
-    auth.resolveSession(
-      req,
-      opts.expectedTenantId !== undefined ? { expectedTenantId: opts.expectedTenantId } : undefined,
-    ),
-  )
+  // The session the cookie names, in whatever tenant: the check grants nothing, and one asking for a tenant
+  // would skip the token for every session outside it.
+  const resolved = await orNull(auth.resolveSession(req, { allTenants: true }))
   verifyCsrf({
     method: req.method,
     headers: req.headers,
@@ -169,7 +186,8 @@ export async function csrfGuard(
 export namespace Csrf {
   /** The CSRF check's options. */
   export type Cfg = {
-    /** Cookie name carrying the plaintext token. Default `__Host-duck-csrf`. */
+    /** Cookie name carrying the plaintext token. Default `__Host-duck-csrf`, which outside production drops its
+     *  prefix along with Secure. */
     cookieName?: string
     /** Header name the client puts the token on. Default `x-csrf-token`. */
     headerName?: string
@@ -185,13 +203,14 @@ export namespace Csrf {
     allowedOrigins?: string[]
   }
 
+  /** The part of a transport the bearer check reads. */
+  export type Extracting = { extract(req: { headers: Headers }): string | null }
+
   /** Options every server adapter's CSRF middleware forwards to {@link csrfGuard}. */
   export type GuardOptions = {
     /** Forces the bearer bypass on; otherwise it is read off the Authorization header. */
     isBearer?: boolean
     /** The cookie and header names, and the strategy. */
     cfg?: Csrf.Cfg
-    /** The tenant the session must belong to. */
-    expectedTenantId?: string
   }
 }

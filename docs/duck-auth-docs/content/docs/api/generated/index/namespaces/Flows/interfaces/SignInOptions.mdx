@@ -3,7 +3,7 @@ title: "Interface: SignInOptions"
 description: "What flows.signIn takes: the provider, its input, and the caller."
 ---
 
-Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:36](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L36)
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:37](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/flows/flows.types.ts#L37)
 
 What `flows.signIn` takes: the provider, its input, and the caller.
 
@@ -13,7 +13,7 @@ What `flows.signIn` takes: the provider, its input, and the caller.
 
 > **input**: `unknown`
 
-Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:40](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L40)
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:41](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/flows/flows.types.ts#L41)
 
 What that provider's `complete` takes.
 
@@ -23,7 +23,7 @@ What that provider's `complete` takes.
 
 > `optional` **ip?**: `string`
 
-Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:44](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L44)
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:45](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/flows/flows.types.ts#L45)
 
 The caller's address and user agent, stamped on the session and read by the hijack check.
 
@@ -33,7 +33,7 @@ The caller's address and user agent, stamped on the session and read by the hija
 
 > `optional` **previousSid?**: `string`
 
-Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:42](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L42)
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:43](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/flows/flows.types.ts#L43)
 
 The active SID, from the cookie or the bearer; `rotateOrCreate` revokes it.
 
@@ -43,9 +43,20 @@ The active SID, from the cookie or the bearer; `rotateOrCreate` revokes it.
 
 > **providerId**: `string`
 
-Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:38](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L38)
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:39](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/flows/flows.types.ts#L39)
 
 The registered provider to sign in with.
+
+***
+
+### rememberedDevice?
+
+> `optional` **rememberedDevice?**: `string`
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:50](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/flows/flows.types.ts#L50)
+
+A `RememberMeFacet.issue` token from the device. Its own identity's sign-in skips the challenge, at the AAL
+ the first factor reached, so a step-up still asks for the second.
 
 ***
 
@@ -53,7 +64,7 @@ The registered provider to sign in with.
 
 > `optional` **tenantId?**: `string`
 
-Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:46](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L46)
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:47](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/flows/flows.types.ts#L47)
 
 ***
 
@@ -61,5 +72,5 @@ Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:46](https://github
 
 > `optional` **userAgent?**: `string`
 
-Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:45](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L45)
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:46](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/flows/flows.types.ts#L46)
 

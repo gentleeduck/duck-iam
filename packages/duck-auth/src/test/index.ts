@@ -4,7 +4,9 @@
  *  entry: an app reaching for it is writing a test, and the contract type it implements stays there. */
 export { FakeRedis, fakeRedis } from '../core/drivers/redis-like'
 
+import { randomBytes } from 'node:crypto'
 import { MemoryAdapter } from '../adapters/memory'
+import { authAesGcmDataAtRest, type DataAtRest } from '../core/dataAtRest'
 import { AuthEngine, type Engine } from '../core/engine'
 import type { Deliver, DeliveryMessage } from '../core/flows/flows.delivery'
 import type { Identities } from '../core/identities/identities.types'
@@ -28,8 +30,9 @@ export namespace Test {
     providers?: Engine.Cfg<Profile, Tenant, OrgMeta>['providers']
     /** Password provider tuning (minLength/maxLength/rejectCommon/compliance). */
     passwords?: Partial<Passwords.Cfg>
-    /** MFA provider tuning (issuer/backupCodeCount/backupCodeLen/compliance). */
-    mfa?: Mfa.CfgInput
+    /** MFA provider tuning (issuer/backupCodeCount/backupCodeLen/compliance); `dataAtRest` defaults to
+     *  {@link authTestDataAtRest}. */
+    mfa?: Partial<Mfa.CfgInput>
     /** API-key provider tuning (prefix/randomBytes/compliance). */
     apiKeys?: ApiKeys.CfgInput
     baseUrl?: string
@@ -54,7 +57,7 @@ export function createTest<Profile extends Identities.ProfileMetadataBase = Iden
       passwords(overrides?.passwords?? {
         hasher: hasher
       }),
-      mfaProvider(overrides.mfa),
+      mfaProvider({ dataAtRest: authTestDataAtRest(), ...overrides.mfa }),
       apiKeyProvider(overrides.apiKeys),
       ...(overrides.providers ?? []),
     ],
@@ -78,4 +81,12 @@ export function authTestDeliver(): {
     },
     outbox,
   }
+}
+
+/** Drawn once per process, so every engine a test builds reads the TOTP secrets another one wrote. */
+const TEST_DATA_AT_REST = authAesGcmDataAtRest({ kid: 'test', masterKey: randomBytes(32) })
+
+/** The `dataAtRest` adapter tests hand `mfaProvider`: AES-GCM under a random key that dies with the process. */
+export function authTestDataAtRest(): DataAtRest.Adapter {
+  return TEST_DATA_AT_REST
 }

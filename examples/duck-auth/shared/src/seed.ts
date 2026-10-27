@@ -11,6 +11,6 @@ export async function seedDb(auth: AppAuth) {
       emailVerified: true,
       profile: { email: DEMO.email, name: 'Ada Lovelace', username: 'ada' },
     }))
-  await auth.passwords.set(identity.id, DEMO.password, auth.cfg.stores.credentials)
+  await auth.passwords.set(identity.id, DEMO.password, auth.cfg.stores.credentials, null)
   console.log(`Seeded ${DEMO.email} / ${DEMO.password}`)
 }

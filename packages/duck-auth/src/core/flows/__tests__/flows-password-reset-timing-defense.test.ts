@@ -7,6 +7,7 @@ import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
 import { mfaProvider } from '~/providers/mfa'
 import { passwords, ScryptHasher } from '~/providers/passwords'
+import { authTestDataAtRest } from '~/test'
 import { identityInput } from '~/test/store-inputs'
 
 interface MyProfile extends Identities.ProfileMetadataBase {
@@ -18,14 +19,17 @@ function buildAuth(deliver: Deliver): { auth: AuthEngine<MyProfile>; adapter: Me
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app.example.com',
     deliver,
-    transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
+    transport: new CookieTransport({ name: 'duck-sid' }),
     stores: {
       identities: adapter.identities,
       sessions: adapter.sessions,
       credentials: adapter.credentials,
     },
     limiter: new MemoryLimiter({ max: 50, windowMs: 60_000 }),
-    providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) }), mfaProvider()],
+    providers: [
+      passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) }),
+      mfaProvider({ dataAtRest: authTestDataAtRest() }),
+    ],
   })
   return { auth, adapter }
 }

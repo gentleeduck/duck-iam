@@ -11,12 +11,15 @@ export namespace Actor {
     /** Resolves the request's session, as `AuthEngine.resolveSession` does. */
     resolveSession(
       req: { headers: Headers },
-      opts?: { requestSnapshot?: Anomaly.RequestSnapshot },
+      opts?: { expectedTenantId?: string; requestSnapshot?: Anomaly.RequestSnapshot },
     ): Promise<{ session: Sessions.Me; anomaly?: Anomaly.Result }>
   }
 
   /** What a wrapper may do beyond binding the actor; `server/generic`'s `requestSecurity` fills them in. */
   export type RequestOptions = {
+    /** Forwarded to `resolveSession`: the tenant the session must belong to; naming none accepts only a session
+     *  with no tenant. */
+    expectedTenantId?: string
     /** Forwarded to `resolveSession`. No snapshot means no detector runs, having nothing to compare. */
     requestSnapshot?: Anomaly.RequestSnapshot
     /** Runs inside the scope before `fn`. Throwing refuses the request; a write it made first is attributed. */

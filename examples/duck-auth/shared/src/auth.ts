@@ -1,5 +1,6 @@
 import { drizzlePgAdapter } from '@gentleduck/auth/adapters/drizzle/pg'
 import { createAuth, type Deliver, orNull } from '@gentleduck/auth/core'
+import { authAesGcmDataAtRest } from '@gentleduck/auth/core/dataAtRest'
 import { cookieTransport, memoryDPoPNonceStore, type Transport } from '@gentleduck/auth/core/transport'
 import { MemoryLimiter } from '@gentleduck/auth/limiters/memory'
 import { magicLink } from '@gentleduck/auth/providers/magic-link'
@@ -26,8 +27,8 @@ const deliver: Deliver = async ({ identity, kind, vars }) => {
   console.log(`\n[${kind}] ${identity.profile.email}\n  ${vars.url}\n`)
 }
 
-/** http, so neither cookie can carry `Secure`; the CSRF companion is then `duck-csrf`. */
-const cookies = cookieTransport({ name: 'duck-sid', secure: false })
+/** The default cookies, `duck-sid` and `duck-csrf` outside production, where neither carries `Secure`. */
+const cookies = cookieTransport()
 
 // OAuth turns on per provider once its client id and secret are both set. `API_URL` is this backend's public
 // `/auth` parent, which the IdP must have registered as the redirect target.
@@ -37,7 +38,6 @@ const oauth = {
   onFederationConflict: 'link-if-verified',
   // A first-time IdP user becomes an account under the address the IdP returned; no address, no account.
   profileToIdentityProfile: ({ email, name }) => (email ? { email, name: name ?? email, username: email } : null),
-  stateCookie: { name: 'duck-oauth', secure: false },
   stateSigningSecret: process.env.OAUTH_STATE_SECRET ?? 'examples-only-oauth-state-secret-32ch',
 } satisfies Partial<OAuth.OptionsBase>
 const redirectUri = (id: string) => `${process.env.API_URL}/auth/providers/oauth:${id}/callback`
@@ -53,7 +53,14 @@ export function buildAuth(db: AppDb, transport: Transport.ITransport = cookies) 
     transport,
     providers: [
       passwords(),
-      mfaProvider({ issuer: 'duck-auth examples' }),
+      mfaProvider({
+        // TOTP secrets are stored encrypted under this key; a deployment reads its own from a secret store.
+        dataAtRest: authAesGcmDataAtRest({
+          kid: 'examples',
+          masterKey: process.env.MFA_KEY ?? 'examples-only-mfa-key-32-bytes!!',
+        }),
+        issuer: 'duck-auth examples',
+      }),
       (_engine, send) =>
         magicLink({
           callbackPath: PAGES.magicLink,

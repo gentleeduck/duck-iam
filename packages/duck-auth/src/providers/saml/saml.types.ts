@@ -61,25 +61,30 @@ export namespace Saml {
      *  without depending on that library's types. */
     client: Client
     /** Where the IdP POSTs the SAMLResponse, matching the AssertionConsumerService URL registered with it.
-     *  Checked against the client's own `callbackUrl` at construction, since the client is what validates
-     *  `Destination` and `Recipient`, and the two disagreeing leaves this a presence test and nothing more. */
+     *  Checked against the client's own `callbackUrl` at construction so the advertised ACS and the signed
+     *  one cannot drift. It is not what binds an assertion to this SP; `audience` is - see
+     *  `allowAnyAudience`. */
     callbackUrl: string
     /** Check the relay state the IdP echoed back against the one `begin` issued and the tenant consuming it.
      *  SECURITY: without it, an assertion the attacker obtained for their own account and POSTed into a victim's
-     *  browser is indistinguishable from one the victim asked for, under any tenant the instance serves. */
+     *  browser is indistinguishable from one the victim asked for, under any tenant the instance serves. Issued
+     *  is not enough, since anyone can call `begin` for one: the host also holds it to the browser `begin`
+     *  answered, such as with a `SameSite=None` cookie compared at the callback. */
     verifyRelayState?: (input: { relayState: string; tenantId?: string }) => Promise<boolean>
     /** Accepts a response carrying no relay state, the IdP-initiated flow. Default false, since nothing
      *  binds an unsolicited assertion to a request or a tenant. */
     allowUnsolicited?: boolean
-    /** Consumes an assertion id exactly once, answering false when it has been seen.
-     *  SECURITY: the only replay protection this wrapper requires. The client's InResponseTo cache is
-     *  neither configured nor mandatory here, so without this one captured POST body mints a fresh session
-     *  per repeat. */
+    /** Consumes an assertion id exactly once, answering false when it has been seen. Required in production;
+     *  development and test may leave it out.
+     *  SECURITY: the only replay protection this wrapper has. The client's InResponseTo cache is neither
+     *  configured nor mandatory here, so without this one captured POST body mints a fresh session per repeat,
+     *  for as long as the assertion's own `NotOnOrAfter` window lasts. */
     replayStore?: { consume: (assertionId: string) => Promise<boolean> }
-    /** Accepts responses with no replay protection at all. Default false: without a store one captured
-     *  POST body mints a fresh session on every repeat, for as long as the assertion's own
-     *  `NotOnOrAfter` window lasts, which node-saml's `acceptedClockSkewMs` widens. */
-    allowReplay?: boolean
+    /** Accepts a client configured with `audience: false`. Default false.
+     *  SECURITY: `AudienceRestriction` is the only thing binding an assertion to this SP - node-saml 5.1.0
+     *  parses the bearer `Recipient` and the response `Destination` and compares neither - so with the
+     *  audience check off, any assertion the IdP ever signed for any SP mints a session here. */
+    allowAnyAudience?: boolean
     /**
      * NameID formats the SP accepts. Defaults to the one `DEFAULT_SAML_CONFIG` asks for. A transient
      * nameID changes on every login, so provisioning keyed on it creates a new account each time.
@@ -100,7 +105,8 @@ export namespace Saml {
   export interface BeginInput {
     /** The CSRF guard, echoed back by the IdP. */
     relayState: string
-    /** The app's own origin, which the IdP redirects to. */
+    /** Handed to the client's `getAuthorizeUrlAsync`. node-saml 5 does not read it: the IdP posts back to the
+     *  client's `callbackUrl`. */
     host: string
   }
 

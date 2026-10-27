@@ -14,6 +14,7 @@ import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
 import { mfaProvider, totpAt } from '~/providers/mfa'
 import { passwords, ScryptHasher } from '~/providers/passwords'
+import { authTestDataAtRest } from '~/test'
 
 interface MyProfile extends Identities.ProfileMetadataBase {
   email: string
@@ -26,18 +27,21 @@ function buildAuth(): AuthEngine<MyProfile> {
   return new AuthEngine<MyProfile>({
     baseUrl: 'https://app.example.com',
     limiter: new MemoryLimiter({ max: MAX_ATTEMPTS, windowMs: 60_000 }),
-    providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) }), mfaProvider()],
+    providers: [
+      passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) }),
+      mfaProvider({ dataAtRest: authTestDataAtRest() }),
+    ],
     stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
-    transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+    transport: new CookieTransport({ name: 'duck-sid' }),
   })
 }
 
 /** An identity with a confirmed TOTP factor and a live AAL-1 session, which is all the gate needs. */
 async function enrolled(auth: AuthEngine<MyProfile>): Promise<{ identityId: string; sid: string }> {
   const ident = await auth.identities.create({ profile: { email: 'a@x.com', username: 'a@x.com' } })
-  const challenge = await auth.mfa.beginTotpEnrollment(ident.id, 'a@x.com')
+  const challenge = await auth.mfa.beginTotpEnrollment(ident.id, 'a@x.com', null)
   const step = Math.floor(Date.now() / 1000 / 30)
-  await auth.mfa.confirmTotpEnrollment(ident.id, totpAt(challenge.secret, step))
+  await auth.mfa.confirmTotpEnrollment(ident.id, totpAt(challenge.secret, step), null)
   const { sid } = await auth.sessions.create({
     aal: 1,
     factors: [{ completedAt: new Date(), method: 'password' }],
@@ -95,9 +99,9 @@ describe('completeStepUp is rate limited', () => {
     const auth = buildAuth()
     const victim = await enrolled(auth)
     const other = await auth.identities.create({ profile: { email: 'b@x.com', username: 'b@x.com' } })
-    const challenge = await auth.mfa.beginTotpEnrollment(other.id, 'b@x.com')
+    const challenge = await auth.mfa.beginTotpEnrollment(other.id, 'b@x.com', null)
     const step = Math.floor(Date.now() / 1000 / 30)
-    await auth.mfa.confirmTotpEnrollment(other.id, totpAt(challenge.secret, step))
+    await auth.mfa.confirmTotpEnrollment(other.id, totpAt(challenge.secret, step), null)
     const { sid: otherSid } = await auth.sessions.create({
       aal: 1,
       factors: [{ completedAt: new Date(), method: 'password' }],

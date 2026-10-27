@@ -63,17 +63,12 @@ export class M2MImpl {
     const limited = await this._limiter.consume(`m2m:${input.clientId}`)
     if (!limited.ok) await refuseRateLimited(null, limited, null)
     const tenant = input.tenantId !== undefined ? { tenantId: input.tenantId } : {}
+    // Held to the tenant the caller named, or to none, so the key found is that tenant's and `tid` is its own.
     const verified = await this._apiKeys.verify(input.clientSecret, tenant)
     if (verified.keyId !== input.clientId) {
       // The pair must agree, or a valid secret tied to a different client_id would pass.
       throw new AuthError('AUTH_APIKEY_INVALID')
     }
-    // Refuses cross-tenant minting; an omitted tenantId falls back to the credential's own so `tid` is right.
-    if (input.tenantId !== undefined && verified.tenantId !== undefined && input.tenantId !== verified.tenantId) {
-      throw new AuthError('AUTH_APIKEY_INVALID')
-    }
-    const effectiveTenantId = input.tenantId ?? verified.tenantId
-
     // An absent `scope` is "no opinion, grant what the key holds". A present one is a request, and a
     // request naming nothing is not the same thing: reading `scope=` as absence handed a client
     // every scope on the key when it had explicitly asked for none.
@@ -104,7 +99,7 @@ export class M2MImpl {
       // ever signs out of an m2m session, so a row outliving its token is a row nothing will ever
       // remove; capped, the ordinary expiry sweep collects it.
       maxExpiresAt: new Date(now + this._cfg.ttlMs),
-      ...(effectiveTenantId !== undefined && { tenantId: effectiveTenantId }),
+      ...(verified.tenantId !== undefined && { tenantId: verified.tenantId }),
     })
     // Project granted scope onto the JWT or `scopeMode: intersect` is wire-noop.
     const intents = this._transport.issue(sid, session, {

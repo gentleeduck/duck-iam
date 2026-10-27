@@ -53,7 +53,12 @@ export function nextWithActor<Args extends [Request, ...unknown[]]>(
         auth,
         { headers: req.headers },
         () => handler(...args),
-        requestSecurity(auth, { caller: opts.getCaller?.(req), onAnomaly: opts.onAnomaly, onHijack: opts.onHijack }),
+        requestSecurity(auth, {
+          caller: opts.getCaller?.(req),
+          onAnomaly: opts.onAnomaly,
+          onHijack: opts.onHijack,
+          tenantId: opts.tenantId?.(req),
+        }),
       )
     } catch (err) {
       // A refusal is answered here, since Next answers any throw from a route with a 500. A failure is

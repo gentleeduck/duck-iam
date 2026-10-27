@@ -1,13 +1,14 @@
 import { type Answer, answer, orNull } from '~/core/answer'
 import { withActor } from '../actor'
-import { isStandingFactor, toPublicCredential } from '../credentials/credentials'
+import { isStandingFactor, refuseWithoutStepUp, toPublicCredential } from '../credentials/credentials'
 import type { Credential } from '../credentials/credentials.types'
 import { AuthError } from '../errors'
 import type { Events } from '../events'
 import { getProfileString, isRecord } from '../predicates/predicates'
 import type { Sessions } from '../sessions/sessions.types'
+import { ALL_TENANTS } from '../tenant/tenant'
 import type { TenantContext } from '../tenant/tenant.types'
-import { canonicalEmail, DEFAULT_IDENTITIES_CONFIG } from './identities.constants'
+import { canonicalEmail, PROFILE_LOGIN_CAPS } from './identities.constants'
 import type { Identities } from './identities.types'
 
 export function isSoftDeleted(row: { deletedAt?: Date | number | null }): boolean {
@@ -19,9 +20,9 @@ export class IdentitiesImpl<Profile extends Identities.ProfileMetadataBase = Ide
   constructor(
     private readonly _store: Identities.Store<Profile>,
     private readonly _events: Events.IBus,
-    private readonly _cfg: Identities.Cfg = DEFAULT_IDENTITIES_CONFIG,
-    /** Read by {@link IdentitiesImpl.unlink} alone, to count the ways in that are not links. Absent means none can be. */
-    private readonly _credentials?: Credential.Store,
+    private readonly _cfg: Identities.Cfg,
+    /** What `link` and `unlink` ask a step-up for, and the ways in `unlink` counts beside the links. */
+    private readonly _credentials: Credential.Store,
   ) {
     // NaN, which `Number()` makes of an unset variable, lifts the profile cap and dates an erasure unreadably.
     const { profileMaxBytes, softDeleteGracePeriodMs } = _cfg
@@ -50,33 +51,36 @@ export class IdentitiesImpl<Profile extends Identities.ProfileMetadataBase = Ide
   /** The identity holding this email address. */
   getByEmail(email: string): Answer.Me<Identities.Me<Profile>> {
     return answer(() => {
-      // RFC 5321 cap, so a multi-MB or non-string lookup never reaches the adapter.
-      assertKey(email, 254, 'email')
+      // The cap `create` stores to, so a multi-MB or non-string lookup never reaches the adapter.
+      assertKey(email, PROFILE_LOGIN_CAPS.email, 'email')
 
       return this._store.find({ email })
     })
   }
 
-  /** The identity linked to this provider's subject. */
-  getByProviderSub(providerId: string, sub: string): Answer.Me<Identities.Me<Profile>> {
+  /** The identity linked to this provider's subject in `ctx`'s tenant. */
+  getByProviderSub(providerId: string, sub: string, ctx: TenantContext = {}): Answer.Me<Identities.Me<Profile>> {
     return answer(() => {
       assertKey(providerId, 128, 'providerId')
       assertKey(sub, 512, 'providerSub')
 
-      return this._store.find({ providerId, providerSub: sub })
+      return this._store.find({ providerId, providerSub: sub, tenantId: ctx.tenantId ?? null })
     })
   }
 
-  /** Creates an identity, with its provider links in the same write. */
-  async create(input: {
-    profile: Profile
-    providers?: Identities.ProviderLinkInput[]
-    emailVerified?: boolean
-  }): Promise<Identities.Me<Profile>> {
+  /** Creates an identity, with its provider links in `ctx`'s tenant in the same write. */
+  async create(
+    input: {
+      profile: Profile
+      providers?: Omit<Identities.ProviderLinkInput, 'tenantId'>[]
+      emailVerified?: boolean
+    },
+    ctx: TenantContext = {},
+  ): Promise<Identities.Me<Profile>> {
     this.assertProfileWithinCap(input.profile)
     const created = await this._store.create({
       profile: input.profile,
-      providers: input.providers ?? [],
+      providers: (input.providers ?? []).map((link) => ({ ...link, tenantId: ctx.tenantId ?? null })),
       emailVerified: input.emailVerified ?? false,
     })
     await this._events.emit('signup.completed', { identity: created })
@@ -148,17 +152,24 @@ export class IdentitiesImpl<Profile extends Identities.ProfileMetadataBase = Ide
     }
   }
 
-  /** Refuses a provider the identity already holds, where the store takes a repeat as a no-op. */
-  async link(identityId: string, link: Identities.ProviderLinkInput): Promise<Identities.Me<Profile>> {
+  /** Links a login in `ctx`'s tenant, refusing a provider held there; `session` must be stepped up in it. */
+  async link(
+    identityId: string,
+    link: Omit<Identities.ProviderLinkInput, 'tenantId'>,
+    session: Sessions.Me | null,
+    ctx: TenantContext = {},
+  ): Promise<Identities.Me<Profile>> {
+    const tenantId = ctx.tenantId ?? null
     const cur = await orNull(this._store.find({ id: identityId }))
     if (!cur) throw new AuthError('AUTH_UNAUTHENTICATED')
-    if (cur.providers.some((p) => p.providerId === link.providerId)) {
+    await refuseWithoutStepUp(this._credentials, identityId, session, ctx)
+    if (cur.providers.some((p) => p.providerId === link.providerId && p.tenantId === tenantId)) {
       throw new AuthError('AUTH_PROVIDER_FAILED', {
         providerId: link.providerId,
         detail: 'already linked',
       })
     }
-    const linked = await orNull(this._store.link(identityId, link))
+    const linked = await orNull(this._store.link(identityId, { ...link, tenantId }))
     // Null here is the row going between the read and the write, which is what the read already refused.
     if (!linked) throw new AuthError('AUTH_UNAUTHENTICATED')
     await this._events.emit('identity.linked', { identityId, providerId: link.providerId })
@@ -167,28 +178,32 @@ export class IdentitiesImpl<Profile extends Identities.ProfileMetadataBase = Ide
 
   /** Across every tenant: the question is whether the account is reachable at all. */
   private async _liveCredentials(identityId: string): Promise<number> {
-    if (!this._credentials) return 0
-    const rows = await this._credentials.listByIdentity(identityId, null, {})
+    const rows = await this._credentials.listByIdentity(identityId, null, ALL_TENANTS)
 
     return rows.filter(isStandingFactor).length
   }
 
-  /** Drops one provider link from the identity. */
-  async unlink(identityId: string, providerId: string): Promise<Identities.Me<Profile>> {
+  /** Drops the link at `providerId` in `ctx`'s tenant; `session` must be stepped up in it. */
+  async unlink(
+    identityId: string,
+    providerId: string,
+    session: Sessions.Me | null,
+    ctx: TenantContext = {},
+  ): Promise<Identities.Me<Profile>> {
+    const tenantId = ctx.tenantId ?? null
     const cur = await orNull(this._store.find({ id: identityId }))
     if (!cur) throw new AuthError('AUTH_UNAUTHENTICATED')
+    await refuseWithoutStepUp(this._credentials, identityId, session, ctx)
     // SECURITY: dropping the last way in leaves the account unreachable, so the count is the links that
     // remain plus the credentials, which is where a password lives.
-    if (
-      cur.providers.filter((p) => p.providerId !== providerId).length + (await this._liveCredentials(identityId)) ===
-      0
-    ) {
+    const remaining = cur.providers.filter((p) => p.providerId !== providerId || p.tenantId !== tenantId)
+    if (remaining.length + (await this._liveCredentials(identityId)) === 0) {
       throw new AuthError('AUTH_PROVIDER_FAILED', {
         providerId,
         detail: 'cannot unlink last provider; add another method first',
       })
     }
-    const unlinked = await orNull(this._store.unlink(identityId, providerId))
+    const unlinked = await orNull(this._store.unlink(identityId, providerId, tenantId))
     if (!unlinked) throw new AuthError('AUTH_UNAUTHENTICATED')
     // The mirror of `identity.linked`, which `link` has always emitted. This facet dropped a factor
     // silently, so the one write an account takeover performs was the one the audit log could not see.
@@ -219,15 +234,17 @@ export class IdentitiesImpl<Profile extends Identities.ProfileMetadataBase = Ide
     return answer(opts.operatorId ? withActor(opts.operatorId, run) : run())
   }
 
-  /** `skipExisting` passes over an address already present, `merge` folds the new logins into it, `replace`
-   *  erases it and creates the row fresh. A refusal met after that erase is raised, not counted: run a
-   *  replace inside `withTransaction` for the erase to roll back with it. */
+  /** `skipExisting` passes over an address already present, `merge` folds the new logins into it unless it holds a
+   *  factor beside the password, `replace` erases it, emitting `identity.erased`, and creates the row fresh. A
+   *  refusal met after that erase is raised, not counted: run a replace inside `withTransaction` for the erase to
+   *  roll back with it. */
   async bulkCreate(
     rows: Array<{
       profile: Profile
-      providers?: Identities.ProviderLinkInput[]
+      providers?: Omit<Identities.ProviderLinkInput, 'tenantId'>[]
     }>,
     opts: { mode?: 'skipExisting' | 'merge' | 'replace' } = {},
+    ctx: TenantContext = {},
   ): Promise<{ created: number; skipped: number; failed: number }> {
     const mode = opts.mode ?? 'skipExisting'
     let created = 0
@@ -243,10 +260,10 @@ export class IdentitiesImpl<Profile extends Identities.ProfileMetadataBase = Ide
           continue
         }
         if (existing && mode === 'merge') {
-          // Through `link`, so a folded-in provider emits `identity.linked` like every other link and
-          // a providerId the row already holds is refused there rather than re-checked here.
+          // Through `link`, so a folded-in provider emits `identity.linked` like every other link, and a
+          // providerId the row already holds, or a factor beside its password, is refused there.
           for (const link of row.providers ?? []) {
-            await refusable(() => this.link(existing.id, link))
+            await refusable(() => this.link(existing.id, link, null, ctx))
           }
           skipped++
           continue
@@ -257,8 +274,9 @@ export class IdentitiesImpl<Profile extends Identities.ProfileMetadataBase = Ide
           this.assertProfileWithinCap(row.profile)
           await this._store.erase(existing.id)
           erased = true
+          await this._events.emit('identity.erased', { identityId: existing.id, reason: 'bulkCreate replace' })
         }
-        await this.create(row)
+        await this.create(row, ctx)
         created++
       } catch (err) {
         // The rule `refusable` applies, for the same reason: a refusal this layer decided is a failed
@@ -272,8 +290,8 @@ export class IdentitiesImpl<Profile extends Identities.ProfileMetadataBase = Ide
     return { created, skipped, failed }
   }
 
-  /** GDPR right-to-access, with every credential `secret` and session `csrfHash` stripped, and both
-   *  lists narrowed to `ctx`. */
+  /** GDPR right-to-access, with every credential `secret` and session `csrfHash` stripped, and the links,
+   *  credentials and sessions narrowed to `ctx`. */
   async exportAll(
     id: string,
     credentials: Credential.Store,
@@ -288,7 +306,10 @@ export class IdentitiesImpl<Profile extends Identities.ProfileMetadataBase = Ide
     // person - `tenantId`, ip, user-agent and fingerprint - into this tenant's right-to-access blob.
     const sessions = opts.sessions ? await opts.sessions.listByIdentity(id, ctx) : []
     return {
-      identity,
+      identity: {
+        ...identity,
+        providers: identity.providers.filter((p) => ctx.allTenants === true || p.tenantId === (ctx.tenantId ?? null)),
+      },
       credentials: creds.map(toPublicCredential),
       sessions: sessions.map(({ csrfHash: _csrfHash, ...rest }) => rest),
       schemaVersion: '1',
@@ -331,9 +352,12 @@ export class IdentitiesImpl<Profile extends Identities.ProfileMetadataBase = Ide
   }
 
   /** The caller schedules it, under a leader lock in a distributed deployment. Until it runs, a row whose
-   *  window closed is hidden but still there, which is not what a deletion promised. */
+   *  window closed is hidden but still there, which is not what a deletion promised. Emits `identity.erased`
+   *  with `reason: 'gc'` for each row erased. */
   async gc(): Promise<{ deleted: number }> {
-    return this._store.gc(Date.now())
+    const { deleted, ids } = await this._store.gc(Date.now())
+    for (const identityId of ids) await this._events.emit('identity.erased', { identityId, reason: 'gc' })
+    return { deleted }
   }
 
   /** Every patch is cap-checked up front, so one oversized patch fails the whole batch. A lost version
@@ -366,13 +390,16 @@ export class IdentitiesImpl<Profile extends Identities.ProfileMetadataBase = Ide
   }
 
   /** Adds each provider link, one write per identity. Through {@link IdentitiesImpl.link}, so a
-   *  providerId already on the identity is skipped here as it is refused there. */
+   *  providerId already on the identity is skipped here as it is refused there, and so is an identity
+   *  `session` may not change. */
   async linkMany(
-    links: { identityId: string; link: Identities.ProviderLinkInput }[],
+    links: { identityId: string; link: Omit<Identities.ProviderLinkInput, 'tenantId'> }[],
+    session: Sessions.Me | null,
+    ctx: TenantContext = {},
   ): Promise<Identities.Me<Profile>[]> {
     const linked: Identities.Me<Profile>[] = []
     for (const l of links) {
-      const row = await refusable(() => this.link(l.identityId, l.link))
+      const row = await refusable(() => this.link(l.identityId, l.link, session, ctx))
       if (row) linked.push(row)
     }
 
@@ -381,11 +408,16 @@ export class IdentitiesImpl<Profile extends Identities.ProfileMetadataBase = Ide
 
   /** Drops each provider link, one write per identity. Through {@link IdentitiesImpl.unlink}, not the
    *  store: a row that would leave the account with no way in is skipped rather than stranding it, and
-   *  the batch is the path a bulk admin action takes, so it is the one that most needs the guard. */
-  async unlinkMany(links: { identityId: string; providerId: string }[]): Promise<Identities.Me<Profile>[]> {
+   *  the batch is the path a bulk admin action takes, so it is the one that most needs the guard. An identity
+   *  `session` may not change is skipped too. */
+  async unlinkMany(
+    links: { identityId: string; providerId: string }[],
+    session: Sessions.Me | null,
+    ctx: TenantContext = {},
+  ): Promise<Identities.Me<Profile>[]> {
     const unlinked: Identities.Me<Profile>[] = []
     for (const l of links) {
-      const row = await refusable(() => this.unlink(l.identityId, l.providerId))
+      const row = await refusable(() => this.unlink(l.identityId, l.providerId, session, ctx))
       if (row) unlinked.push(row)
     }
 
@@ -431,8 +463,8 @@ function sortKeys(_key: string, value: unknown): unknown {
 export function identities<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>(
   store: Identities.Store<Profile>,
   events: Events.IBus,
-  cfg?: Identities.Cfg,
-  credentials?: Credential.Store,
+  cfg: Identities.Cfg,
+  credentials: Credential.Store,
 ): IdentitiesImpl<Profile> {
   return new IdentitiesImpl(store, events, cfg, credentials)
 }

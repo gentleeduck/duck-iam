@@ -13,7 +13,7 @@ import { CookieTransport } from '~/core/transport/cookie.transport'
 import { RedisLimiter } from '~/limiters/redis'
 import { mfaProvider, RememberMeFacet } from '~/providers/mfa'
 import { passwords, ScryptHasher } from '~/providers/passwords'
-import { authTestDeliver } from '~/test'
+import { authTestDataAtRest, authTestDeliver } from '~/test'
 import { applyPgSchema, databaseUrl, dropPrefix, e2ePrefix, redisUrl } from '~/test/e2e-env'
 
 const PG_URL = databaseUrl()
@@ -49,7 +49,7 @@ suite('E2E token flows on real Postgres + Redis', () => {
   async function newUser(label: string): Promise<{ id: string; email: string }> {
     const email = `${label}-${e2ePrefix()}@test.local`
     const identity = await auth.identities.create({ profile: { email, username: email } })
-    await auth.passwords.set(identity.id, PASSWORD, stores.credentials)
+    await auth.passwords.set(identity.id, PASSWORD, stores.credentials, null)
     planted.push(identity.id)
     return { email, id: identity.id }
   }
@@ -83,9 +83,9 @@ suite('E2E token flows on real Postgres + Redis', () => {
         windowMs: 60_000,
       }),
       // The reset flow asks whether the account has MFA, so the provider is present though no test enrolls one.
-      providers: [mfaProvider()],
+      providers: [mfaProvider({ dataAtRest: authTestDataAtRest() })],
       stores: { credentials: stores.credentials, identities: stores.identities, sessions: stores.sessions },
-      transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+      transport: new CookieTransport({ name: 'duck-sid' }),
     })
     auth.providers.register(passwords<Profile>({ hasher: new ScryptHasher({ keylen: 32, N: 1 << 10 }) }))
   }, 60_000)
@@ -293,7 +293,7 @@ suite('E2E token flows on real Postgres + Redis', () => {
     it('a remembered device issued with a caller purpose stays one, and cannot reset the password', async () => {
       const user = await newUser('device-crosskind')
       const devices = new RememberMeFacet(stores.credentials, { authRandomToken: randomToken, authSha256: sha256 })
-      const { token } = await devices.issue(user.id, { metadata: { purpose: 'password-reset' } })
+      const { token } = await devices.issue(user.id, null, { metadata: { purpose: 'password-reset' } })
 
       await expect(auth.flows.completePasswordReset({ newPassword: NEW_PASSWORD, token })).rejects.toMatchObject({
         code: 'AUTH_RECOVERY_TOKEN_INVALID',
@@ -511,7 +511,7 @@ suite('E2E token flows on real Postgres + Redis', () => {
       const email = `MiXeD-${e2ePrefix()}@Test.Local`
       const identity = await auth.identities.create({ profile: { email, username: email } })
       planted.push(identity.id)
-      await auth.passwords.set(identity.id, PASSWORD, stores.credentials)
+      await auth.passwords.set(identity.id, PASSWORD, stores.credentials, null)
 
       expect((await signIn(email.toLowerCase())).sid).toBeTruthy()
       expect((await signIn(email)).sid).toBeTruthy()

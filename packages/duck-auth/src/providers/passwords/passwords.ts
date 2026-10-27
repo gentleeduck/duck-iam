@@ -1,11 +1,12 @@
 import { orNull } from '~/core/answer'
 import { resolveCompliance } from '~/core/compliance'
-import { isCredentialExpired, isRevoked, toCredentialCreate } from '~/core/credentials/credentials'
+import { isCredentialExpired, isRevoked, refuseWithoutStepUp, toCredentialCreate } from '~/core/credentials/credentials'
 import type { Credential } from '~/core/credentials/credentials.types'
 import { AuthError } from '~/core/errors'
 import { refuseRateLimited } from '~/core/events/events.lockout'
 import { canonicalEmail, type Identities } from '~/core/identities'
 import type { Provider } from '~/core/provider/provider.types'
+import type { Sessions } from '~/core/sessions/sessions.types'
 import type { TenantContext } from '~/core/tenant'
 import {
   COMMON_PASSWORDS,
@@ -95,21 +96,26 @@ export class PasswordsImpl<Profile extends Identities.ProfileMetadataBase = Iden
     const rows = await credentials.listByIdentity(identityId, 'password', ctx)
     // The same row `verify` accepts, expiry included, so a rehash cannot rewrite one a sign-in refused.
     const row = rows.find((c) => !isRevoked(c) && !isCredentialExpired(c))
-    if (!row) return
+    // SECURITY: and only while it still holds this password. A reset landing inside the hash above wrote a new
+    // row, and rotating that one to this hash put the old password back and the new one out.
+    if (!row || !(await this.cfg.hasher.verify(plaintext, row.secret))) return
     await credentials.rotate(row.id, newSecret, row.version, ctx)
   }
 
-  /** For the signUp and reset flows. */
+  /** Sets the identity's password, replacing any it had. `session` has to be stepped up, as `refuseWithoutStepUp`
+   *  asks. */
   async set(
     identityId: string,
     plaintext: string,
     credentials: Credential.Store,
+    session: Sessions.Me | null,
     ctx: TenantContext = {},
   ): Promise<void> {
     if (typeof identityId !== 'string' || identityId.length === 0 || identityId.length > 256) {
       throw new AuthError('AUTH_UNAUTHENTICATED')
     }
     this.assertStrength(plaintext)
+    await refuseWithoutStepUp(credentials, identityId, session, ctx)
     const secret = await this.cfg.hasher.hash(plaintext)
     // Delete the previous row, then create: two operations, because the adapter contract has no
     // single-call "replace by kind". The window is short, and `SessionsImpl.rotateOrCreate` covers it.

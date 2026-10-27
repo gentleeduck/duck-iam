@@ -1,3 +1,4 @@
+import { isProduction } from '~/core/env'
 import { AuthError } from '~/core/errors'
 import type { Provider } from '../provider/provider.types'
 import type { Sessions } from '../sessions/sessions.types'
@@ -7,16 +8,13 @@ export namespace CookieTransport {
   /** The session cookie's name and attributes. */
   export interface Cfg {
     /** `__Host-duck-sid` when no `domain` is set, which is the prefix browsers enforce Secure, `Path=/`
-     *  and no Domain for; `duck-sid` otherwise. */
+     *  and no Domain for; `duck-sid` otherwise. Outside production the prefix is dropped with Secure. */
     name?: string
     /** For cross-subdomain deployments only, and forbidden alongside the `__Host-` prefix. */
     domain?: string
     /** Default `/`, which the `__Host-` prefix requires. */
     path?: string
-    /** `strict()` rejects `false` in production. The CSRF companion follows it, and drops its `__Host-`
-     *  prefix along with it, since the prefix is what requires Secure. */
-    secure?: boolean
-    /** `'none'` requires `secure`. */
+    /** Default `'lax'`. `'none'` keeps the cookie Secure in every environment. */
     sameSite?: 'strict' | 'lax' | 'none'
     /** A positive whole number of seconds, to end the cookie before the session does. Unset, it lives to
      *  `Sessions.Me.absoluteExpiresAt`, so a session `resolveSession` slides keeps its cookie; the idle
@@ -42,8 +40,8 @@ export class CookieTransport implements Transport.ITransport {
           detail: '@gentleduck/auth CookieTransport: name must be a non-empty string <=256 chars',
         })
       }
-      // RFC 6265 token: alphanumerics and a small set of safe punctuation, `-` included, as the default
-      // `duck-sid` needs.
+      // RFC 6265 token: alphanumerics and a small set of safe punctuation, `-` and `_` included, as the
+      // default `__Host-duck-sid` needs.
       if (!/^[A-Za-z0-9!#$%&'*+\-.^_`|~]+$/.test(cfg.name)) {
         throw new AuthError('AUTH_MISCONFIGURED', {
           detail: '@gentleduck/auth CookieTransport: name contains an RFC 6265-forbidden character',
@@ -56,24 +54,24 @@ export class CookieTransport implements Transport.ITransport {
         detail: '@gentleduck/auth CookieTransport: maxAgeSec must be a positive whole number of seconds',
       })
     }
-    const hasDomain = Boolean(cfg.domain)
-    this._name = cfg.name ?? (hasDomain ? 'duck-sid' : '__Host-duck-sid')
-    this._options = {
-      httpOnly: true,
-      secure: cfg.secure ?? true,
-      sameSite: cfg.sameSite ?? 'lax',
-      path: cfg.path ?? '/',
-    }
-    if (cfg.maxAgeSec !== undefined) this._options.maxAge = cfg.maxAgeSec
-    if (cfg.domain) this._options.domain = cfg.domain
-    // Browsers drop a SameSite=None cookie that is not Secure.
-    if (this._options.sameSite === 'none' && this._options.secure !== true) {
+    // RFC 6265 5.2.4 and 5.3: a Path not starting with `/` becomes the sign-in route's own directory, and a
+    // Domain the host cannot match, one carrying a scheme or a port, drops the cookie. Neither says so.
+    if (cfg.path !== undefined && !/^\/[\x20-\x3a\x3c-\x7e]*$/.test(cfg.path)) {
       throw new AuthError('AUTH_MISCONFIGURED', {
-        detail: "@gentleduck/auth CookieTransport: sameSite: 'none' requires secure: true",
+        detail: `@gentleduck/auth CookieTransport: path must start with / (got ${JSON.stringify(cfg.path)})`,
       })
     }
-    // Fail-fast on __Host- violations; browsers silently drop them.
-    if (this._name.startsWith('__Host-')) {
+    if (cfg.domain && !/^\.?[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*$/.test(cfg.domain)) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: `@gentleduck/auth CookieTransport: domain must be a bare host, no scheme or port (got ${JSON.stringify(cfg.domain)})`,
+      })
+    }
+    const hasDomain = Boolean(cfg.domain)
+    const path = cfg.path ?? '/'
+    const sameSite = cfg.sameSite ?? 'lax'
+    const named = cfg.name ?? (hasDomain ? 'duck-sid' : '__Host-duck-sid')
+    // Fail-fast on __Host- violations, in every environment; browsers silently drop them.
+    if (named.startsWith('__Host-')) {
       if (cfg.domain) {
         throw new AuthError('AUTH_MISCONFIGURED', {
           detail:
@@ -81,25 +79,22 @@ export class CookieTransport implements Transport.ITransport {
             'Either drop `domain` or override `name` to a non-__Host- value.',
         })
       }
-      if (this._options.path !== '/') {
+      if (path !== '/') {
         throw new AuthError('AUTH_MISCONFIGURED', {
-          detail: `@gentleduck/auth CookieTransport: __Host- prefix requires Path=/. Got Path=${this._options.path}.`,
-        })
-      }
-      if (this._options.secure !== true) {
-        throw new AuthError('AUTH_MISCONFIGURED', {
-          detail:
-            '@gentleduck/auth CookieTransport: __Host- prefix requires Secure=true. ' +
-            'Either set { secure: true } (production) or override `name` to a non-__Host- value.',
+          detail: `@gentleduck/auth CookieTransport: __Host- prefix requires Path=/. Got Path=${path}.`,
         })
       }
     }
+    const { name, secure } = cookieSecurity(named, sameSite)
+    this._name = name
+    this._options = { httpOnly: true, secure, sameSite, path }
+    if (cfg.maxAgeSec !== undefined) this._options.maxAge = cfg.maxAgeSec
+    if (cfg.domain) this._options.domain = cfg.domain
     // SECURITY: the companion follows the session cookie's own attributes rather than a fixed shape.
     // Hardcoding them left a CSRF cookie the page could not read on every cross-subdomain, cross-site or
     // scoped deployment, and refused every state-changing request `AUTH_CSRF` with nothing said. The
     // `__Host-` prefix goes exactly when its three conditions do.
-    const hostPrefixOk = this._options.secure === true && this._options.path === '/' && !hasDomain
-    this._csrfName = hostPrefixOk ? '__Host-duck-csrf' : 'duck-csrf'
+    this._csrfName = cookieSecurity(path === '/' && !hasDomain ? '__Host-duck-csrf' : 'duck-csrf', sameSite).name
     this._csrfOptions = { ...this._options, httpOnly: false }
   }
 
@@ -107,11 +102,6 @@ export class CookieTransport implements Transport.ITransport {
    *  forbid it, and so the name a page reads the token by. */
   get csrfCookieName(): string {
     return this._csrfName
-  }
-
-  /** Read by `AuthEngine.strict()` to assert a production deployment set `secure: true`. */
-  get secure(): boolean {
-    return this._options.secure === true
   }
 
   /** For tests, and for a framework adapter that renders the name in user-facing output. */
@@ -168,6 +158,14 @@ export class CookieTransport implements Transport.ITransport {
       },
     ]
   }
+}
+
+/** The name and Secure flag a cookie is set with: Secure in production, and under `SameSite=None`, which a
+ *  browser drops without it. Otherwise the cookie is not Secure, so a `__Host-` or `__Secure-` prefix, which
+ *  requires it, is dropped from the name. */
+export function cookieSecurity(name: string, sameSite: 'strict' | 'lax' | 'none'): { name: string; secure: boolean } {
+  const secure = sameSite === 'none' || isProduction()
+  return { name: secure ? name : name.replace(/^__(?:Host|Secure)-/i, ''), secure }
 }
 
 /** A real opaque SID is 64 hex chars and a JWT a few hundred, so 1024 is generous.

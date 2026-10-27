@@ -33,6 +33,11 @@ export class PluginRegistry<Profile extends Identities.ProfileMetadataBase, Tena
         detail: `@gentleduck/auth: plugin "${plugin.id}" already installed`,
       })
     }
+    if (plugin.delivery !== undefined && plugin.delivery !== 'origin' && plugin.delivery !== 'fleet') {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: `@gentleduck/auth: plugin "${plugin.id}" delivery must be 'origin' or 'fleet'`,
+      })
+    }
 
     const unsubs: Array<() => void> = []
     try {
@@ -48,7 +53,11 @@ export class PluginRegistry<Profile extends Identities.ProfileMetadataBase, Tena
               detail: `@gentleduck/auth: plugin "${plugin.id}" subscribes to unknown event "${event}"`,
             })
           }
-          unsubs.push(auth.events.on(event, handler as (p: unknown) => void | Promise<void>))
+          unsubs.push(
+            auth.events.on(event, handler as (p: unknown) => void | Promise<void>, {
+              delivery: plugin.delivery ?? 'fleet',
+            }),
+          )
         }
       }
       if (plugin.facet !== undefined) {
@@ -90,6 +99,9 @@ export namespace PluginRegistry {
     providers?: Provider.Me<unknown, unknown, Profile>[]
     /** Optional event subscriptions; library auto-attaches on install. */
     events?: Partial<{ [K in keyof Events.EventMap]: (p: Events.EventMap[K]) => void | Promise<void> }>
+    /** Where the `events` handlers run, as `auth.events.on` takes it. Default `fleet`, on every server; an audit
+     *  write or an alert wants `origin`, once, on the server that emitted. */
+    delivery?: Events.Delivery
     /**
      * Optional install hook. Runs once at `auth.use()` time. Receives the
      * AuthEngine so the plugin can read config or wire additional facets.

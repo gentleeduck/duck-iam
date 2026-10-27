@@ -390,14 +390,21 @@ describe('authBindPayloadToDPoP', () => {
 })
 
 describe('MemoryDPoPNonceStore', () => {
-  it('lets the factory carry `development` past the production refusal', () => {
-    vi.stubEnv('NODE_ENV', 'production')
-    try {
-      expect(() => memoryDPoPNonceStore()).toThrowError(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
-      expect(memoryDPoPNonceStore({ development: true })).toBeInstanceOf(MemoryDPoPNonceStore)
-    } finally {
-      vi.unstubAllEnvs()
-    }
+  it.each(['production', undefined])('is refused with NODE_ENV=%s', (env) => {
+    vi.stubEnv('NODE_ENV', env)
+    expect(() => memoryDPoPNonceStore()).toThrowError(
+      expect.objectContaining({
+        code: 'AUTH_MISCONFIGURED',
+        meta: {
+          detail: 'MemoryDPoPNonceStore is refused in production; pass `nonceStore: redisDPoPNonceStore({ redis })`',
+        },
+      }),
+    )
+  })
+
+  it.each(['development', 'test'])('constructs with NODE_ENV=%s', (env) => {
+    vi.stubEnv('NODE_ENV', env)
+    expect(memoryDPoPNonceStore()).toBeInstanceOf(MemoryDPoPNonceStore)
   })
 
   it('recordSeen returns true once, false on replay', async () => {

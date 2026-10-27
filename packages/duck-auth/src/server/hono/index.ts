@@ -52,7 +52,12 @@ export function honoActorContext(auth: AuthEngine, opts: HonoActorOptions = {}):
         auth,
         { headers: ctx.req.raw.headers },
         () => next(),
-        requestSecurity(auth, { caller: opts.getCaller?.(ctx), onAnomaly: opts.onAnomaly, onHijack: opts.onHijack }),
+        requestSecurity(auth, {
+          caller: opts.getCaller?.(ctx),
+          onAnomaly: opts.onAnomaly,
+          onHijack: opts.onHijack,
+          tenantId: opts.tenantId?.(ctx),
+        }),
       )
     } catch (err) {
       // A refusal is answered here, since Hono's default `onError` answers any throw with a 500. A

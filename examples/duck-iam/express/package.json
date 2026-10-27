@@ -6,8 +6,8 @@
     "db:migrate": "bun run src/db/migrate.ts",
     "db:seed": "bun run src/db/seed.ts",
     "db:setup": "bun run db:migrate && bun run db:seed",
-    "dev": "bun --watch src/server.ts",
-    "start": "bun src/server.ts"
+    "dev": "NODE_ENV=development bun --watch src/server.ts",
+    "start": "NODE_ENV=development bun src/server.ts"
   },
   "dependencies": {
     "@examples/duck-iam-shared": "workspace:*",

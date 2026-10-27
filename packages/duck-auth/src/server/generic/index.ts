@@ -235,6 +235,8 @@ export type HijackEvaluable = {
 
 /** What {@link requestSecurity} takes: the request fingerprint, and what to do when it drifts. */
 export type RequestSecurityOptions = {
+  /** The request's tenant, which its session must belong to; without one only a session with no tenant resolves. */
+  tenantId?: string
   /** Passing one switches these checks on; without it the session's `ip` / `userAgent` are stamped at
    *  sign-in and never looked at again. */
   caller?: CallerFingerprint
@@ -253,6 +255,9 @@ export type RequestSecurityOptions = {
  *  the hijack policy.
  *  WARN: switching that on in a live deployment starts acting on drift for sessions already issued. */
 export type ActorOptions<Req> = {
+  /** Read the request's tenant, which its session must belong to. Without it only a session with no tenant
+   *  resolves, so in a tenanted app every tenant's session runs as nobody. */
+  tenantId?: (req: Req) => string | undefined
   /** Read the request fingerprint. Never from a forwarded header: see {@link callerContext}. A host
    *  resolving geolocation returns it as `geo`; nothing else supplies one. */
   getCaller?: (req: Req) => CallerFingerprint
@@ -263,17 +268,18 @@ export type ActorOptions<Req> = {
 }
 
 /**
- * Build the {@link Actor.RequestOptions} that turn an actor-context wrapper into a fingerprint
- * check as well: the anomaly detectors get a snapshot to run against, and every resolved session
- * is compared with `hijack.evaluate`, which emits `suspicious` on any drift, even when the
+ * Build the {@link Actor.RequestOptions} an actor-context wrapper forwards: the request's tenant, and with a
+ * caller a fingerprint check as well: the anomaly detectors get a snapshot to run against, and every resolved
+ * session is compared with `hijack.evaluate`, which emits `suspicious` on any drift, even when the
  * configured reaction is `'ignore'`.
  */
 export function requestSecurity(auth: HijackEvaluable, opts: RequestSecurityOptions = {}): Actor.RequestOptions {
   const caller = opts.caller
   // SECURITY: `!caller` alone - the host's opt-in. A caller that sent no IP and no User-Agent is the
   // facet's call to make, and `onMissingSignal: 'strict'` is where it makes it.
-  if (!caller) return {}
+  if (!caller) return { expectedTenantId: opts.tenantId }
   return {
+    expectedTenantId: opts.tenantId,
     onSession: async (session, anomaly) => {
       // Evaluated first, so the drift is on record whichever refusal wins.
       const evaluation = await auth.hijack.evaluate(session, caller)

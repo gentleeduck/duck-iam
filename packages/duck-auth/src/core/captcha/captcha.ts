@@ -1,7 +1,7 @@
 /** The verifiers behind `auth.captcha`. Nothing in this package calls one: configuring `cfg.captcha`
  *  makes a verifier reachable, and the host is what puts `verify` in front of a sign-in. */
 
-import { env } from 'node:process'
+import { isProduction } from '../env'
 import { AuthError } from '../errors'
 import {
   HCAPTCHA_ENDPOINT,
@@ -22,13 +22,10 @@ import type { AuthCaptcha } from './captcha.types'
 /** Cloudflare Turnstile verifier. */
 export class AuthTurnstileVerifier implements AuthCaptcha.IVerifier {
   readonly id = 'turnstile'
-  /** Read by `strict()`, which refuses a plaintext endpoint in production: the secret would go in the clear. */
-  readonly __insecureCaptchaEndpoint: boolean
   private readonly _cfg: ResolvedCaptchaCfg
 
   constructor(cfg: AuthCaptcha.ICfgBase & { expectedAction?: string }) {
     this._cfg = resolveCaptchaCfg(cfg, 'AuthTurnstileVerifier', TURNSTILE_ENDPOINT)
-    this.__insecureCaptchaEndpoint = this._cfg.endpoint.startsWith('http:')
   }
 
   async verify(input: AuthCaptcha.IVerifyInput): Promise<AuthCaptcha.IVerifyResult> {
@@ -41,8 +38,6 @@ export class AuthTurnstileVerifier implements AuthCaptcha.IVerifier {
 /** hCaptcha verifier. */
 export class AuthHCaptchaVerifier implements AuthCaptcha.IVerifier {
   readonly id = 'hcaptcha'
-  /** Read by `strict()`, which refuses a plaintext endpoint in production: the secret would go in the clear. */
-  readonly __insecureCaptchaEndpoint: boolean
   private readonly _cfg: ResolvedCaptchaCfg
 
   constructor(cfg: AuthCaptcha.ICfgBase) {
@@ -54,7 +49,6 @@ export class AuthHCaptchaVerifier implements AuthCaptcha.IVerifier {
       })
     }
     this._cfg = resolveCaptchaCfg(cfg, 'AuthHCaptchaVerifier', HCAPTCHA_ENDPOINT)
-    this.__insecureCaptchaEndpoint = this._cfg.endpoint.startsWith('http:')
   }
 
   async verify(input: AuthCaptcha.IVerifyInput): Promise<AuthCaptcha.IVerifyResult> {
@@ -71,14 +65,11 @@ export class AuthHCaptchaVerifier implements AuthCaptcha.IVerifier {
 /** reCAPTCHA v3 verifier: passes only at or above `minScore`, by default Google's suggested 0.5. */
 export class AuthRecaptchaV3Verifier implements AuthCaptcha.IVerifier {
   readonly id = 'recaptcha-v3'
-  /** Read by `strict()`, which refuses a plaintext endpoint in production: the secret would go in the clear. */
-  readonly __insecureCaptchaEndpoint: boolean
   private readonly _cfg: ResolvedCaptchaCfg
   private readonly _minScore: number
 
   constructor(cfg: AuthCaptcha.ICfgBase & { minScore?: number; expectedAction?: string }) {
     this._cfg = resolveCaptchaCfg(cfg, 'AuthRecaptchaV3Verifier', RECAPTCHA_ENDPOINT)
-    this.__insecureCaptchaEndpoint = this._cfg.endpoint.startsWith('http:')
     const minScore = cfg.minScore ?? RECAPTCHA_MIN_SCORE_DEFAULT
     // Outside 0..1 is a mistake with a direction: below passes every bot, above or NaN refuses every human.
     if (!Number.isFinite(minScore) || minScore < 0 || minScore > 1) {
@@ -106,17 +97,15 @@ export class AuthRecaptchaV3Verifier implements AuthCaptcha.IVerifier {
   }
 }
 
-/** Always-pass verifier for tests. Refuses to construct under `NODE_ENV=production` without
- *  `development`: a verifier that cannot fail looks exactly like one that works. */
+/** Always-pass verifier for development and tests. Refuses to construct in production: a verifier that
+ *  cannot fail looks exactly like one that works. */
 export class AuthNullCaptchaVerifier implements AuthCaptcha.IVerifier {
   readonly id = 'null'
-  /** Read by `strict()`: `id` is a caller-visible string a foreign verifier may also use. */
-  readonly __isNullCaptcha = true as const
 
-  constructor(cfg?: { development?: boolean }) {
-    if (env.NODE_ENV === 'production' && !cfg?.development) {
+  constructor() {
+    if (isProduction()) {
       throw new AuthError('AUTH_MISCONFIGURED', {
-        detail: 'AuthNullCaptchaVerifier passes every challenge and is not production ready',
+        detail: 'AuthNullCaptchaVerifier passes every challenge and is refused in production',
       })
     }
   }

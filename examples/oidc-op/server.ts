@@ -1,291 +1,283 @@
 /**
- * Minimal end-to-end OIDC OP wired up with `@gentleduck/auth/oidc/op`.
+ * An OpenID provider on `@gentleduck/auth/oidc/op`, with a demo sign-in and a consent page.
  *
- * Single file, single port. State is in-memory. To swap memory for
- * Postgres / SQLite / MySQL, replace the `stores: {}` default with the
- * Drizzle ports under `@gentleduck/auth/oidc/op/drizzle/{pg,sqlite,mysql}`.
+ * One file, one port, everything in memory, so it runs only outside production. For a database, pass the
+ * Drizzle stores from `@gentleduck/auth/oidc/op/drizzle/{pg,mysql,sqlite}` to `createOidcOP` as `stores`.
  */
 
 import { createHmac } from 'node:crypto'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
-import { MemoryAdapter } from '@gentleduck/auth/adapters/memory'
-import { AuthRoot, CookieTransport, ScryptHasher } from '@gentleduck/auth/core'
-import { createOidcOP } from '@gentleduck/auth/oidc/op'
+import { memoryAdapter } from '@gentleduck/auth/adapters/memory'
+import { createAuth, verifyCsrf } from '@gentleduck/auth/core'
+import { authMemoryClientStore, createOidcOP } from '@gentleduck/auth/oidc/op'
+import { executeIntents, nodeHeadersToFetch } from '@gentleduck/auth/server/generic'
 
 const PORT = Number(process.env.PORT ?? 8787)
-const ID_TOKEN_HS256_SECRET = 'demo-secret-do-not-use-in-prod'
 const ISSUER = `http://localhost:${PORT}`
+const ID_TOKEN_HS256_SECRET = 'demo-secret-do-not-use-in-prod'
 
-interface Profile {
-  email: string
-  name?: string
-}
-
-const adapter = new MemoryAdapter<Profile>()
-const auth = new AuthRoot<Profile>({
+const auth = createAuth({
   baseUrl: ISSUER,
-  stores: adapter,
-  transport: new CookieTransport({ name: 'duck-sid' }),
-  passwords: { hasher: new ScryptHasher() },
+  stores: memoryAdapter(),
 })
 
-const op = createOidcOP<Profile>({
+// Kept in hand: a declined consent checks its redirect_uri here before sending the person to it.
+const clients = authMemoryClientStore()
+
+const op = createOidcOP({
   auth,
-  config: {
-    issuer: ISSUER,
-    supportedScopes: ['openid', 'profile', 'email', 'offline_access'],
-    allowHttp: true,
-  },
+  config: { issuer: ISSUER, supportedScopes: ['openid', 'profile', 'email', 'offline_access'] },
   signIdToken: (payload) => {
     const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url')
     const body = Buffer.from(JSON.stringify(payload)).toString('base64url')
     const sig = createHmac('sha256', ID_TOKEN_HS256_SECRET).update(`${header}.${body}`).digest('base64url')
     return `${header}.${body}.${sig}`
   },
+  stores: { clients },
 })
 
 await op.registerClient({
   client_id: 'demo-spa',
-  redirect_uris: ['http://localhost:8787/callback'],
-  token_endpoint_auth_method: 'none',
-  scope: ['openid', 'profile', 'email', 'offline_access'],
   client_name: 'Demo SPA',
+  redirect_uris: [`${ISSUER}/callback`],
+  scope: ['openid', 'profile', 'email', 'offline_access'],
+  token_endpoint_auth_method: 'none',
 })
 
-function consentPage(scope: string[], hidden: Record<string, string>): string {
-  const inputs = Object.entries(hidden)
-    .map(([k, v]) => `<input type="hidden" name="${escapeHtml(k)}" value="${escapeHtml(v)}"/>`)
-    .join('\n')
-  return `<!doctype html>
-<html><head><title>Consent</title>
-<style>body{font-family:system-ui;max-width:480px;margin:48px auto;padding:24px}
-.s{display:block;margin:8px 0}.b{margin-top:24px}button{padding:10px 24px;margin-right:8px}</style>
-</head><body>
-<h1>Allow Demo SPA?</h1>
-<p>This app is asking for:</p>
-${scope.map((s) => `<code class="s">${escapeHtml(s)}</code>`).join('')}
-<form method="POST" action="/consent" class="b">
-  ${inputs}
-  <button name="decision" value="allow">Allow</button>
-  <button name="decision" value="deny" formaction="/deny">Deny</button>
-</form>
-</body></html>`
-}
+const demoUser = await auth.identities.create({
+  emailVerified: true,
+  profile: { email: 'user@example.com', name: 'Demo User', username: 'demo' },
+})
 
-function loginPage(): string {
-  return `<!doctype html>
-<html><head><title>Sign in</title>
-<style>body{font-family:system-ui;max-width:480px;margin:48px auto;padding:24px}
-button{padding:10px 24px}</style>
-</head><body>
-<h1>Sign in</h1>
-<p>This is a demo. Click below to sign in as <code>user@example.com</code>.</p>
-<form method="POST" action="/login">
-  <input type="hidden" name="returnTo" value="${escapeHtml(currentUrl ?? '/')}"/>
-  <button>Sign in as demo user</button>
-</form>
-</body></html>`
+/** The authorize URL to come back to once signed in, without `login` or `max_age`: that sign-in answered both. */
+function resumeUrl(url: URL): string {
+  const next = new URL(url)
+  const prompt = (next.searchParams.get('prompt') ?? '').split(' ').filter((p) => p.length > 0 && p !== 'login')
+  if (prompt.length > 0) next.searchParams.set('prompt', prompt.join(' '))
+  else next.searchParams.delete('prompt')
+  next.searchParams.delete('max_age')
+  return `${next.pathname}${next.search}`
 }
-
-let currentUrl: string | null = null
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
-async function readBody(req: IncomingMessage): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = []
-    req.on('data', (c) => chunks.push(c))
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')))
-    req.on('error', reject)
-  })
+const STYLE =
+  '<style>body{font-family:system-ui;max-width:480px;margin:48px auto;padding:24px}button{padding:10px 24px;margin-right:8px}code{display:block;margin:8px 0}</style>'
+
+function loginPage(returnTo: string): string {
+  return `<!doctype html><html><head><title>Sign in</title>${STYLE}</head><body>
+<h1>Sign in</h1>
+<p>A demo: this signs you in as <code>user@example.com</code>.</p>
+<form method="POST" action="/login">
+  <input type="hidden" name="returnTo" value="${escapeHtml(returnTo)}"/>
+  <button>Sign in as the demo user</button>
+</form></body></html>`
 }
 
-function parseForm(body: string): Record<string, string> {
-  const out: Record<string, string> = {}
-  for (const pair of body.split('&')) {
-    if (!pair) continue
-    const idx = pair.indexOf('=')
-    const k = decodeURIComponent(idx >= 0 ? pair.slice(0, idx) : pair)
-    const v = decodeURIComponent(idx >= 0 ? pair.slice(idx + 1) : '')
-    out[k] = v
+function consentPage(clientName: string, scope: string[], hidden: Record<string, string>): string {
+  const inputs = Object.entries(hidden)
+    .map(([k, v]) => `<input type="hidden" name="${escapeHtml(k)}" value="${escapeHtml(v)}"/>`)
+    .join('\n')
+  return `<!doctype html><html><head><title>Consent</title>${STYLE}</head><body>
+<h1>Allow ${escapeHtml(clientName)}?</h1>
+<p>It is asking for:</p>
+${scope.map((s) => `<code>${escapeHtml(s)}</code>`).join('')}
+<form method="POST" action="/consent">
+  ${inputs}
+  <button name="decision" value="allow">Allow</button>
+  <button name="decision" value="deny">Deny</button>
+</form></body></html>`
+}
+
+const html = (body: string) => new Response(body, { headers: { 'content-type': 'text/html; charset=utf-8' } })
+const redirect = (location: string) => new Response(null, { headers: { location }, status: 302 })
+const tokenHint = (v: string | null): 'access_token' | 'refresh_token' | undefined =>
+  v === 'access_token' || v === 'refresh_token' ? v : undefined
+
+/** An authorize error the client should see, sent to its redirect_uri when `authorize` vouched for it. */
+function authorizeError(result: {
+  status: number
+  body: { error: string; error_description?: string; state?: string }
+  redirectUri?: string
+}): Response {
+  if (result.status !== 302 || !result.redirectUri) return Response.json(result.body, { status: result.status })
+  const u = new URL(result.redirectUri)
+  for (const [k, v] of Object.entries(result.body)) if (v !== undefined) u.searchParams.set(k, v)
+  return redirect(u.toString())
+}
+
+async function handle(req: Request): Promise<Response> {
+  const url = new URL(req.url)
+  const route = `${req.method} ${url.pathname}`
+
+  // The two form posts act on the person's cookie, so a page on another origin must not be able to send them.
+  if (route === 'POST /login' || route === 'POST /consent') {
+    verifyCsrf({ cfg: { allowedOrigins: [ISSUER], mode: 'origin-only' }, headers: req.headers, method: req.method })
   }
-  return out
-}
 
-function reqHeaders(req: IncomingMessage): Headers {
-  const h = new Headers()
-  for (const [k, v] of Object.entries(req.headers)) {
-    if (typeof v === 'string') h.set(k, v)
-    else if (Array.isArray(v)) h.set(k, v.join(','))
-  }
-  return h
-}
-
-function sendJson(res: ServerResponse, status: number, body: unknown) {
-  res.writeHead(status, { 'content-type': 'application/json' })
-  res.end(JSON.stringify(body))
-}
-
-function sendHtml(res: ServerResponse, status: number, html: string) {
-  res.writeHead(status, { 'content-type': 'text/html; charset=utf-8' })
-  res.end(html)
-}
-
-function sendRedirect(res: ServerResponse, url: string) {
-  res.writeHead(302, { location: url })
-  res.end()
-}
-
-async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  const url = new URL(req.url ?? '/', ISSUER)
-  const path = url.pathname
-
-  if (req.method === 'GET' && path === '/authorize') {
-    currentUrl = req.url ?? '/'
-    const params = Object.fromEntries(url.searchParams.entries())
+  if (route === 'GET /authorize') {
+    const q = url.searchParams
+    const param = (k: string) => q.get(k) ?? undefined
     const result = await op.authorize(
       {
-        client_id: params.client_id ?? '',
-        redirect_uri: params.redirect_uri ?? '',
-        response_type: params.response_type ?? '',
-        scope: params.scope ?? '',
-        ...(params.state !== undefined && { state: params.state }),
-        ...(params.nonce !== undefined && { nonce: params.nonce }),
-        ...(params.code_challenge !== undefined && { code_challenge: params.code_challenge }),
-        ...(params.code_challenge_method !== undefined && {
-          code_challenge_method: params.code_challenge_method,
-        }),
-        ...(params.prompt !== undefined && { prompt: params.prompt }),
+        client_id: q.get('client_id') ?? '',
+        code_challenge: param('code_challenge'),
+        code_challenge_method: param('code_challenge_method'),
+        max_age: param('max_age'),
+        nonce: param('nonce'),
+        prompt: param('prompt'),
+        redirect_uri: q.get('redirect_uri') ?? '',
+        response_type: q.get('response_type') ?? '',
+        scope: q.get('scope') ?? '',
+        state: param('state'),
       },
-      { headers: reqHeaders(req) },
+      { headers: req.headers },
     )
-    if (result.kind === 'redirect') return sendRedirect(res, result.url)
-    if (result.kind === 'login_required') return sendHtml(res, 200, loginPage())
-    if (result.kind === 'consent_required') {
-      return sendHtml(
-        res,
-        200,
-        consentPage(result.scope, {
-          client_id: result.client.client_id,
-          identity_id: result.identity.id,
-          redirect_uri: params.redirect_uri ?? '',
-          scope: result.scope.join(' '),
-          state: params.state ?? '',
-          nonce: params.nonce ?? '',
-          code_challenge: params.code_challenge ?? '',
-          code_challenge_method: params.code_challenge_method ?? '',
-          tenant_id: '',
-        }),
-      )
-    }
-    if (result.kind === 'error') {
-      if (result.status === 302 && result.redirectUri) {
-        const u = new URL(result.redirectUri)
-        u.searchParams.set('error', result.body.error)
-        if (result.body.error_description) u.searchParams.set('error_description', result.body.error_description)
-        if (result.body.state) u.searchParams.set('state', result.body.state)
-        return sendRedirect(res, u.toString())
-      }
-      return sendJson(res, result.status, result.body)
+    switch (result.kind) {
+      case 'redirect':
+        return redirect(result.url)
+      case 'login_required':
+        return html(loginPage(resumeUrl(url)))
+      case 'consent_required':
+        return html(
+          consentPage(result.client.client_name ?? result.client.client_id, result.scope, {
+            client_id: result.client.client_id,
+            code_challenge: q.get('code_challenge') ?? '',
+            code_challenge_method: q.get('code_challenge_method') ?? '',
+            nonce: q.get('nonce') ?? '',
+            redirect_uri: q.get('redirect_uri') ?? '',
+            scope: result.scope.join(' '),
+            state: q.get('state') ?? '',
+          }),
+        )
+      case 'error':
+        return authorizeError(result)
     }
   }
 
-  if (req.method === 'POST' && path === '/login') {
-    const body = parseForm(await readBody(req))
-    const id = await auth.identities.create({ profile: { email: 'user@example.com', name: 'Demo User' } })
-    const created = await auth.sessions.createForIdentity(id.id, {
-      kind: 'user',
+  if (route === 'POST /login') {
+    const form = new URLSearchParams(await req.text())
+    const returnTo = form.get('returnTo') ?? ''
+    const { session, sid, csrfToken } = await auth.sessions.create({
       aal: 1,
-      factors: [{ method: 'password', completedAt: Date.now() }],
+      factors: [{ completedAt: new Date(), method: 'password' }],
+      identityId: demoUser.id,
+      kind: 'user',
     })
-    const cookie = `duck-sid=${created.sid}; Path=/; HttpOnly; SameSite=Lax`
-    res.writeHead(302, { location: body.returnTo ?? '/', 'set-cookie': cookie })
-    return res.end()
+    // Only back into `/authorize`: anything else here is an open redirect.
+    const intents = auth.transport.issue(sid, session, { absolute: false, csrfToken, fresh: true })
+    return executeIntents([...intents, { type: 'redirect', url: returnTo.startsWith('/authorize?') ? returnTo : '/' }])
   }
 
-  if (req.method === 'POST' && path === '/consent') {
-    const body = parseForm(await readBody(req))
-    if (body.decision !== 'allow') return sendJson(res, 403, { error: 'access_denied' })
-    const resolved = await auth.resolveSession({ headers: reqHeaders(req) })
-    if (!resolved?.identity) return sendJson(res, 401, { error: 'unauthenticated' })
+  if (route === 'POST /consent') {
+    const form = new URLSearchParams(await req.text())
+    const redirectUri = form.get('redirect_uri') ?? ''
+    const resolved = await auth.resolveSession({ headers: req.headers }).orNull()
+    if (!resolved?.identity) return Response.json({ error: 'login_required' }, { status: 401 })
+    const field = (k: string) => form.get(k) || undefined
+    if (form.get('decision') !== 'allow') {
+      const client = await clients.findById(form.get('client_id') ?? '')
+      if (!client?.redirect_uris.includes(redirectUri))
+        return Response.json({ error: 'invalid_request' }, { status: 400 })
+      return authorizeError({ body: { error: 'access_denied', state: field('state') }, redirectUri, status: 302 })
+    }
+    // Read off the session, not a hidden field, or the person could claim a sign-in fresher than they had.
+    const { createdAt, factors } = resolved.session
+    const authTime = factors.length > 0 ? Math.max(...factors.map((f) => f.completedAt.getTime())) : createdAt.getTime()
     const completed = await op.completeConsent({
-      client_id: body.client_id ?? '',
+      auth_time: authTime,
+      client_id: form.get('client_id') ?? '',
+      code_challenge: field('code_challenge'),
+      code_challenge_method: field('code_challenge_method'),
       identity: resolved.identity,
-      redirect_uri: body.redirect_uri ?? '',
-      scope: (body.scope ?? '').split(/\s+/).filter((s) => s.length > 0),
-      ...(body.state ? { state: body.state } : {}),
-      ...(body.nonce ? { nonce: body.nonce } : {}),
-      ...(body.code_challenge ? { code_challenge: body.code_challenge } : {}),
-      ...(body.code_challenge_method ? { code_challenge_method: body.code_challenge_method } : {}),
+      nonce: field('nonce'),
+      redirect_uri: redirectUri,
+      scope: (form.get('scope') ?? '').split(' ').filter((s) => s.length > 0),
       sid: resolved.session.id,
+      state: field('state'),
       tenant_id: null,
     })
-    if (completed.kind !== 'redirect') return sendJson(res, 400, { error: 'failed' })
-    return sendRedirect(res, completed.url)
+    if (completed.kind === 'redirect') return redirect(completed.url)
+    if (completed.kind === 'error') return Response.json(completed.body, { status: completed.status })
+    return Response.json({ error: 'server_error' }, { status: 500 })
   }
 
-  if (req.method === 'POST' && path === '/token') {
-    const body = parseForm(await readBody(req))
+  if (route === 'POST /token') {
+    const form = new URLSearchParams(await req.text())
+    const field = (k: string) => form.get(k) ?? undefined
     const out = await op.token(
       {
-        grant_type: body.grant_type ?? '',
-        ...(body.code !== undefined && { code: body.code }),
-        ...(body.redirect_uri !== undefined && { redirect_uri: body.redirect_uri }),
-        ...(body.client_id !== undefined && { client_id: body.client_id }),
-        ...(body.client_secret !== undefined && { client_secret: body.client_secret }),
-        ...(body.refresh_token !== undefined && { refresh_token: body.refresh_token }),
-        ...(body.code_verifier !== undefined && { code_verifier: body.code_verifier }),
-        ...(body.scope !== undefined && { scope: body.scope }),
+        client_id: field('client_id'),
+        client_secret: field('client_secret'),
+        code: field('code'),
+        code_verifier: field('code_verifier'),
+        grant_type: form.get('grant_type') ?? '',
+        redirect_uri: field('redirect_uri'),
+        refresh_token: field('refresh_token'),
+        scope: field('scope'),
       },
-      reqHeaders(req),
+      req.headers,
     )
-    if ('error' in out) return sendJson(res, 400, out)
-    return sendJson(res, 200, out)
+    if ('error' in out) return Response.json(out, { status: out.error === 'invalid_client' ? 401 : 400 })
+    return Response.json(out, { headers: { 'cache-control': 'no-store' } })
   }
 
-  if (req.method === 'GET' && path === '/userinfo') {
-    const out = await op.userinfo(reqHeaders(req))
-    if ('error' in out) return sendJson(res, 401, out)
-    return sendJson(res, 200, out)
+  if (route === 'GET /userinfo') {
+    const out = await op.userinfo(req.headers)
+    return Response.json(out, { status: 'error' in out ? 401 : 200 })
   }
 
-  if (req.method === 'POST' && path === '/introspect') {
-    const body = parseForm(await readBody(req))
-    const out = await op.introspect(
-      {
-        token: body.token ?? '',
-        ...(body.token_type_hint ? { token_type_hint: body.token_type_hint as 'access_token' | 'refresh_token' } : {}),
-      },
-      reqHeaders(req),
-    )
-    return sendJson(res, 200, out)
+  // A client authenticates here as it does at `/token`: Basic, or `client_id` (and `client_secret`) in the body.
+  if (route === 'POST /introspect' || route === 'POST /revoke') {
+    const form = new URLSearchParams(await req.text())
+    const body = {
+      client_id: form.get('client_id') ?? undefined,
+      client_secret: form.get('client_secret') ?? undefined,
+      token: form.get('token') ?? '',
+      token_type_hint: tokenHint(form.get('token_type_hint')),
+    }
+    if (route === 'POST /introspect') return Response.json(await op.introspect(body, req.headers))
+    const refused = await op.revoke(body, req.headers)
+    return refused ? Response.json(refused, { status: 401 }) : new Response(null, { status: 200 })
   }
 
-  if (req.method === 'POST' && path === '/revoke') {
-    const body = parseForm(await readBody(req))
-    await op.revoke(
-      {
-        token: body.token ?? '',
-        ...(body.token_type_hint ? { token_type_hint: body.token_type_hint as 'access_token' | 'refresh_token' } : {}),
-      },
-      reqHeaders(req),
-    )
-    return sendJson(res, 200, {})
-  }
-
-  return sendJson(res, 404, { error: 'not_found' })
+  return Response.json({ error: 'not_found' }, { status: 404 })
 }
 
-const server = createServer((req, res) => {
-  handle(req, res).catch((err) => {
-    console.error('handler error', err)
-    sendJson(res, 500, { error: 'server_error' })
+/** Runs `handle` for a Node request, so the handlers above stay plain Fetch. */
+async function serve(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  let out: Response
+  try {
+    const chunks: Buffer[] = []
+    for await (const chunk of req) chunks.push(Buffer.from(chunk))
+    const body = req.method === 'GET' || req.method === 'HEAD' ? undefined : Buffer.concat(chunks)
+    out = await handle(
+      new Request(new URL(req.url ?? '/', ISSUER), {
+        body,
+        headers: nodeHeadersToFetch(req.headers),
+        method: req.method,
+      }),
+    )
+  } catch (err) {
+    const code = err instanceof Error && 'code' in err ? err.code : undefined
+    if (code !== 'AUTH_CSRF') console.error('handler error', err)
+    out = Response.json(
+      { error: code === 'AUTH_CSRF' ? 'forbidden' : 'server_error' },
+      { status: code === 'AUTH_CSRF' ? 403 : 500 },
+    )
+  }
+  const headers: Record<string, string | string[]> = {}
+  out.headers.forEach((v, k) => {
+    if (k !== 'set-cookie') headers[k] = v
   })
-})
+  const cookies = out.headers.getSetCookie()
+  if (cookies.length > 0) headers['set-cookie'] = cookies
+  res.writeHead(out.status, headers)
+  res.end(Buffer.from(await out.arrayBuffer()))
+}
 
-server.listen(PORT, () => {
+createServer((req, res) => void serve(req, res)).listen(PORT, () => {
   console.log(`OP listening at ${ISSUER}`)
-  console.log(`Try: GET ${ISSUER}/authorize?client_id=demo-spa&...`)
 })

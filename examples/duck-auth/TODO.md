@@ -6,7 +6,8 @@
       `signedIn()`. `drizzle/` is the one migration history.
 - [x] `shared/`: `signUp()` and `stepUp()`, so all eight backends sign up and step up alike. Sign-up
       refuses a malformed email or an empty or overlong name, and erases the new identity when its
-      password cannot be stored. Step-up revokes the one-factor session its cookie replaced.
+      password cannot be stored. Step-up answers the sign-in's challenge, or swaps a session signed
+      in before TOTP and revokes it.
 - [x] `ui/`: `createApi(base)`, backend map + Vite proxy, duck-ui recipes and theme.
 
 ## Backends
@@ -33,8 +34,8 @@ Each backend has `src/db/{index,migrate,seed}.ts` and writes every route (see th
 - [x] `GET /auth/session`, `GET /me` and `GET /me/sessions` answer `cache-control: no-store` on all
       eight. Express and nest do not send `X-Powered-By`.
 - [x] A spoofed `x-forwarded-for` does not reach a session's recorded address on any backend.
-- [x] grpc: `bun run client` signs in, reads the account back, and signs out. `VerifyMfa` revokes
-      the one-factor token it replaces, as `stepUp()` does for a cookie.
+- [x] grpc: `bun run client` signs in, reads the account back, and signs out. `VerifyMfa` answers
+      `SignIn`'s challenge, or revokes the one-factor token it replaces, as `stepUp()` does for a cookie.
 - [x] The README's quick start works from an empty database. A backend pointed at a database never
       migrated answers `AUTH_MISCONFIGURED` and names the missing table in its terminal.
 - [x] next: its own Playwright run passes. `next build` is refused by design (see "Development

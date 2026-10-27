@@ -13,7 +13,7 @@
  *
  * The list is now taken from the stores bag itself, so a fifth slot cannot be added past the sweep.
  */
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { InMemoryEvents } from '~/core/events'
 import type { Events } from '~/core/events/events.types'
@@ -22,6 +22,11 @@ import type { Limiter } from '~/limiters'
 import { CookieTransport } from '../../transport/cookie.transport'
 import { AuthEngine } from '../engine'
 import type { Engine } from '../engine.types'
+
+// Every case is a production one unless it says otherwise.
+beforeEach(() => {
+  vi.stubEnv('NODE_ENV', 'production')
+})
 
 const foreignLimiter: Limiter.Me = {
   consume: async () => ({ ok: true, remaining: 1, resetAt: new Date(Date.now() + 60_000) }),
@@ -61,7 +66,7 @@ function makeAuth(stores: Engine.Stores) {
     events: foreignEvents(),
     limiter: foreignLimiter,
     stores,
-    transport: new CookieTransport({ name: 'duck-sid', secure: true }),
+    transport: new CookieTransport({ name: 'duck-sid' }),
   })
   auth.providers.register({
     async begin() {
@@ -77,7 +82,7 @@ function makeAuth(stores: Engine.Stores) {
   return auth
 }
 
-const strictly = (stores: Engine.Stores) => () => makeAuth(stores).strict({ env: 'production' })
+const strictly = (stores: Engine.Stores) => () => makeAuth(stores).strict()
 
 /** The checks that failed. An `AuthError`'s `message` is its bare code, so a regex on the thrown error
  *  would match `AUTH_MISCONFIGURED` and nothing about stores. */

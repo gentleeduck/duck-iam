@@ -6,7 +6,7 @@ import type { RedisLike } from '~/core/drivers/redis-like'
 import { AuthError } from '~/core/errors'
 import type { Limiter } from '../limiters.types'
 
-/** Past this `now + windowMs` stops being a representable `Date`, and a window this long is a ban. */
+/** About 274 years, a window this long being a ban. */
 const WINDOW_MAX_MS = 8_640_000_000_000
 
 /** Increments, restores the TTL whenever the key has none, and answers `[count, remaining ms]`. */
@@ -25,7 +25,7 @@ export namespace RedisLimiter {
     redis: TRedis
     /** Max consumed weight per window. Default 10. */
     max?: number
-    /** Window size in ms. Default 15 minutes. */
+    /** Window size in whole ms. Default 15 minutes. */
     windowMs?: number
     /** Key namespace prefix. Default `auth:rl`. */
     prefix?: string
@@ -57,9 +57,10 @@ export class RedisLimiter<TRedis extends RedisLike.Client = RedisLike.Client> im
         detail: `redisLimiter: max must be a number between 1 and ${Number.MAX_SAFE_INTEGER} (got ${this._max})`,
       })
     }
-    if (!Number.isFinite(this._windowMs) || this._windowMs < 1 || this._windowMs > WINDOW_MAX_MS) {
+    // Whole, since `PEXPIRE` refuses a fraction and every consume threw.
+    if (!Number.isSafeInteger(this._windowMs) || this._windowMs < 1 || this._windowMs > WINDOW_MAX_MS) {
       throw new AuthError('AUTH_MISCONFIGURED', {
-        detail: `redisLimiter: windowMs must be a number between 1 and ${WINDOW_MAX_MS} (got ${this._windowMs})`,
+        detail: `redisLimiter: windowMs must be a whole number between 1 and ${WINDOW_MAX_MS} (got ${this._windowMs})`,
       })
     }
   }

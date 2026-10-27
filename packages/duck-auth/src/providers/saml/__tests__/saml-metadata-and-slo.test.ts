@@ -1,6 +1,12 @@
+import { deflateRawSync } from 'node:zlib'
 import { describe, expect, it, vi } from 'vitest'
 import { buildSpMetadata, Saml, samlSloController } from '../index'
 import { SAML_NAME_ID_MAX } from '../saml.constants'
+
+/** A message as the Redirect binding carries it in a query: deflated, base64, then URL-encoded. */
+const enc = (xml: string): string => encodeURIComponent(deflateRawSync(xml).toString('base64'))
+const ENC = enc('<samlp:LogoutResponse/>')
+const FORGED = enc('<samlp:LogoutResponse ID="forged"/>')
 
 function makeClient(overrides: Partial<Saml.Client> = {}): Saml.Client {
   return {
@@ -120,19 +126,19 @@ describe('samlSloController.completeSp', () => {
     })
     const slo = samlSloController({ client })
     await expect(
-      slo.completeSp({ originalQuery: 'SAMLResponse=enc&SigAlg=sig&Signature=s%2B1&other=1' }),
+      slo.completeSp({ originalQuery: `SAMLResponse=${ENC}&SigAlg=sig&Signature=s%2B1&other=1` }),
     ).resolves.toBeUndefined()
     expect(client.validateRedirectAsync).toHaveBeenCalledWith(
-      { SAMLResponse: 'enc', SigAlg: 'sig', Signature: 's+1' },
-      'SAMLResponse=enc&SigAlg=sig&Signature=s%2B1',
+      { SAMLResponse: decodeURIComponent(ENC), SigAlg: 'sig', Signature: 's+1' },
+      `SAMLResponse=${ENC}&SigAlg=sig&Signature=s%2B1`,
     )
   })
 
   it.each([
-    ['unsigned', 'SAMLResponse=enc'],
-    ['with no SigAlg', 'SAMLResponse=enc&Signature=s'],
-    ['with a second SAMLResponse', 'SAMLResponse=signed&SigAlg=a&Signature=s&SAMLResponse=forged'],
-    ['with a second SigAlg', 'SAMLResponse=enc&SigAlg=a&Signature=s&SigAlg=b'],
+    ['unsigned', `SAMLResponse=${ENC}`],
+    ['with no SigAlg', `SAMLResponse=${ENC}&Signature=s`],
+    ['with a second SAMLResponse', `SAMLResponse=${ENC}&SigAlg=a&Signature=s&SAMLResponse=${FORGED}`],
+    ['with a second SigAlg', `SAMLResponse=${ENC}&SigAlg=a&Signature=s&SigAlg=b`],
   ])('refuses a LogoutResponse %s before the client sees it', async (_, originalQuery) => {
     const client = makeClient({
       validateRedirectAsync: vi.fn(async () => ({ profile: null, loggedOut: true })),
@@ -151,9 +157,10 @@ describe('samlSloController.completeSp', () => {
       })),
     })
     const slo = samlSloController({ client })
-    await expect(slo.completeSp({ originalQuery: 'SAMLResponse=x&SigAlg=a&Signature=s' })).rejects.toMatchObject({
+    await expect(slo.completeSp({ originalQuery: `SAMLResponse=${ENC}&SigAlg=a&Signature=s` })).rejects.toMatchObject({
       code: 'AUTH_PROVIDER_FAILED',
     })
+    expect(client.validateRedirectAsync).toHaveBeenCalled()
   })
 
   it('caps oversize originalQuery', async () => {
@@ -174,7 +181,7 @@ describe('samlSloController.completeSp', () => {
       }),
     })
     const slo = samlSloController({ client })
-    await expect(slo.completeSp({ originalQuery: 'SAMLResponse=x&SigAlg=a&Signature=s' })).rejects.toMatchObject({
+    await expect(slo.completeSp({ originalQuery: `SAMLResponse=${ENC}&SigAlg=a&Signature=s` })).rejects.toMatchObject({
       code: 'AUTH_PROVIDER_FAILED',
       meta: { detail: 'LogoutResponse validation failed' },
     })
@@ -190,15 +197,15 @@ describe('samlSloController.completeIdp', () => {
       validateRedirectAsync: vi.fn(async () => ({ loggedOut: true, profile: request })),
     })
     const slo = samlSloController({ client })
-    const out = await slo.completeIdp({ originalQuery: 'SAMLRequest=enc&RelayState=rs&SigAlg=a&Signature=s' })
+    const out = await slo.completeIdp({ originalQuery: `SAMLRequest=${ENC}&RelayState=rs&SigAlg=a&Signature=s` })
     expect(out).toEqual({ nameID: 'idp-init-user', redirectUrl: 'https://idp/slo?SAMLResponse=BBB' })
     expect(client.getLogoutResponseUrlAsync).toHaveBeenCalledWith(request, 'rs', {}, true)
   })
 
   it.each([
-    ['unsigned', 'SAMLRequest=enc&RelayState=rs'],
-    ['with a second SAMLRequest', 'SAMLRequest=signed&SigAlg=a&Signature=s&SAMLRequest=forged'],
-    ['with a second RelayState', 'SAMLRequest=enc&RelayState=a&SigAlg=a&Signature=s&RelayState=b'],
+    ['unsigned', `SAMLRequest=${ENC}&RelayState=rs`],
+    ['with a second SAMLRequest', `SAMLRequest=${ENC}&SigAlg=a&Signature=s&SAMLRequest=${FORGED}`],
+    ['with a second RelayState', `SAMLRequest=${ENC}&RelayState=a&SigAlg=a&Signature=s&RelayState=b`],
   ])('refuses a Redirect-binding LogoutRequest %s before the client sees it', async (_, originalQuery) => {
     const client = makeClient({
       getLogoutResponseUrlAsync: vi.fn(async () => ''),

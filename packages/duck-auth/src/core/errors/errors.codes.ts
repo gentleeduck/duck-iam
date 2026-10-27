@@ -65,7 +65,7 @@ export const AUTH_ERRORS = {
    *  breaking its contract, not the caller asking wrongly.
    *  SECURITY: deliberately outside the absent set. A cross-tenant row must not read back through
    *  `orNull()` as "no row", which is how a disclosure becomes a 404 nobody looks at. */
-  AUTH_TENANT_SCOPE_VIOLATION: fault<{ asked: string; got: string | null }>(500),
+  AUTH_TENANT_SCOPE_VIOLATION: fault<{ asked: string | null; got: string | null }>(500),
   AUTH_ALREADY_EXISTS: fault<{ detail?: string }>(409),
   // Optional because a driver refusal names nothing; a parser that refused a value says which value.
   AUTH_INVALID_PARAMETERS: fault<{ detail?: string }>(400),

@@ -29,7 +29,7 @@ export namespace Kms {
 export namespace DataAtRest {
   /** What a ciphertext is bound to; it decrypts only under the same context. */
   export type Context = {
-    /** Field name in Identity.profile that's being encrypted. */
+    /** The field being encrypted: a name in Identity.profile, or `totp` for a TOTP secret. */
     field: string
     /** Lets an adapter tie keys to subjects, so GDPR right-to-erasure is met by destroying the
      *  per-subject DEK. */

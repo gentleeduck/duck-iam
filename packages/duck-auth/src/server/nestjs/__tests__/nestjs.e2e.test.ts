@@ -20,7 +20,7 @@ const auth = new AuthEngine<Profile>({
   limiter: new MemoryLimiter({ max: 1_000, windowMs: 60_000 }),
   providers: [passwords({ hasher: new ScryptHasher({ keylen: 32, N: 1 << 10 }) })],
   stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
-  transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+  transport: new CookieTransport({ name: 'duck-sid' }),
 })
 
 @Controller('auth')
@@ -42,7 +42,7 @@ let app: INestApplication
 let origin = ''
 beforeAll(async () => {
   const identity = await auth.identities.create({ profile: { email: 'a@x.test', username: 'a' } })
-  await auth.passwords.set(identity.id, PASSWORD, adapter.credentials)
+  await auth.passwords.set(identity.id, PASSWORD, adapter.credentials, null)
   app = await NestFactory.create(AppModule, {
     logger: { error: (message) => logged.push(message), log() {}, warn() {} },
   })

@@ -67,7 +67,7 @@ describe('m2m client_credentials', () => {
   let identityId: string
 
   async function makeKey(scopes: string[], over: { tenantId?: string } = {}) {
-    const created = await env.auth.apiKeys.create(identityId, { name: 'k', scopes }, over)
+    const created = await env.auth.apiKeys.create(identityId, { name: 'k', scopes, session: null }, over)
     return { clientId: created.key.id, clientSecret: created.plaintext }
   }
 
@@ -107,9 +107,10 @@ describe('m2m client_credentials', () => {
       })
     })
 
-    it('falls back to the credential’s own tenant when the caller names none', async () => {
+    it("refuses a tenant's key to a caller naming no tenant, and mints for the tenant it names", async () => {
       const scoped = await makeKey(['read:users'], { tenantId: 'tenant-a' })
-      const result = await env.m2m.exchange(scoped)
+      await expect(env.m2m.exchange(scoped)).rejects.toMatchObject({ code: 'AUTH_APIKEY_INVALID' })
+      const result = await env.m2m.exchange({ ...scoped, tenantId: 'tenant-a' })
       expect(claims(result.access_token).tid).toBe('tenant-a')
     })
 
@@ -145,7 +146,7 @@ describe('m2m client_credentials', () => {
       const ident = await strict.adapter.identities.create(
         identityInput({ profile: { email: 's@a.test', username: 's@a.test' }, providers: [] }),
       )
-      const key = await strict.auth.apiKeys.create(ident.id, { name: 'k', scopes: ['read:users'] })
+      const key = await strict.auth.apiKeys.create(ident.id, { name: 'k', scopes: ['read:users'], session: null })
       await expect(
         strict.m2m.exchange({ clientId: key.key.id, clientSecret: key.plaintext, scope: 'admin:everything' }),
       ).rejects.toMatchObject({ code: 'AUTH_APIKEY_SCOPE_INSUFFICIENT' })
@@ -156,7 +157,11 @@ describe('m2m client_credentials', () => {
       const ident = await strict.adapter.identities.create(
         identityInput({ profile: { email: 's@a.test', username: 's@a.test' }, providers: [] }),
       )
-      const key = await strict.auth.apiKeys.create(ident.id, { name: 'k', scopes: ['secret:a', 'secret:b'] })
+      const key = await strict.auth.apiKeys.create(ident.id, {
+        name: 'k',
+        scopes: ['secret:a', 'secret:b'],
+        session: null,
+      })
       const err = await strict.m2m
         .exchange({ clientId: key.key.id, clientSecret: key.plaintext, scope: 'nope' })
         .catch((e: AuthError) => e)
@@ -295,7 +300,7 @@ describe('m2m client_credentials', () => {
       const ident = await short.adapter.identities.create(
         identityInput({ profile: { email: 's@a.test', username: 's@a.test' }, providers: [] }),
       )
-      const key = await short.auth.apiKeys.create(ident.id, { name: 'k', scopes: ['read:users'] })
+      const key = await short.auth.apiKeys.create(ident.id, { name: 'k', scopes: ['read:users'], session: null })
       for (let i = 0; i < 25; i++) await short.m2m.exchange({ clientId: key.key.id, clientSecret: key.plaintext })
 
       const rows = await short.adapter.sessions.listByIdentity(ident.id)
@@ -322,7 +327,7 @@ describe('m2m client_credentials', () => {
       const ident = await short.adapter.identities.create(
         identityInput({ profile: { email: 's@a.test', username: 's@a.test' }, providers: [] }),
       )
-      const key = await short.auth.apiKeys.create(ident.id, { name: 'k', scopes: [] })
+      const key = await short.auth.apiKeys.create(ident.id, { name: 'k', scopes: [], session: null })
       const result = await short.m2m.exchange({ clientId: key.key.id, clientSecret: key.plaintext })
       expect(result.expires_in).toBeLessThanOrEqual(120)
     })

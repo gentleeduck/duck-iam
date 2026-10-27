@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { InMemoryEvents } from '~/core/events'
+import { authTestDataAtRest } from '~/test'
 import { credentialInput } from '~/test/store-inputs'
 import { MfaImpl } from '../mfa'
 
@@ -11,7 +12,7 @@ describe('MfaFacet.verifyTotp / hasTotp - confirmed flag', () => {
 
   beforeEach(() => {
     adapter = new MemoryAdapter()
-    facet = new MfaImpl(adapter.credentials, new InMemoryEvents())
+    facet = new MfaImpl(adapter.credentials, new InMemoryEvents(), { dataAtRest: authTestDataAtRest() })
   })
 
   async function plant(metadata: unknown, secret: unknown = 'JBSWY3DPEHPK3PXP'): Promise<void> {

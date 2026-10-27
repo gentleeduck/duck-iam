@@ -5,7 +5,7 @@ description: "Issued refresh tokens, by hash, in rotation families."
 
 > **RefreshTokenStore** = \{ `consume`: `Promise`\<[`RefreshToken`](RefreshToken) \| `null`\>; `findByHash`: `Promise`\<[`RefreshToken`](RefreshToken) \| `null`\>; `insert`: `Promise`\<`void`\>; `revokeFamily`: `Promise`\<`void`\>; \}
 
-Defined in: [packages/duck-auth/src/oidc/op/types.ts:113](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L113)
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:127](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/op/types.ts#L127)
 
 Issued refresh tokens, by hash, in rotation families.
 
@@ -15,7 +15,7 @@ Issued refresh tokens, by hash, in rotation families.
 
 > **consume**(`hash`: `string`, `now`: `number`): `Promise`\<[`RefreshToken`](RefreshToken) \| `null`\>
 
-Defined in: [packages/duck-auth/src/oidc/op/types.ts:119](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L119)
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:133](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/op/types.ts#L133)
 
 Mark as consumed. Returns the row or null if already consumed / missing.
 
@@ -39,7 +39,7 @@ Mark as consumed. Returns the row or null if already consumed / missing.
 
 > **findByHash**(`hash`: `string`, `now`: `number`): `Promise`\<[`RefreshToken`](RefreshToken) \| `null`\>
 
-Defined in: [packages/duck-auth/src/oidc/op/types.ts:117](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L117)
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:131](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/op/types.ts#L131)
 
 The unexpired token with this hash, consumed or not, or `null`.
 
@@ -63,7 +63,7 @@ The unexpired token with this hash, consumed or not, or `null`.
 
 > **insert**(`t`: [`RefreshToken`](RefreshToken)): `Promise`\<`void`\>
 
-Defined in: [packages/duck-auth/src/oidc/op/types.ts:115](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L115)
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:129](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/op/types.ts#L129)
 
 Stores a token.
 
@@ -83,7 +83,7 @@ Stores a token.
 
 > **revokeFamily**(`family_id`: `string`): `Promise`\<`void`\>
 
-Defined in: [packages/duck-auth/src/oidc/op/types.ts:121](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L121)
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:135](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/op/types.ts#L135)
 
 Revoke every refresh token in this family (reuse-attack defense).
 

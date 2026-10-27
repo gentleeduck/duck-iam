@@ -54,7 +54,7 @@ if ! (cd "$DEMO_DIR" && bun run db:migrate >"$LOG_DIR/migrate.log" 2>&1); then
 fi
 
 echo "[run-all] 4a/4 starting backend on :$BACKEND_PORT..."
-(cd "$DEMO_DIR" && PORT="$BACKEND_PORT" bun src/server.ts) \
+(cd "$DEMO_DIR" && NODE_ENV=development PORT="$BACKEND_PORT" bun src/server.ts) \
   >"$LOG_DIR/server.log" 2>&1 &
 BACKEND_PID=$!
 PIDS+=("$BACKEND_PID")

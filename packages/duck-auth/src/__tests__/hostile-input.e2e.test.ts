@@ -65,7 +65,7 @@ suite('E2E hostile input on real Postgres + Redis', () => {
         windowMs: 60_000,
       }),
       stores: { credentials: stores.credentials, identities: stores.identities, sessions: stores.sessions },
-      transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+      transport: new CookieTransport({ name: 'duck-sid' }),
     })
     auth.providers.register(passwords<Profile>({ hasher: new ScryptHasher({ keylen: 32, N: 1 << 10 }) }))
   }, 60_000)
@@ -352,7 +352,7 @@ suite('E2E hostile input on real Postgres + Redis', () => {
     it('refuses an empty password at sign-in', async () => {
       const tag = `blank-${e2ePrefix()}`
       const identity = await tryCreate({ email: `${tag}@x.com`, username: tag })
-      await auth.passwords.set(String(identity?.id), PASSWORD, stores.credentials)
+      await auth.passwords.set(String(identity?.id), PASSWORD, stores.credentials, null)
 
       await expect(
         auth.flows.signIn({ input: { email: `${tag}@x.com`, password: '' }, providerId: 'password' }),

@@ -7,6 +7,7 @@ import { FakeRedis } from '~/core/drivers/redis-like'
 import { AuthEngine } from '~/core/engine'
 import type { Identities } from '~/core/identities/identities.types'
 import { RedisSessionImpl } from '~/core/sessions/sessions.redis'
+import { ALL_TENANTS } from '~/core/tenant'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
 
@@ -18,7 +19,7 @@ function build() {
     baseUrl: 'https://app',
     limiter: new MemoryLimiter({ max: 50, windowMs: 60_000 }),
     stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
-    transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+    transport: new CookieTransport({ name: 'duck-sid' }),
   })
   const revoked: string[] = []
   auth.events.on('session.revoked', (p) => {
@@ -47,8 +48,9 @@ describe('D4 - sessions are tenant-scopable', () => {
     sidGlobal = (await auth.sessions.create({ aal: 1, factors: [], identityId: id, kind: 'user' })).sid
   })
 
-  it('listForIdentity unscoped is unchanged - every existing caller keeps its answer', async () => {
-    expect(await auth.sessions.listForIdentity(id)).toHaveLength(3)
+  it('listForIdentity naming no tenant answers the session with none, and ALL_TENANTS every one', async () => {
+    expect((await auth.sessions.listForIdentity(id)).map((s) => s.tenantId)).toEqual([null])
+    expect(await auth.sessions.listForIdentity(id, ALL_TENANTS)).toHaveLength(3)
   })
 
   it("listForIdentity scoped does not show tenant A the other tenant's devices", async () => {
@@ -62,7 +64,7 @@ describe('D4 - sessions are tenant-scopable', () => {
   it('a session with no tenant belongs to no tenant, rather than to all of them', async () => {
     const a = await auth.sessions.listForIdentity(id, { tenantId: 'a' })
     expect(a.map((s) => s.tenantId)).toEqual(['a'])
-    // And it is still there for an unscoped read.
+    // And a read naming no tenant finds it.
     expect((await auth.sessions.listForIdentity(id)).some((s) => s.tenantId === null)).toBe(true)
   })
 
@@ -79,17 +81,18 @@ describe('D4 - sessions are tenant-scopable', () => {
     expect(revoked).toHaveLength(1)
   })
 
-  it('revokeAllForIdentity unscoped still ends everything', async () => {
+  it('revokeAllForIdentity naming no tenant ends the session with none, and ALL_TENANTS every one', async () => {
     const gone = await auth.sessions.revokeAllForIdentity(id)
-    expect(gone).toHaveLength(3)
-    expect(await auth.sessions.listForIdentity(id)).toEqual([])
+    expect(gone.map((s) => s.tenantId)).toEqual([null])
+    expect(await auth.sessions.listForIdentity(id, ALL_TENANTS)).toHaveLength(2)
+    await auth.sessions.revokeAllForIdentity(id, ALL_TENANTS)
+    expect(await auth.sessions.listForIdentity(id, ALL_TENANTS)).toEqual([])
     expect(revoked).toHaveLength(3)
   })
 
-  it('a credential change stays global, because a password is', async () => {
-    // Deliberately not scoped. The password is a property of the global identity,
-    // so changing it has to end every session it could have opened - scoping this
-    // sweep would leave the old password's sessions alive in the other tenant.
+  it('a credential change ends the sessions of every tenant, and reports each', async () => {
+    // Not held to the session's tenant: a changed credential ends every session the account holds.
+    const ids = await Promise.all([sidA, sidB, sidGlobal].map(async (sid) => (await auth.sessions.getBySid(sid)).id))
     await auth.sessions.rotateOrCreate({
       aal: 1,
       factors: [],
@@ -100,12 +103,13 @@ describe('D4 - sessions are tenant-scopable', () => {
     })
     await expect(auth.sessions.getBySid(sidB)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     await expect(auth.sessions.getBySid(sidGlobal)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+    expect([...revoked].sort()).toEqual([...ids].sort())
   })
 })
 
 describe('D4 - the Redis store keeps its index reachable after a scoped sweep', () => {
   it('sessions the scoped delete spared are still listable and still revocable', async () => {
-    // The index is keyed by identity alone, so the unscoped path `del`s the whole
+    // The index is keyed by identity alone, so the `ALL_TENANTS` path `del`s the whole
     // key. A scoped delete that did the same would strand tenant B's rows: alive,
     // absent from every `listByIdentity`, and unreachable by any later sweep -
     // a session nothing can sign out.
@@ -134,9 +138,9 @@ describe('D4 - the Redis store keeps its index reachable after a scoped sweep', 
 
     await store.deleteAllForIdentity('sam', { tenantId: 'a' })
 
-    expect((await store.listByIdentity('sam')).map((s) => s.id)).toEqual([sha256('rb')])
-    await store.deleteAllForIdentity('sam')
-    expect(await store.listByIdentity('sam')).toEqual([])
+    expect((await store.listByIdentity('sam', ALL_TENANTS)).map((s) => s.id)).toEqual([sha256('rb')])
+    await store.deleteAllForIdentity('sam', ALL_TENANTS)
+    expect(await store.listByIdentity('sam', ALL_TENANTS)).toEqual([])
     await expect(store.getByHash(sha256('rb'))).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
   })
 })

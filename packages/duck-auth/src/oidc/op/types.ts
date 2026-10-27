@@ -47,6 +47,9 @@ export namespace OidcOP {
     tenant_id: string | null
     /** Session id used to mint this code; surfaced into id_token sid claim. */
     sid: string
+    /** When the person last presented a factor, ms epoch, for the id_token `auth_time` claim. `null` when
+     *  the caller did not say, which omits the claim rather than asserting a time nobody measured. */
+    auth_time: number | null
     /** Expiry, ms epoch. */
     exp: number
   }
@@ -55,6 +58,9 @@ export namespace OidcOP {
   export type AccessToken = {
     /** Hashed token (authSha256). Plaintext is only ever returned at issue time. */
     token_hash: string
+    /** The grant this token belongs to, shared with the refresh tokens of the same grant, so revoking the
+     *  grant reaches it. */
+    family_id: string
     client_id: string
     identity_id: string
     scope: string[]
@@ -70,6 +76,11 @@ export namespace OidcOP {
     identity_id: string
     scope: string[]
     tenant_id: string | null
+    /** Session id of the sign-in this grant descends from, carried so a refreshed id_token keeps its `sid`.
+     *  Empty when the grant predates the column. */
+    sid: string
+    /** Carried so a refreshed id_token keeps `auth_time` (OIDC Core 12.2). */
+    auth_time: number | null
     exp: number
     /** Set when this token has been used; reuse after this is set = reuse attack. */
     consumedAt: number | null
@@ -107,6 +118,9 @@ export namespace OidcOP {
     findByHash(hash: string, now: number): Promise<AccessToken | null>
     /** Revokes the token with this hash. */
     revokeByHash(hash: string): Promise<void>
+    /** Revokes every access token of this grant. Called when the grant itself is revoked - a replayed code
+     *  or a reused refresh token - so the tokens it issued do not outlive it. */
+    revokeFamily(family_id: string): Promise<void>
   }
 
   /** Issued refresh tokens, by hash, in rotation families. */
@@ -131,7 +145,7 @@ export namespace OidcOP {
 
   /** Configuration for the OP. */
   export type Cfg = {
-    /** Issuer URL. Must match the discovery doc. */
+    /** Issuer URL. Must match the discovery doc, and use HTTPS; plain http is admitted only outside production. */
     issuer: string
     /** Supported scopes. Always includes `openid`. */
     supportedScopes: string[]
@@ -143,8 +157,6 @@ export namespace OidcOP {
     codeTtl?: number
     /** ID-token TTL in seconds. Default 3600. */
     idTokenTtl?: number
-    /** Allow http issuer for dev. Production OPs must be https. */
-    allowHttp?: boolean
   }
 
   /** oauth2-style standard error codes per RFC 6749 section 5.2 / OIDC core section 3.1.2.6. */
@@ -183,13 +195,23 @@ export namespace OidcOP {
     code_challenge?: string
     code_challenge_method?: string
     prompt?: string
+    /** Whole seconds since the person last presented a factor, past which they sign in again. */
+    max_age?: string
   }
 
-  /** /authorize result the host app routes on. */
+  /** /authorize result the host app routes on. For `login_required` the host signs the person in, then
+   *  resumes the request without `login` in `prompt` and without `max_age`, which that sign-in answered. */
   export type AuthorizeResult<Profile extends Identities.ProfileMetadataBase> =
     | { kind: 'redirect'; url: string }
     | { kind: 'login_required'; reason: 'no_session' | 'prompt_login' | 'max_age_exceeded' }
-    | { kind: 'consent_required'; client: Client; scope: string[]; identity: Identities.Me<Profile> }
+    | {
+        kind: 'consent_required'
+        client: Client
+        scope: string[]
+        identity: Identities.Me<Profile>
+        /** Pass back to `completeConsent` so the id_token can carry `auth_time`. */
+        auth_time: number
+      }
     | { kind: 'error'; status: number; body: OauthError; redirectUri?: string }
 
   /** /token request shape, post body parse. */

@@ -98,7 +98,12 @@ export function expressActorContext(auth: AuthEngine, opts: ExpressActorOptions 
         async () => {
           next()
         },
-        requestSecurity(auth, { caller: opts.getCaller?.(req), onAnomaly: opts.onAnomaly, onHijack: opts.onHijack }),
+        requestSecurity(auth, {
+          caller: opts.getCaller?.(req),
+          onAnomaly: opts.onAnomaly,
+          onHijack: opts.onHijack,
+          tenantId: opts.tenantId?.(req),
+        }),
       )
     } catch (err) {
       // SECURITY: Express 4 holds the socket on a rejected async middleware, so every raise is passed on.

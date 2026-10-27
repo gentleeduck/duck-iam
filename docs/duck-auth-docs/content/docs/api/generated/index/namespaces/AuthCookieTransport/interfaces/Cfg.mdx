@@ -3,7 +3,7 @@ title: "Interface: Cfg"
 description: "The session cookie's name and attributes."
 ---
 
-Defined in: [packages/duck-auth/src/core/transport/cookie.transport.ts:8](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/cookie.transport.ts#L8)
+Defined in: [packages/duck-auth/src/core/transport/cookie.transport.ts:9](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/transport/cookie.transport.ts#L9)
 
 The session cookie's name and attributes.
 
@@ -13,7 +13,7 @@ The session cookie's name and attributes.
 
 > `optional` **domain?**: `string`
 
-Defined in: [packages/duck-auth/src/core/transport/cookie.transport.ts:13](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/cookie.transport.ts#L13)
+Defined in: [packages/duck-auth/src/core/transport/cookie.transport.ts:14](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/transport/cookie.transport.ts#L14)
 
 For cross-subdomain deployments only, and forbidden alongside the `__Host-` prefix.
 
@@ -23,7 +23,7 @@ For cross-subdomain deployments only, and forbidden alongside the `__Host-` pref
 
 > `optional` **maxAgeSec?**: `number`
 
-Defined in: [packages/duck-auth/src/core/transport/cookie.transport.ts:24](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/cookie.transport.ts#L24)
+Defined in: [packages/duck-auth/src/core/transport/cookie.transport.ts:22](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/transport/cookie.transport.ts#L22)
 
 A positive whole number of seconds, to end the cookie before the session does. Unset, it lives to
  `Sessions.Me.absoluteExpiresAt`, so a session `resolveSession` slides keeps its cookie; the idle
@@ -35,10 +35,10 @@ A positive whole number of seconds, to end the cookie before the session does. U
 
 > `optional` **name?**: `string`
 
-Defined in: [packages/duck-auth/src/core/transport/cookie.transport.ts:11](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/cookie.transport.ts#L11)
+Defined in: [packages/duck-auth/src/core/transport/cookie.transport.ts:12](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/transport/cookie.transport.ts#L12)
 
 `__Host-duck-sid` when no `domain` is set, which is the prefix browsers enforce Secure, `Path=/`
- and no Domain for; `duck-sid` otherwise.
+ and no Domain for; `duck-sid` otherwise. Outside production the prefix is dropped with Secure.
 
 ***
 
@@ -46,7 +46,7 @@ Defined in: [packages/duck-auth/src/core/transport/cookie.transport.ts:11](https
 
 > `optional` **path?**: `string`
 
-Defined in: [packages/duck-auth/src/core/transport/cookie.transport.ts:15](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/cookie.transport.ts#L15)
+Defined in: [packages/duck-auth/src/core/transport/cookie.transport.ts:16](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/transport/cookie.transport.ts#L16)
 
 Default `/`, which the `__Host-` prefix requires.
 
@@ -56,18 +56,7 @@ Default `/`, which the `__Host-` prefix requires.
 
 > `optional` **sameSite?**: `"strict"` \| `"lax"` \| `"none"`
 
-Defined in: [packages/duck-auth/src/core/transport/cookie.transport.ts:20](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/cookie.transport.ts#L20)
+Defined in: [packages/duck-auth/src/core/transport/cookie.transport.ts:18](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/transport/cookie.transport.ts#L18)
 
-`'none'` requires `secure`.
-
-***
-
-### secure?
-
-> `optional` **secure?**: `boolean`
-
-Defined in: [packages/duck-auth/src/core/transport/cookie.transport.ts:18](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/cookie.transport.ts#L18)
-
-`strict()` rejects `false` in production. The CSRF companion follows it, and drops its `__Host-`
- prefix along with it, since the prefix is what requires Secure.
+Default `'lax'`. `'none'` keeps the cookie Secure in every environment.
 

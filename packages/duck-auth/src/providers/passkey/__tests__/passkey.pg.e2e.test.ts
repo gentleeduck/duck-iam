@@ -11,6 +11,7 @@ import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
 import { MfaImpl } from '~/providers/mfa/mfa'
 import { DEFAULT_MFA_CONFIG } from '~/providers/mfa/mfa.constants'
+import { authTestDataAtRest } from '~/test'
 import { applyPgSchema, databaseUrl, e2ePrefix } from '~/test/e2e-env'
 import { type SoftAuthenticator, softAuthenticator } from '~/test/soft-authenticator'
 import {
@@ -50,8 +51,8 @@ suite('E2E passkeys on real Postgres, with the real verifier', () => {
 
   async function register(identityId: string, authenticator: SoftAuthenticator): Promise<string> {
     const input = { credentialStore: stores.credentials, identityId, sessionId: `reg-${e2ePrefix()}`, tenant: {} }
-    await beginPasskeyRegistration(opts, { ...input, userName: identityId })
-    return completePasskeyRegistration(opts, { ...input, response: authenticator.register(challenge) })
+    await beginPasskeyRegistration(opts, { session: null, ...input, userName: identityId })
+    return completePasskeyRegistration(opts, { session: null, ...input, response: authenticator.register(challenge) })
   }
 
   async function signIn(
@@ -73,12 +74,14 @@ suite('E2E passkeys on real Postgres, with the real verifier', () => {
       expectedOrigins: 'https://app.test',
     }
     const options = await mfa.beginWebauthnMfaEnrollment(identityId, {
+      session: null,
       ...common,
       rpID: 'app.test',
       rpName: 'Test App',
       userName: identityId,
     })
     return mfa.confirmWebauthnMfaEnrollment(identityId, {
+      session: null,
       ...common,
       response: authenticator.register(options.challenge),
       rpID: 'app.test',
@@ -117,10 +120,10 @@ suite('E2E passkeys on real Postgres, with the real verifier', () => {
       events,
       limiter: new MemoryLimiter({ max: 5000, windowMs: 60_000 }),
       stores: { credentials: stores.credentials, identities: stores.identities, sessions: stores.sessions },
-      transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+      transport: new CookieTransport({ name: 'duck-sid' }),
     })
     auth.providers.register(passkey<Profile>(opts))
-    mfa = new MfaImpl(stores.credentials, events, DEFAULT_MFA_CONFIG)
+    mfa = new MfaImpl(stores.credentials, events, { ...DEFAULT_MFA_CONFIG, dataAtRest: authTestDataAtRest() })
     events.on('suspicious', (payload) => {
       seen.push(payload)
     })

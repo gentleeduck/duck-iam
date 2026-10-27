@@ -3,7 +3,7 @@ title: "Class: MemoryAdapter"
 description: "In-memory adapter, dev and test only; strict mode rejects it when env: 'production'.  One class, as every dialect is: the facets share the maps and the run boundary that names what threw."
 ---
 
-Defined in: [packages/duck-auth/src/adapters/memory/memory.ts:114](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/adapters/memory/memory.ts#L114)
+Defined in: [packages/duck-auth/src/adapters/memory/memory.ts:123](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/adapters/memory/memory.ts#L123)
 
 In-memory adapter, dev and test only; strict mode rejects it when `env: 'production'`.
  One class, as every dialect is: the facets share the maps and the `run` boundary that names what threw.
@@ -28,7 +28,7 @@ In-memory adapter, dev and test only; strict mode rejects it when `env: 'product
 
 > **new MemoryAdapter**\<`Profile` *extends* [`ProfileMetadataBase`](../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase) = [`ProfileMetadataBase`](../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase), `OrgMeta` = `unknown`\>(): `MemoryAdapter`\<`Profile`, `OrgMeta`\>
 
-Defined in: [packages/duck-auth/src/adapters/memory/memory.ts:118](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/adapters/memory/memory.ts#L118)
+Defined in: [packages/duck-auth/src/adapters/memory/memory.ts:127](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/adapters/memory/memory.ts#L127)
 
 #### Returns
 
@@ -44,7 +44,7 @@ Defined in: [packages/duck-auth/src/adapters/memory/memory.ts:118](https://githu
 
 > `readonly` **credentials**: [`Memory`](../-internal-/type-aliases/Memory)\<[`Store`](../../../index/namespaces/Credential/type-aliases/Store)\>
 
-Defined in: [packages/duck-auth/src/adapters/memory/memory.ts:542](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/adapters/memory/memory.ts#L542)
+Defined in: [packages/duck-auth/src/adapters/memory/memory.ts:552](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/adapters/memory/memory.ts#L552)
 
 ***
 
@@ -52,7 +52,7 @@ Defined in: [packages/duck-auth/src/adapters/memory/memory.ts:542](https://githu
 
 > `readonly` **identities**: [`Memory`](../-internal-/type-aliases/Memory)\<[`Store`](../../../index/namespaces/Identities/type-aliases/Store)\<`Profile`\>\>
 
-Defined in: [packages/duck-auth/src/adapters/memory/memory.ts:147](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/adapters/memory/memory.ts#L147)
+Defined in: [packages/duck-auth/src/adapters/memory/memory.ts:155](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/adapters/memory/memory.ts#L155)
 
 ***
 
@@ -60,7 +60,7 @@ Defined in: [packages/duck-auth/src/adapters/memory/memory.ts:147](https://githu
 
 > `readonly` **orgs**: [`Memory`](../-internal-/type-aliases/Memory)\<[`Store`](../../../index/namespaces/Org/type-aliases/Store)\<`OrgMeta`\>\>
 
-Defined in: [packages/duck-auth/src/adapters/memory/memory.ts:717](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/adapters/memory/memory.ts#L717)
+Defined in: [packages/duck-auth/src/adapters/memory/memory.ts:727](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/adapters/memory/memory.ts#L727)
 
 ***
 
@@ -68,7 +68,7 @@ Defined in: [packages/duck-auth/src/adapters/memory/memory.ts:717](https://githu
 
 > `readonly` **sessions**: [`Memory`](../-internal-/type-aliases/Memory)\<[`Store`](../../../index/namespaces/Sessions/type-aliases/Store)\>
 
-Defined in: [packages/duck-auth/src/adapters/memory/memory.ts:401](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/adapters/memory/memory.ts#L401)
+Defined in: [packages/duck-auth/src/adapters/memory/memory.ts:411](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/adapters/memory/memory.ts#L411)
 
 ***
 
@@ -76,7 +76,7 @@ Defined in: [packages/duck-auth/src/adapters/memory/memory.ts:401](https://githu
 
 > `protected` `readonly` **toError**: [`ErrorMap`](../../../core/errors/type-aliases/ErrorMap)\<`"AUTH_SESSION_REVOKED"` \| `"AUTH_STALE_WRITE"` \| `"AUTH_GRACE_EXPIRED"` \| `"AUTH_EMAIL_TAKEN"` \| `"AUTH_USERNAME_TAKEN"` \| `"AUTH_PROVIDER_TAKEN"` \| `"AUTH_IDENTITY_NOT_FOUND"` \| `"AUTH_CREDENTIAL_NOT_FOUND"` \| `"AUTH_ORG_NOT_FOUND"` \| `"AUTH_MEMBERSHIP_NOT_FOUND"` \| `"AUTH_ADAPTER_FAILED"` \| `"AUTH_TENANT_SCOPE_VIOLATION"` \| `"AUTH_ALREADY_EXISTS"` \| `"AUTH_INVALID_PARAMETERS"`\>
 
-Defined in: [packages/duck-auth/src/adapters/adapter.ts:21](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/adapters/adapter.ts#L21)
+Defined in: [packages/duck-auth/src/adapters/adapter.ts:21](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/adapters/adapter.ts#L21)
 
 #### Inherited from
 
@@ -90,7 +90,7 @@ Defined in: [packages/duck-auth/src/adapters/adapter.ts:21](https://github.com/g
 
 > **get** **raw**(): \{ `credentials`: `Map`\<`string`, [`Me`](../../../index/namespaces/Credential/type-aliases/Me)\>; `identities`: `Map`\<`string`, [`Me`](../../../index/namespaces/Identities/type-aliases/Me)\<`Profile`\>\>; `memberships`: `Map`\<`string`, [`Membership`](../../../index/namespaces/Org/type-aliases/Membership)\>; `orgs`: `Map`\<`string`, [`Me`](../../../index/namespaces/Org/type-aliases/Me)\<`OrgMeta`\>\>; `sessions`: `Map`\<`string`, [`Me`](../../../index/namespaces/Sessions/type-aliases/Me)\>; \}
 
-Defined in: [packages/duck-auth/src/adapters/memory/memory.ts:807](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/adapters/memory/memory.ts#L807)
+Defined in: [packages/duck-auth/src/adapters/memory/memory.ts:817](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/adapters/memory/memory.ts#L817)
 
 The stored rows themselves, for tests only. NOTE: copying on the way in and out removes the only way
  a test had to plant a row no store API would produce, which is what the fail-closed tests need.
@@ -125,7 +125,7 @@ The stored rows themselves, for tests only. NOTE: copying on the way in and out 
 
 > `protected` **run**\<`T`\>(`call`: () => `Promise`\<`T`\>): `Promise`\<`T`\>
 
-Defined in: [packages/duck-auth/src/adapters/adapter.ts:24](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/adapters/adapter.ts#L24)
+Defined in: [packages/duck-auth/src/adapters/adapter.ts:24](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/adapters/adapter.ts#L24)
 
 The call, with whatever its driver threw mapped onto a code this package declares.
 
@@ -155,7 +155,7 @@ The call, with whatever its driver threw mapped onto a code this package declare
 
 > **seedOrg**(`org`: [`Me`](../../../index/namespaces/Org/type-aliases/Me)\<`OrgMeta`\>): [`Me`](../../../index/namespaces/Org/type-aliases/Me)\<`OrgMeta`\>
 
-Defined in: [packages/duck-auth/src/adapters/memory/memory.ts:801](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/adapters/memory/memory.ts#L801)
+Defined in: [packages/duck-auth/src/adapters/memory/memory.ts:811](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/adapters/memory/memory.ts#L811)
 
 Register an org row so `getOrg` and `listOrgsForIdentity` answer. NOTE: `Org.Store` is a read
  interface over the host app's own tables, so there is no `createOrg` to call.

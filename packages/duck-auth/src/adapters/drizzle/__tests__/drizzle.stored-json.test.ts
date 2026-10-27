@@ -84,14 +84,14 @@ describe('parseProviders', () => {
 
   it('drops a malformed entry and keeps the rest', () => {
     expect(parseProviders([{ providerId: 'github', providerSub: '1' }, { providerId: 'gitlab' }, null])).toEqual([
-      { addedAt: expect.any(Date), addedBy: null, providerId: 'github', providerSub: '1' },
+      { addedAt: expect.any(Date), addedBy: null, providerId: 'github', providerSub: '1', tenantId: null },
     ])
   })
 
   it('keeps a link whose addedAt is unreadable, dated to the epoch', () => {
     // Dropping it would remove a way into the account; an epoch reads as the unknown it is.
     expect(parseProviders([{ addedAt: 'nope', providerId: 'github', providerSub: '1' }])).toEqual([
-      { addedAt: EPOCH, addedBy: null, providerId: 'github', providerSub: '1' },
+      { addedAt: EPOCH, addedBy: null, providerId: 'github', providerSub: '1', tenantId: null },
     ])
   })
 

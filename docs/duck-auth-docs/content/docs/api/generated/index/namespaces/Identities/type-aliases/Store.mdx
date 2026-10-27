@@ -3,9 +3,9 @@ title: "Type Alias: Store"
 description: "The persistence contract every identity store implements."
 ---
 
-> **Store**\<`Profile` *extends* [`ProfileMetadataBase`](ProfileMetadataBase)\> = \{ `create`: `Promise`\<[`Me`](Me)\<`Profile`\>\>; `erase`: `Promise`\<[`Me`](Me)\<`Profile`\>\>; `eraseMany`: `Promise`\<[`Me`](Me)\<`Profile`\>[]\>; `find`: `Promise`\<[`Me`](Me)\<`Profile`\>\>; `gc`: `Promise`\<\{ `deleted`: `number`; \}\>; `link`: `Promise`\<[`Me`](Me)\<`Profile`\>\>; `restore`: `Promise`\<[`Me`](Me)\<`Profile`\>\>; `softDelete`: `Promise`\<[`Me`](Me)\<`Profile`\>\>; `softDeleteMany`: `Promise`\<[`Me`](Me)\<`Profile`\>[]\>; `unlink`: `Promise`\<[`Me`](Me)\<`Profile`\>\>; `update`: `Promise`\<[`Me`](Me)\<`Profile`\>\>; \}
+> **Store**\<`Profile` *extends* [`ProfileMetadataBase`](ProfileMetadataBase)\> = \{ `create`: `Promise`\<[`Me`](Me)\<`Profile`\>\>; `erase`: `Promise`\<[`Me`](Me)\<`Profile`\>\>; `eraseMany`: `Promise`\<[`Me`](Me)\<`Profile`\>[]\>; `find`: `Promise`\<[`Me`](Me)\<`Profile`\>\>; `gc`: `Promise`\<\{ `deleted`: `number`; `ids`: `string`[]; \}\>; `link`: `Promise`\<[`Me`](Me)\<`Profile`\>\>; `restore`: `Promise`\<[`Me`](Me)\<`Profile`\>\>; `softDelete`: `Promise`\<[`Me`](Me)\<`Profile`\>\>; `softDeleteMany`: `Promise`\<[`Me`](Me)\<`Profile`\>[]\>; `unlink`: `Promise`\<[`Me`](Me)\<`Profile`\>\>; `update`: `Promise`\<[`Me`](Me)\<`Profile`\>\>; \}
 
-Defined in: [packages/duck-auth/src/core/identities/identities.types.ts:57](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.types.ts#L57)
+Defined in: [packages/duck-auth/src/core/identities/identities.types.ts:59](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/identities/identities.types.ts#L59)
 
 The persistence contract every identity store implements.
 
@@ -21,7 +21,7 @@ The persistence contract every identity store implements.
 
 > **create**(`input`: [`CreateInput`](CreateInput)\<`Profile`\>): `Promise`\<[`Me`](Me)\<`Profile`\>\>
 
-Defined in: [packages/duck-auth/src/core/identities/identities.types.ts:61](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.types.ts#L61)
+Defined in: [packages/duck-auth/src/core/identities/identities.types.ts:65](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/identities/identities.types.ts#L65)
 
 Insert a new row; a taken email, username or login is refused.
 
@@ -41,7 +41,7 @@ Insert a new row; a taken email, username or login is refused.
 
 > **erase**(`id`: `string`): `Promise`\<[`Me`](Me)\<`Profile`\>\>
 
-Defined in: [packages/duck-auth/src/core/identities/identities.types.ts:74](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.types.ts#L74)
+Defined in: [packages/duck-auth/src/core/identities/identities.types.ts:78](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/identities/identities.types.ts#L78)
 
 Hard-deletes the row and its children, answering it as it stood just before it went.
 
@@ -61,7 +61,7 @@ Hard-deletes the row and its children, answering it as it stood just before it w
 
 > **eraseMany**(`ids`: `string`[]): `Promise`\<[`Me`](Me)\<`Profile`\>[]\>
 
-Defined in: [packages/duck-auth/src/core/identities/identities.types.ts:84](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.types.ts#L84)
+Defined in: [packages/duck-auth/src/core/identities/identities.types.ts:88](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/identities/identities.types.ts#L88)
 
 Hard-deletes every row named, answering the ones that existed.
 
@@ -79,9 +79,9 @@ Hard-deletes every row named, answering the ones that existed.
 
 ### find()
 
-> **find**(`by`: \{ `id`: `string`; \} \| \{ `email`: `string`; \} \| \{ `providerId`: `string`; `providerSub`: `string`; \}): `Promise`\<[`Me`](Me)\<`Profile`\>\>
+> **find**(`by`: \{ `id`: `string`; \} \| \{ `email`: `string`; \} \| \{ `providerId`: `string`; `providerSub`: `string`; `tenantId`: `string` \| `null`; \}): `Promise`\<[`Me`](Me)\<`Profile`\>\>
 
-Defined in: [packages/duck-auth/src/core/identities/identities.types.ts:59](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.types.ts#L59)
+Defined in: [packages/duck-auth/src/core/identities/identities.types.ts:61](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/identities/identities.types.ts#L61)
 
 The live row by id, email or provider login; a soft-deleted row reads as absent.
 
@@ -89,7 +89,7 @@ The live row by id, email or provider login; a soft-deleted row reads as absent.
 
 ##### by
 
-\{ `id`: `string`; \} \| \{ `email`: `string`; \} \| \{ `providerId`: `string`; `providerSub`: `string`; \}
+\{ `id`: `string`; \} \| \{ `email`: `string`; \} \| \{ `providerId`: `string`; `providerSub`: `string`; `tenantId`: `string` \| `null`; \}
 
 #### Returns
 
@@ -99,13 +99,14 @@ The live row by id, email or provider login; a soft-deleted row reads as absent.
 
 ### gc()
 
-> **gc**(`now`: `number`): `Promise`\<\{ `deleted`: `number`; \}\>
+> **gc**(`now`: `number`): `Promise`\<\{ `deleted`: `number`; `ids`: `string`[]; \}\>
 
-Defined in: [packages/duck-auth/src/core/identities/identities.types.ts:89](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.types.ts#L89)
+Defined in: [packages/duck-auth/src/core/identities/identities.types.ts:94](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/identities/identities.types.ts#L94)
 
 Hard-deletes every row whose grace window closed before `now`, which is what makes a soft delete a
  delete rather than a row hidden forever. The children go with it, by the cascade
- [Identities.Store.erase](#erase) relies on.
+ [Identities.Store.erase](#erase) relies on. Answers the ids it erased, which the facet names in
+ `identity.erased`.
 
 #### Parameters
 
@@ -115,7 +116,7 @@ Hard-deletes every row whose grace window closed before `now`, which is what mak
 
 #### Returns
 
-`Promise`\<\{ `deleted`: `number`; \}\>
+`Promise`\<\{ `deleted`: `number`; `ids`: `string`[]; \}\>
 
 ***
 
@@ -123,10 +124,10 @@ Hard-deletes every row whose grace window closed before `now`, which is what mak
 
 > **link**(`identityId`: `string`, `link`: [`ProviderLinkInput`](ProviderLinkInput)): `Promise`\<[`Me`](Me)\<`Profile`\>\>
 
-Defined in: [packages/duck-auth/src/core/identities/identities.types.ts:77](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.types.ts#L77)
+Defined in: [packages/duck-auth/src/core/identities/identities.types.ts:81](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/identities/identities.types.ts#L81)
 
-Attaches a login. A subject another identity holds is refused; a provider this one already holds is
- a no-op, which is what a retried OAuth callback does.
+Attaches a login in its tenant. A subject another identity holds there, or another subject at a provider
+ this one holds there, is refused `AUTH_PROVIDER_TAKEN`; the subject it already holds is a no-op.
 
 #### Parameters
 
@@ -148,7 +149,7 @@ Attaches a login. A subject another identity holds is refused; a provider this o
 
 > **restore**(`id`: `string`): `Promise`\<[`Me`](Me)\<`Profile`\>\>
 
-Defined in: [packages/duck-auth/src/core/identities/identities.types.ts:72](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.types.ts#L72)
+Defined in: [packages/duck-auth/src/core/identities/identities.types.ts:76](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/identities/identities.types.ts#L76)
 
 Clears a soft delete. A window already closed raises `AUTH_GRACE_EXPIRED`, not `NOT_FOUND`.
 
@@ -168,7 +169,7 @@ Clears a soft delete. A window already closed raises `AUTH_GRACE_EXPIRED`, not `
 
 > **softDelete**(`id`: `string`, `gracePeriodMs`: `number`): `Promise`\<[`Me`](Me)\<`Profile`\>\>
 
-Defined in: [packages/duck-auth/src/core/identities/identities.types.ts:70](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.types.ts#L70)
+Defined in: [packages/duck-auth/src/core/identities/identities.types.ts:74](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/identities/identities.types.ts#L74)
 
 Hides the row for `gracePeriodMs`. Already hidden counts as no row, so a second call cannot push
  the window forward.
@@ -193,7 +194,7 @@ Hides the row for `gracePeriodMs`. Already hidden counts as no row, so a second 
 
 > **softDeleteMany**(`ids`: `string`[], `gracePeriodMs`: `number`): `Promise`\<[`Me`](Me)\<`Profile`\>[]\>
 
-Defined in: [packages/duck-auth/src/core/identities/identities.types.ts:82](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.types.ts#L82)
+Defined in: [packages/duck-auth/src/core/identities/identities.types.ts:86](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/identities/identities.types.ts#L86)
 
 [Identities.Store.softDelete](#softdelete) and [Identities.Store.erase](#erase) for the admin and compliance paths.
 
@@ -215,11 +216,11 @@ Defined in: [packages/duck-auth/src/core/identities/identities.types.ts:82](http
 
 ### unlink()
 
-> **unlink**(`identityId`: `string`, `providerId`: `string`): `Promise`\<[`Me`](Me)\<`Profile`\>\>
+> **unlink**(`identityId`: `string`, `providerId`: `string`, `tenantId`: `string` \| `null`): `Promise`\<[`Me`](Me)\<`Profile`\>\>
 
-Defined in: [packages/duck-auth/src/core/identities/identities.types.ts:79](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.types.ts#L79)
+Defined in: [packages/duck-auth/src/core/identities/identities.types.ts:83](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/identities/identities.types.ts#L83)
 
-Detaches the login at `providerId`; there is at most one, and an absent one is not an error.
+Detaches the login at `providerId` in `tenantId`; an absent one is not an error.
 
 #### Parameters
 
@@ -231,6 +232,10 @@ Detaches the login at `providerId`; there is at most one, and an absent one is n
 
 `string`
 
+##### tenantId
+
+`string` \| `null`
+
 #### Returns
 
 `Promise`\<[`Me`](Me)\<`Profile`\>\>
@@ -241,7 +246,7 @@ Detaches the login at `providerId`; there is at most one, and an absent one is n
 
 > **update**(`id`: `string`, `patch`: `Partial`\<`Pick`\<[`Me`](Me)\<`Profile`\>, `"emailVerified"` \| `"profile"`\>\>, `expectedVersion`: `number`): `Promise`\<[`Me`](Me)\<`Profile`\>\>
 
-Defined in: [packages/duck-auth/src/core/identities/identities.types.ts:63](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.types.ts#L63)
+Defined in: [packages/duck-auth/src/core/identities/identities.types.ts:67](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/identities/identities.types.ts#L67)
 
 Patch `emailVerified` or `profile`; a stale `expectedVersion` is `AUTH_STALE_WRITE`.
 

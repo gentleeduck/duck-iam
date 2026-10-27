@@ -64,6 +64,21 @@ describe('RedisSessionImpl', () => {
     store = new RedisSessionImpl({ redis, prefix: 'test' })
   })
 
+  it('refuses a TTL Redis cannot take, which an unset variable makes NaN', () => {
+    for (const cfg of [
+      { maxTtlSec: Number.NaN },
+      { maxTtlSec: 0 },
+      { maxTtlSec: 3600.5 },
+      { gcLeaseSec: Number.NaN },
+      { gcLeaseSec: -1 },
+    ]) {
+      expect(() => new RedisSessionImpl({ redis, ...cfg }), JSON.stringify(Object.keys(cfg))).toThrow(
+        expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
+      )
+    }
+    expect(() => new RedisSessionImpl({ gcLeaseSec: 1, maxTtlSec: 1, redis })).not.toThrow()
+  })
+
   it('create + getByHash round-trips the session', async () => {
     const s = buildSession()
     await store.create(s)

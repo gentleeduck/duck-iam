@@ -26,7 +26,7 @@ export async function seedDb(db: AppDb) {
     const existing = await auth.identities.getByEmail(email).orNull()
     const identity =
       existing ?? (await auth.identities.create({ emailVerified: true, profile: { email, name, username: email } }))
-    await auth.passwords.set(identity.id, DEMO_PASSWORD, auth.cfg.stores.credentials)
+    await auth.passwords.set(identity.id, DEMO_PASSWORD, auth.cfg.stores.credentials, null)
     await db.insert(users).values({ id: identity.id, email, name, companyId }).onConflictDoNothing()
     await engine.admin.assignRole(identity.id, roleId, companyId)
     console.log(`  [seeded] ${email} -> ${roleId}@${companyId}`)

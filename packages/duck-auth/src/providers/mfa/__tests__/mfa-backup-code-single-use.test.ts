@@ -10,6 +10,7 @@ import { AuthEngine } from '~/core/engine'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
 import { mfaProvider } from '~/providers/mfa'
+import { authTestDataAtRest } from '~/test'
 
 type MyProfile = { username: string; email: string }
 
@@ -20,13 +21,13 @@ async function enrolled(): Promise<{ auth: AuthEngine<MyProfile>; identityId: st
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://x',
     limiter: new MemoryLimiter({ max: 99, windowMs: 60_000 }),
-    providers: [mfaProvider()],
+    providers: [mfaProvider({ dataAtRest: authTestDataAtRest() })],
     stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
-    transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+    transport: new CookieTransport({ name: 'duck-sid' }),
   })
   const email = `a${seq++}@x.com`
   const ident = await auth.identities.create({ profile: { email, username: email } })
-  const codes = await auth.mfa.regenerateBackupCodes(ident.id)
+  const codes = await auth.mfa.regenerateBackupCodes(ident.id, null)
   return { auth, codes, identityId: ident.id }
 }
 

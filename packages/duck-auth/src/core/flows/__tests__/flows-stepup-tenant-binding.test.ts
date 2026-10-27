@@ -11,6 +11,8 @@ import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
 import { mfaProvider, totpAt } from '~/providers/mfa'
 import { passwords, ScryptHasher } from '~/providers/passwords'
+import { authTestDataAtRest } from '~/test'
+import { makeSession } from '~/test/store-inputs'
 
 interface MyProfile extends Identities.ProfileMetadataBase {
   email: string
@@ -20,10 +22,13 @@ function buildAuth() {
   const adapter = new MemoryAdapter<MyProfile>()
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app.example.com',
-    transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+    transport: new CookieTransport({ name: 'duck-sid' }),
     stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
     limiter: new MemoryLimiter({ max: 20, windowMs: 60_000 }),
-    providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) }), mfaProvider()],
+    providers: [
+      passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) }),
+      mfaProvider({ dataAtRest: authTestDataAtRest() }),
+    ],
   })
   return { adapter, auth }
 }
@@ -39,9 +44,9 @@ async function enrolTotp(
   tenantId?: string,
 ): Promise<{ nextCode: string }> {
   const tenant = tenantId === undefined ? {} : { tenantId }
-  const challenge = await auth.mfa.beginTotpEnrollment(identityId, 'a@x.com', tenant)
+  const challenge = await auth.mfa.beginTotpEnrollment(identityId, 'a@x.com', null, tenant)
   const step = Math.floor(Date.now() / 1000 / 30)
-  await auth.mfa.confirmTotpEnrollment(identityId, totpAt(challenge.secret, step), tenant)
+  await auth.mfa.confirmTotpEnrollment(identityId, totpAt(challenge.secret, step), null, tenant)
   return { nextCode: totpAt(challenge.secret, step + 1) }
 }
 
@@ -96,7 +101,8 @@ describe('completeStepUp binds the factor to the session it is stepping up', () 
     const { auth } = buildAuth()
     const ident = await auth.identities.create({ profile: { email: 'a@x.com', username: 'a@x.com' } })
     await enrolTotp(auth, ident.id, 'tenant-b')
-    const codes = await auth.mfa.regenerateBackupCodes(ident.id, { tenantId: 'tenant-b' })
+    const inB = makeSession({ aal: 2, identityId: ident.id, tenantId: 'tenant-b' })
+    const codes = await auth.mfa.regenerateBackupCodes(ident.id, inB, { tenantId: 'tenant-b' })
 
     const { sid } = await auth.sessions.create({
       aal: 1,

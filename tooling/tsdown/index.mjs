@@ -10,12 +10,12 @@ import { defineConfig } from 'tsdown'
 export function createTsdownConfig(overrides = {}) {
   return defineConfig({
     clean: true,
-    dts: true,
+    dts: { sourcemap: false },
     format: ['esm', 'cjs'],
     minify: false,
     outDir: './dist',
     platform: 'neutral',
-    sourcemap: true,
+    sourcemap: false,
     target: 'esnext',
     treeshake: true,
     ...overrides,

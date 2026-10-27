@@ -28,6 +28,7 @@ export function microsoft<Profile extends Identities.ProfileMetadataBase = Ident
     endpoints,
     scopes: opts.scopes ?? ['openid', 'profile', 'email', 'User.Read'],
     fetch: opts.fetch,
+    timeoutMs: opts.timeoutMs,
   })
   return oProvider<Profile>({
     providerId: 'microsoft',
@@ -35,7 +36,6 @@ export function microsoft<Profile extends Identities.ProfileMetadataBase = Ident
     redirectUri: opts.redirectUri,
     stateSigningSecret: opts.stateSigningSecret,
     nonceStore: opts.nonceStore,
-    allowStateReplay: opts.allowStateReplay,
     stateCookie: opts.stateCookie,
     onSignIn: opts.onSignIn,
     onFederationConflict: opts.onFederationConflict,
@@ -49,7 +49,7 @@ export function microsoft<Profile extends Identities.ProfileMetadataBase = Ident
           detail: 'Microsoft userinfo missing sub',
         })
       }
-      const out: { sub: string; email?: string; name?: string; avatarUrl?: string } = { sub }
+      const out: { sub: string; email?: string; name?: string } = { sub }
       const email = getUserinfoString(info, 'email')
       // SECURITY: carried, never asserted as verified. Entra's `email` is mutable, set per-tenant and
       // documented by Microsoft as unverified - "never use it for authorization" - and the default
@@ -57,8 +57,8 @@ export function microsoft<Profile extends Identities.ProfileMetadataBase = Ident
       if (email !== undefined) out.email = email
       const name = getUserinfoString(info, 'name')
       if (name !== undefined) out.name = name
-      const picture = getUserinfoString(info, 'picture')
-      if (picture !== undefined) out.avatarUrl = picture
+      // No avatarUrl: Entra's `picture` is Graph's `/me/photo/$value`, one URL for every account that only the
+      // account's own Graph token can read.
       return out
     },
   })

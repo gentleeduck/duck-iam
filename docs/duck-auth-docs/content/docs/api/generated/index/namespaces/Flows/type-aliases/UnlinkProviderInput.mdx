@@ -3,9 +3,9 @@ title: "Type Alias: UnlinkProviderInput"
 description: "Detach a provider login from an identity."
 ---
 
-> **UnlinkProviderInput** = \{ `allowLockout?`: `boolean`; `identityId`: `string`; `providerId`: `string`; `tenantId?`: `string`; \}
+> **UnlinkProviderInput** = \{ `allowLockout?`: `boolean`; `identityId`: `string`; `providerId`: `string`; `session`: [`Me`](../../Sessions/type-aliases/Me) \| `null`; `tenantId?`: `string`; \}
 
-Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:171](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L171)
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:208](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/flows/flows.types.ts#L208)
 
 Detach a provider login from an identity.
 
@@ -15,9 +15,10 @@ Detach a provider login from an identity.
 
 > `optional` **allowLockout?**: `boolean`
 
-Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:176](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L176)
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:218](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/flows/flows.types.ts#L218)
 
-Bypasses the "would lock out the user" guard. For account deletion and admin overrides only.
+Bypasses the "would lock out the user" guard, never `session`'s. For account deletion and admin
+ overrides only.
 
 ***
 
@@ -25,7 +26,7 @@ Bypasses the "would lock out the user" guard. For account deletion and admin ove
 
 > **identityId**: `string`
 
-Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:172](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L172)
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:209](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/flows/flows.types.ts#L209)
 
 ***
 
@@ -33,7 +34,18 @@ Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:172](https://githu
 
 > **providerId**: `string`
 
-Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:173](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L173)
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:210](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/flows/flows.types.ts#L210)
+
+***
+
+### session
+
+> **session**: [`Me`](../../Sessions/type-aliases/Me) \| `null`
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:213](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/flows/flows.types.ts#L213)
+
+The caller's session, `null` without one. Beside any factor but the password, this is refused with
+ `AUTH_MFA_REQUIRED` unless it is the identity's own, stepped up to AAL 2.
 
 ***
 
@@ -41,5 +53,7 @@ Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:173](https://githu
 
 > `optional` **tenantId?**: `string`
 
-Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:174](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L174)
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:215](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/flows/flows.types.ts#L215)
+
+The tenant whose link is dropped; omitted is no tenant.
 

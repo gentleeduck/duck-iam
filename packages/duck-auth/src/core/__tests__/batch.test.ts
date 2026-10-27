@@ -18,7 +18,12 @@ function makeIdentities() {
   const adapter = new MemoryAdapter<P>()
   return {
     adapter,
-    identities: new IdentitiesImpl<P>(adapter.identities, new InMemoryEvents(), DEFAULT_IDENTITIES_CONFIG),
+    identities: new IdentitiesImpl<P>(
+      adapter.identities,
+      new InMemoryEvents(),
+      DEFAULT_IDENTITIES_CONFIG,
+      adapter.credentials,
+    ),
   }
 }
 
@@ -125,12 +130,15 @@ describe('batch operations', () => {
     const { identities } = makeIdentities()
     const a = await identities.create({ profile: { email: 'l@x', username: 'l' } })
 
-    const linked = await identities.linkMany([
-      { identityId: a.id, link: { providerId: 'github', providerSub: 'gh-1' } },
-      { identityId: a.id, link: { providerId: 'google', providerSub: 'go-1' } },
-      // No such row to link to, so this one is refused and left out rather than taking the others with it.
-      { identityId: 'missing-id', link: { providerId: 'gitlab', providerSub: 'gl-1' } },
-    ])
+    const linked = await identities.linkMany(
+      [
+        { identityId: a.id, link: { providerId: 'github', providerSub: 'gh-1' } },
+        { identityId: a.id, link: { providerId: 'google', providerSub: 'go-1' } },
+        // No such row to link to, so this one is refused and left out rather than taking the others with it.
+        { identityId: 'missing-id', link: { providerId: 'gitlab', providerSub: 'gl-1' } },
+      ],
+      null,
+    )
 
     expect(linked).toHaveLength(2)
     expect(linked[1]?.providers.map((p) => p.providerId).sort()).toEqual(['github', 'google'])
@@ -140,10 +148,10 @@ describe('batch operations', () => {
   it('unlinkMany removes each named link', async () => {
     const { identities } = makeIdentities()
     const a = await identities.create({ profile: { email: 'u@x', username: 'u' } })
-    await identities.link(a.id, { providerId: 'github', providerSub: 'gh-1' })
-    await identities.link(a.id, { providerId: 'google', providerSub: 'go-1' })
+    await identities.link(a.id, { providerId: 'github', providerSub: 'gh-1' }, null)
+    await identities.link(a.id, { providerId: 'google', providerSub: 'go-1' }, null)
 
-    const unlinked = await identities.unlinkMany([{ identityId: a.id, providerId: 'github' }])
+    const unlinked = await identities.unlinkMany([{ identityId: a.id, providerId: 'github' }], null)
 
     expect(unlinked.map((row) => row.id)).toEqual([a.id])
     expect((await identities.getById(a.id)).providers.map((p) => p.providerId)).toEqual(['google'])

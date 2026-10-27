@@ -17,7 +17,7 @@ export namespace MagicLink {
     ttlMs?: number
     /** Default 'magic-link:request:'. */
     limiterKeyPrefix?: string
-    /** Where the link lands; the token is appended as `?token=`. */
+    /** Where the link lands; the token is set as its `token` query parameter, beside any query of its own. */
     callbackPath?: string
   }
 

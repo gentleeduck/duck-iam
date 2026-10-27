@@ -22,7 +22,7 @@ describe('ApiKeysFacet date fidelity', () => {
 
   it('create returns a real Date for createdAt and expiresAt', async () => {
     const expiresAt = Date.now() + 60_000
-    const { key } = await facet.create('u-1', { name: 'k', scopes: [], expiresAt })
+    const { key } = await facet.create('u-1', { name: 'k', scopes: [], expiresAt, session: null })
     expect(key.createdAt).toBeInstanceOf(Date)
     expect(Number.isFinite(key.createdAt.getTime())).toBe(true)
     expect(key.expiresAt).toBeInstanceOf(Date)
@@ -31,7 +31,7 @@ describe('ApiKeysFacet date fidelity', () => {
 
   it('list returns real Dates and no revokedAt, because it only lists live keys', async () => {
     const expiresAt = Date.now() + 60_000
-    await facet.create('u-1', { name: 'k', scopes: [], expiresAt })
+    await facet.create('u-1', { name: 'k', scopes: [], expiresAt, session: null })
     const [key] = await facet.list('u-1')
     expect(key?.createdAt).toBeInstanceOf(Date)
     expect(key?.expiresAt).toBeInstanceOf(Date)
@@ -39,7 +39,7 @@ describe('ApiKeysFacet date fidelity', () => {
   })
 
   it('revoke answers with revokedAt set, so a caller can see which key went', async () => {
-    const { key } = await facet.create('u-1', { name: 'k', scopes: [] })
+    const { key } = await facet.create('u-1', { name: 'k', scopes: [], session: null })
     const revoked = await facet.revoke(key.id)
     expect(revoked.id).toBe(key.id)
     expect(revoked.revokedAt).toBeInstanceOf(Date)
@@ -47,7 +47,7 @@ describe('ApiKeysFacet date fidelity', () => {
   })
 
   it('lastUsedAt comes back as a Date once verify has stamped it', async () => {
-    const { key, plaintext } = await facet.create('u-1', { name: 'k', scopes: [] })
+    const { key, plaintext } = await facet.create('u-1', { name: 'k', scopes: [], session: null })
     await facet.verify(plaintext)
     // `verify` stamps the row in the background; read it back off the store.
     const row = await adapter.credentials.findById(key.id, {})

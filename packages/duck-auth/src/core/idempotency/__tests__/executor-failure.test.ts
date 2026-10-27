@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { FakeRedis } from '~/core/drivers/redis-like'
 import type { TenantContext } from '~/core/tenant/tenant.types'
 import { IdempotencyImpl } from '../idempotency'
@@ -76,13 +76,21 @@ describe.each(stores())('IdempotencyImpl over the %s store, executor failure', (
 })
 
 describe('IdempotencyImpl release failures and the poll loop', () => {
-  it('surfaces the executor error even when releasing the claim fails', async () => {
-    const store = new MemoryIdempotency()
-    store.delete = () => Promise.reject(new Error('store unreachable'))
-    const facet = new IdempotencyImpl(store, { pollTimeoutMs: 50 })
-    await expect(facet.handle('k', ctx, () => Promise.reject(new Error('from the executor')))).rejects.toThrow(
-      'from the executor',
-    )
+  it('surfaces the executor error even when releasing the claim fails, and logs the release', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const store = new MemoryIdempotency()
+      store.delete = () => Promise.reject(new Error('store unreachable'))
+      const facet = new IdempotencyImpl(store, { pollTimeoutMs: 50 })
+      await expect(facet.handle('k', ctx, () => Promise.reject(new Error('from the executor')))).rejects.toThrow(
+        'from the executor',
+      )
+      expect(logged.mock.calls.map(([line]) => line)).toEqual([
+        '[@gentleduck/auth] idempotency could not release a failed key; a repeat answers 409:',
+      ])
+    } finally {
+      logged.mockRestore()
+    }
   })
 
   it('leaves a concurrent loser on the 409 path rather than running the work twice', async () => {
@@ -109,5 +117,80 @@ describe('IdempotencyImpl release failures and the poll loop', () => {
     })
     expect(after.status).toBe(201)
     expect(runs).toBe(2)
+  })
+})
+
+describe.each(stores())('IdempotencyImpl over the %s store, once the executor has run', (_label, store) => {
+  it('answers what the executor returned when the response cannot be cached, and logs it', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const put = store.put
+    try {
+      store.put = () => Promise.reject(new Error('READONLY'))
+      const facet = new IdempotencyImpl(store, { pollTimeoutMs: 50 })
+      let runs = 0
+      const charge = async () => {
+        runs++
+        return ok(201)
+      }
+      await expect(facet.handle('uncached', ctx, charge)).resolves.toMatchObject({ status: 201 })
+      expect(logged.mock.calls.map(([line]) => line)).toEqual([
+        '[@gentleduck/auth] idempotency could not cache a response; a repeat of its key answers 409:',
+      ])
+      // The claim still holds the key, so a repeat does not charge again.
+      await expect(facet.handle('uncached', ctx, charge)).resolves.toMatchObject({ status: 409 })
+      expect(runs).toBe(1)
+    } finally {
+      store.put = put
+      logged.mockRestore()
+    }
+  })
+
+  it.each([
+    ['answers 503', async () => ok(503)],
+    [
+      'throws',
+      async (): Promise<Idempotency.CachedResponse> => {
+        throw new Error('db down')
+      },
+    ],
+  ])('a repeat waiting on an attempt that %s runs it, rather than answering 409', async (how, fail) => {
+    const facet = new IdempotencyImpl(store, { pollTimeoutMs: 2_000 })
+    const key = `waiting-${how}`
+    let runs = 0
+    const started = Date.now()
+    const first = facet
+      .handle(key, ctx, async () => {
+        runs++
+        await new Promise((r) => setTimeout(r, 50))
+        return fail()
+      })
+      .catch(() => null)
+    const repeat = await facet.handle(key, ctx, async () => {
+      runs++
+      return ok(201)
+    })
+    await first
+    expect(repeat.status).toBe(201)
+    expect(runs).toBe(2)
+    expect(Date.now() - started).toBeLessThan(1_000)
+    // And its answer is the one the key keeps.
+    await expect(facet.handle(key, ctx, async () => ok(202))).resolves.toMatchObject({ status: 201 })
+  })
+
+  it('replays a response without its Set-Cookie, in any case, keeping the other headers', async () => {
+    const facet = new IdempotencyImpl(store)
+    const headers = { Location: '/accounts/1', 'Set-Cookie': 'duck-sid=s; HttpOnly', 'set-cookie': 'b=1' }
+    const first = await facet.handle('cookie', ctx, async () => ({ ...ok(201), headers }))
+    expect(first.headers).toEqual(headers)
+
+    const replay = await facet.handle('cookie', ctx, async () => ok(500))
+    expect(replay.status).toBe(201)
+    expect(replay.headers).toEqual({ Location: '/accounts/1' })
+  })
+
+  it('adds no headers to a response that had none', async () => {
+    const facet = new IdempotencyImpl(store)
+    await facet.handle('bare', ctx, async () => ok(201))
+    expect(await facet.handle('bare', ctx, async () => ok(500))).not.toHaveProperty('headers')
   })
 })

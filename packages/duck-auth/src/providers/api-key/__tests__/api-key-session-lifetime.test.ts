@@ -30,13 +30,13 @@ async function build() {
 describe('a session an api key signed in', () => {
   it('is an apikey session, not a user one', async () => {
     const { auth, identity, signIn } = await build()
-    const { plaintext } = await auth.apiKeys.create(identity.id, { name: 'ci', scopes: [] })
+    const { plaintext } = await auth.apiKeys.create(identity.id, { name: 'ci', scopes: [], session: null })
     expect((await signIn(plaintext)).kind).toBe('apikey')
   })
 
   it('ends when the key is revoked, and the owner stays signed in elsewhere', async () => {
     const { adapter, auth, identity, browser, signIn } = await build()
-    const created = await auth.apiKeys.create(identity.id, { name: 'ci', scopes: [] })
+    const created = await auth.apiKeys.create(identity.id, { name: 'ci', scopes: [], session: null })
     const session = await signIn(created.plaintext)
     await auth.apiKeys.revoke(created.key.id)
     await expect(adapter.sessions.getByHash(session.id)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
@@ -45,16 +45,18 @@ describe('a session an api key signed in', () => {
 
   it('ends when every key is revoked at once', async () => {
     const { adapter, auth, identity, signIn } = await build()
-    const session = await signIn((await auth.apiKeys.create(identity.id, { name: 'ci', scopes: [] })).plaintext)
+    const session = await signIn(
+      (await auth.apiKeys.create(identity.id, { name: 'ci', scopes: [], session: null })).plaintext,
+    )
     await auth.apiKeys.revokeAll(identity.id)
     await expect(adapter.sessions.getByHash(session.id)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
   })
 
   it('ends when the key is rotated', async () => {
     const { adapter, auth, identity, signIn } = await build()
-    const created = await auth.apiKeys.create(identity.id, { name: 'ci', scopes: [] })
+    const created = await auth.apiKeys.create(identity.id, { name: 'ci', scopes: [], session: null })
     const session = await signIn(created.plaintext)
-    await auth.apiKeys.rotate(created.key.id)
+    await auth.apiKeys.rotate(created.key.id, null)
     await expect(adapter.sessions.getByHash(session.id)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
   })
 })

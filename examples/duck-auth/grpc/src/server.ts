@@ -37,27 +37,27 @@ const server = new Server()
 server.addService(authService, {
   SignIn: unary(async ({ request }) => {
     const input = { email: readString(request, 'email'), password: readString(request, 'password') }
-    const { sid, session } = await auth.flows.signIn({ providerId: 'password', input })
+    const { challenge, sid, session } = await auth.flows.signIn({ providerId: 'password', input })
+    if (challenge) return { challenge: challenge.token, expiresAt: challenge.expiresAt.toISOString() }
     if (!session) throw new AuthError('AUTH_UNAUTHENTICATED')
     return { token: sid, expiresAt: session.expiresAt.toISOString() }
   }),
 
-  VerifyMfa: withGrpc(
-    auth,
-    unary(async (call) => {
-      const code = readString(call.request, 'code') ?? ''
-      const currentSid = tokenOf(call)
-      const { sid, session } = await auth.flows.completeStepUp({
-        currentSid,
-        method: /^\d{6}$/.test(code) ? 'totp' : 'backup-code',
-        code,
-        ...grpcCaller(call),
-      })
-      // The caller swaps in the new token, so the one-factor one goes, as `stepUp()` does for a cookie.
-      await auth.sessions.revoke(currentSid)
+  // No `withGrpc`: a challenge is not a session, and `completeStepUp` resolves a token itself.
+  VerifyMfa: unary(async (call) => {
+    const code = readString(call.request, 'code') ?? ''
+    const method = /^\d{6}$/.test(code) ? 'totp' : 'backup-code'
+    const challenge = readString(call.request, 'challenge')
+    if (challenge) {
+      const { sid, session } = await auth.flows.completeStepUp({ challenge, code, method, ...grpcCaller(call) })
       return { token: sid, expiresAt: session.expiresAt.toISOString() }
-    }),
-  ),
+    }
+    const currentSid = tokenOf(call)
+    const { sid, session } = await auth.flows.completeStepUp({ currentSid, code, method, ...grpcCaller(call) })
+    // The caller swaps in the new token, so the one-factor one goes, as `stepUp()` does for a cookie.
+    await auth.sessions.revoke(currentSid)
+    return { token: sid, expiresAt: session.expiresAt.toISOString() }
+  }),
 
   // `withGrpc` has already refused a call with no live session and put this one's on the call.
   Me: withGrpc(

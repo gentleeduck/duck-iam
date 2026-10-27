@@ -3,9 +3,9 @@ title: "Function: makeGuard()"
 description: "Auth guard for your own routes. CSRF is checked by default, since an app mounting only this guard  would otherwise have no CSRF defence; pass csrf: false only if something upstream did it."
 ---
 
-> **makeGuard**(`auth`: [`AuthEngine`](../../../index/classes/AuthEngine), `opts?`: \{ `cfg?`: [`Cfg`](../../../core/namespaces/Csrf/type-aliases/Cfg); `csrf?`: `boolean`; `required?`: `boolean`; \}): [`Guard`](../namespaces/NestAdapter/type-aliases/Guard)
+> **makeGuard**(`auth`: [`AuthEngine`](../../../index/classes/AuthEngine), `opts?`: \{ `cfg?`: [`Cfg`](../../../core/namespaces/Csrf/type-aliases/Cfg); `csrf?`: `boolean`; `required?`: `boolean`; `tenantId?`: (`req`: [`Request`](../namespaces/NestAdapter/type-aliases/Request)) => `string` \| `undefined`; \}): [`Guard`](../namespaces/NestAdapter/type-aliases/Guard)
 
-Defined in: [packages/duck-auth/src/server/nestjs/index.ts:30](https://github.com/gentleeduck/duck-iam/blob/44bcf8a73771002e33ba3229f37138c9febd726b/packages/duck-auth/src/server/nestjs/index.ts#L30)
+Defined in: [packages/duck-auth/src/server/nestjs/index.ts:30](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/server/nestjs/index.ts#L30)
 
 Auth guard for your own routes. CSRF is checked by default, since an app mounting only this guard
  would otherwise have no CSRF defence; pass `csrf: false` only if something upstream did it.
@@ -29,6 +29,13 @@ Auth guard for your own routes. CSRF is checked by default, since an app mountin
 #### required?
 
 `boolean`
+
+#### tenantId?
+
+(`req`: [`Request`](../namespaces/NestAdapter/type-aliases/Request)) => `string` \| `undefined`
+
+Read the request's tenant, which its session must belong to; without it only a session with no tenant
+ resolves. Unread when `nestActorContext` resolved the request first.
 
 ## Returns
 

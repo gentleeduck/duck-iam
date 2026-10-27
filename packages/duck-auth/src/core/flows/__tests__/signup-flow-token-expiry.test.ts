@@ -30,7 +30,7 @@ function build(): { auth: AuthEngine<MyProfile>; adapter: MemoryAdapter<MyProfil
     limiter: new MemoryLimiter({ max: 50, windowMs: 60_000 }),
     providers: [passwords({ hasher: new ScryptHasher({ keylen: 32, N: 1 << 10 }) })],
     stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
-    transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+    transport: new CookieTransport({ name: 'duck-sid' }),
   })
   return { adapter, auth }
 }

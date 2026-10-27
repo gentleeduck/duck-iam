@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
-import { credentialInput } from '~/test/store-inputs'
+import { credentialInput, makeSession } from '~/test/store-inputs'
 import { PasskeyImpl } from '../index'
 
 const OWNER = 'user-1'
 const OTHER = 'user-2'
+const STEPPED_UP = makeSession({ aal: 2, identityId: OWNER })
 
 async function setup() {
   const store = new MemoryAdapter().credentials
@@ -35,19 +36,21 @@ describe('passkey management', () => {
 
   it('revokes a passkey the identity holds, and refuses one of another identity or another kind', async () => {
     const { facet, password, phone, store, theirs } = await setup()
-    const revoked = await facet.revoke(OWNER, phone.id, store)
+    const revoked = await facet.revoke(OWNER, phone.id, store, STEPPED_UP)
     expect(revoked.id).toBe(phone.id)
     expect(revoked.revokedAt).toBeInstanceOf(Date)
     expect(revoked).not.toHaveProperty('secret')
     for (const id of [theirs.id, password.id]) {
-      await expect(facet.revoke(OWNER, id, store)).rejects.toMatchObject({ code: 'AUTH_CREDENTIAL_NOT_FOUND' })
+      await expect(facet.revoke(OWNER, id, store, STEPPED_UP)).rejects.toMatchObject({
+        code: 'AUTH_CREDENTIAL_NOT_FOUND',
+      })
       expect((await store.findById(id, {})).revokedAt).toBeNull()
     }
   })
 
   it('revokes every live passkey the identity holds and nothing else', async () => {
     const { facet, laptop, password, phone, store, theirs } = await setup()
-    const revoked = await facet.revokeAll(OWNER, store)
+    const revoked = await facet.revokeAll(OWNER, store, STEPPED_UP)
     expect(revoked.map((c) => c.id).sort()).toEqual([laptop.id, phone.id].sort())
     expect(revoked.every((c) => !('secret' in c))).toBe(true)
     expect(await facet.list(OWNER, store)).toEqual([])

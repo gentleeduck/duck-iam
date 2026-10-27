@@ -48,10 +48,12 @@ CREATE TABLE "auth_identity_providers" (
 	"identity_id" uuid NOT NULL,
 	"provider_id" text NOT NULL,
 	"provider_sub" text NOT NULL,
+	"tenant_id" text,
 	"added_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"added_by" text,
 	CONSTRAINT "chk_auth_identity_providers_provider_not_blank" CHECK (provider_id <> ''),
-	CONSTRAINT "chk_auth_identity_providers_sub_not_blank" CHECK (provider_sub <> '')
+	CONSTRAINT "chk_auth_identity_providers_sub_not_blank" CHECK (provider_sub <> ''),
+	CONSTRAINT "chk_auth_identity_providers_tenant_not_blank" CHECK (tenant_id IS NULL OR tenant_id <> '')
 );
 
 CREATE TABLE "auth_sessions" (
@@ -93,8 +95,10 @@ CREATE INDEX "auth_credentials_expires_at" ON "auth_credentials" USING btree ("e
 CREATE UNIQUE INDEX "uq_auth_identities_email" ON "auth_identities" USING btree (((lower(profile->>'email'))));
 CREATE UNIQUE INDEX "uq_auth_identities_username" ON "auth_identities" USING btree (((lower(profile->>'username'))));
 CREATE INDEX "auth_identities_deleted_at" ON "auth_identities" USING btree ("deleted_at") WHERE deleted_at is not null;
-CREATE UNIQUE INDEX "uq_auth_identity_providers_sub" ON "auth_identity_providers" USING btree ("provider_id","provider_sub");
-CREATE UNIQUE INDEX "uq_auth_identity_providers_owned" ON "auth_identity_providers" USING btree ("identity_id","provider_id");
+CREATE UNIQUE INDEX "uq_auth_identity_providers_sub" ON "auth_identity_providers" USING btree ("provider_id","provider_sub") WHERE tenant_id is null;
+CREATE UNIQUE INDEX "uq_auth_identity_providers_sub_tenant" ON "auth_identity_providers" USING btree ("provider_id","provider_sub","tenant_id") WHERE tenant_id is not null;
+CREATE UNIQUE INDEX "uq_auth_identity_providers_owned" ON "auth_identity_providers" USING btree ("identity_id","provider_id") WHERE tenant_id is null;
+CREATE UNIQUE INDEX "uq_auth_identity_providers_owned_tenant" ON "auth_identity_providers" USING btree ("identity_id","provider_id","tenant_id") WHERE tenant_id is not null;
 CREATE INDEX "auth_identity_providers_identity" ON "auth_identity_providers" USING btree ("identity_id","added_at");
 CREATE INDEX "auth_sessions_identity" ON "auth_sessions" USING btree ("identity_id");
 CREATE INDEX "auth_sessions_identity_expires" ON "auth_sessions" USING btree ("identity_id","expires_at");

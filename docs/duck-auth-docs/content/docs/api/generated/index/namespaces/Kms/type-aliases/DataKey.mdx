@@ -5,7 +5,7 @@ description: "A fresh data key: its plaintext and its KMS-wrapped form."
 
 > **DataKey** = \{ `ciphertext`: `Uint8Array`; `keyId`: `string`; `plaintext`: `Uint8Array`; \}
 
-Defined in: [packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts:7](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts#L7)
+Defined in: [packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts:7](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts#L7)
 
 A fresh data key: its plaintext and its KMS-wrapped form.
 
@@ -15,7 +15,7 @@ A fresh data key: its plaintext and its KMS-wrapped form.
 
 > **ciphertext**: `Uint8Array`
 
-Defined in: [packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts:11](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts#L11)
+Defined in: [packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts:11](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts#L11)
 
 KMS-wrapped DEK, opaque; pass it back to `decryptDataKey`.
 
@@ -25,7 +25,7 @@ KMS-wrapped DEK, opaque; pass it back to `decryptDataKey`.
 
 > **keyId**: `string`
 
-Defined in: [packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts:13](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts#L13)
+Defined in: [packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts:13](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts#L13)
 
 Key id the wrapped DEK was produced under, for rotation auditing.
 
@@ -35,7 +35,7 @@ Key id the wrapped DEK was produced under, for rotation auditing.
 
 > **plaintext**: `Uint8Array`
 
-Defined in: [packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts:9](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts#L9)
+Defined in: [packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts:9](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts#L9)
 
 32-byte plaintext DEK. Callers MUST zero it after use.
 

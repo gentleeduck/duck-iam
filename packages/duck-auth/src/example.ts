@@ -1,6 +1,7 @@
 import { MemoryAdapter } from '~/adapters/memory'
 import { orNull } from '~/core/answer'
 import { createAuth } from '~/core/config'
+import { authAesGcmDataAtRest } from '~/core/dataAtRest'
 import type { Deliver } from '~/core/flows'
 import { type Idempotency, memoryIdempotency } from '~/core/idempotency'
 import type { TenantContext } from '~/core/tenant'
@@ -50,7 +51,8 @@ export const auth = createAuth({
   limiter: memoryLimiter({ max: 5, windowMs: 60_000 }),
   providers: [
     passwords({ hasher: new ScryptHasher() }),
-    mfaProvider(),
+    // A 32-byte key; TOTP secrets are stored encrypted under it, and the provider refuses to build without one.
+    mfaProvider({ dataAtRest: authAesGcmDataAtRest({ kid: 'v1', masterKey: process.env.MFA_KEY ?? '' }) }),
     apiKeyProvider(),
     // A thunk, so the provider binds to the engine's own `deliver` rather than being handed a second one.
     (_engine, send) =>

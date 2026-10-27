@@ -54,7 +54,7 @@ describe('construction', () => {
 })
 
 describe('extract resolves a request carrying two credentials by array order', () => {
-  const cookie = new CookieTransport({ name: 'duck-sid', secure: true })
+  const cookie = new CookieTransport({ name: 'duck-sid' })
   const bearer = new BearerTransport()
 
   it('falls through to the next transport when the first finds nothing', () => {
@@ -194,7 +194,7 @@ describe('verify accepts a token any one transport will vouch for', () => {
     })
     const lenient = stub('jwt', { verify: async () => SESSION })
     await expect(new CompositeTransport([strict, lenient]).verify('unbound-token')).rejects.toMatchObject({
-      code: 'AUTH_SESSION_REVOKED',
+      code: 'AUTH_INVALID_CREDENTIALS',
     })
 
     // Without it the disjunction stands, which is what composing two equally-trusted transports is.
@@ -311,10 +311,7 @@ describe('issue and revoke fan out to every transport', () => {
   })
 
   it('a cookie and a bearer compose cleanly, which is the documented case', () => {
-    const composite = new CompositeTransport([
-      new CookieTransport({ name: 'duck-sid', secure: true }),
-      new BearerTransport(),
-    ])
+    const composite = new CompositeTransport([new CookieTransport({ name: 'duck-sid' }), new BearerTransport()])
     const intents = composite.issue('sid', SESSION, OPTS)
     expect(intents.filter((i) => i.type === 'setCookie')).toHaveLength(1)
     expect(intents.filter((i) => i.type === 'json')).toHaveLength(1)
@@ -420,7 +417,11 @@ describe('verify tells a negative verdict from a broken transport', () => {
     const permissive = stub('permissive', { verify: async () => SESSION })
 
     await expect(new CompositeTransport([strict, permissive]).verify('tok')).rejects.toMatchObject({
-      code: 'AUTH_SESSION_REVOKED',
+      code: 'AUTH_INVALID_CREDENTIALS',
+    })
+    // Not absence, which `orNull` would read as an anonymous request.
+    await expect(new CompositeTransport([strict, permissive]).verify('tok').orNull()).rejects.toMatchObject({
+      code: 'AUTH_INVALID_CREDENTIALS',
     })
     // Order is what makes it a veto: behind the permissive transport it never gets asked.
     await expect(new CompositeTransport([permissive, strict]).verify('tok')).resolves.toMatchObject({

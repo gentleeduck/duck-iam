@@ -21,7 +21,7 @@ export class AuthService {
       const identity = await this.auth.identities.create({
         profile: { email: dto.email, name: dto.name, username: dto.email },
       })
-      await this.auth.passwords.set(identity.id, dto.password, authAdapter.credentials)
+      await this.auth.passwords.set(identity.id, dto.password, authAdapter.credentials, null)
       await this.iam.admin.assignRole(identity.id, 'viewer')
       return { ok: true, code: 'AUTH_SIGNUP_SUCCEEDED', data: { id: identity.id } }
     } catch (error) {

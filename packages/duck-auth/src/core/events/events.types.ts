@@ -102,7 +102,9 @@ export namespace Events {
       allowedLockout: boolean
       audit?: Envelope
     }
-    /** An identity erased for good. The `operatorId` given to `erase` arrives as `audit.actorId`. */
+    /** An identity erased for good: by `erase` or `eraseMany`, by `gc` once its grace window closed
+     *  (`reason: 'gc'`), or by a `bulkCreate` replace. The `operatorId` given to `erase` arrives as
+     *  `audit.actorId`. */
     'identity.erased': {
       identityId: string
       reason: string

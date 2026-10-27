@@ -4,7 +4,7 @@
  * nothing has to be rotated quarterly.
  */
 
-import { createSign } from 'node:crypto'
+import { createPrivateKey, createSign } from 'node:crypto'
 import { AuthError } from '~/core/errors'
 import type { Identities } from '~/core/identities'
 import { isRecord } from '~/core/predicates/predicates'
@@ -47,6 +47,16 @@ export function generateClientSecret(
   // Apple wants r||s (JOSE format), not DER.
   const sig = derToJose(der, 32)
   return `${signingInput}.${sig.toString('base64url')}`
+}
+
+/** Whether `pem` is a P-256 private key, the only kind a Sign in with Apple client secret is signed with. */
+function isEs256Key(pem: string): boolean {
+  try {
+    const key = createPrivateKey(pem)
+    return key.asymmetricKeyType === 'ec' && key.asymmetricKeyDetails?.namedCurve === 'prime256v1'
+  } catch {
+    return false
+  }
 }
 
 /** DER -> r||s for ES256 signatures. */
@@ -97,12 +107,19 @@ export function decodeIdToken(idToken: string): { sub: string; email?: string; e
 export function apple<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>(
   opts: OAuth.AppleOptions<Profile>,
 ): Provider.Me<OAuth.BeginInput, OAuth.CompleteInput, Profile> {
+  // Every token exchange signs with it, so one that cannot sign ES256 is refused here, not at each callback.
+  if (!isEs256Key(opts.privateKey)) {
+    throw new AuthError('AUTH_MISCONFIGURED', {
+      detail: 'apple: privateKey must be the P-256 PEM from AuthKey_<keyId>.p8, its line breaks intact',
+    })
+  }
   const client = new OAuthClient({
     clientId: opts.clientId,
     clientSecret: '', // ignored; the client uses the dynamic secret hook below
     endpoints: APPLE_ENDPOINTS,
     scopes: opts.scopes ?? ['name', 'email'],
     fetch: opts.fetch,
+    timeoutMs: opts.timeoutMs,
     // Replaces the standard client_secret param on every token exchange.
     dynamicClientSecret: () =>
       generateClientSecret({
@@ -121,7 +138,6 @@ export function apple<Profile extends Identities.ProfileMetadataBase = Identitie
     redirectUri: opts.redirectUri,
     stateSigningSecret: opts.stateSigningSecret,
     nonceStore: opts.nonceStore,
-    allowStateReplay: opts.allowStateReplay,
     stateCookie: opts.stateCookie,
     onSignIn: opts.onSignIn,
     onFederationConflict: opts.onFederationConflict,

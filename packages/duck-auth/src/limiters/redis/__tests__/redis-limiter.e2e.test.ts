@@ -102,6 +102,16 @@ suite('E2E RedisLimiter (real Redis)', () => {
     expect(refused.resetAt.getTime() - Date.now()).toBeLessThanOrEqual(5000)
   })
 
+  it('runs a window that is whole milliseconds but not whole seconds on the server', async () => {
+    const l = limiter(1500, 1)
+    const key = `ms-${e2ePrefix()}`
+    expect((await l.consume(key)).ok).toBe(true)
+    expect((await l.consume(key)).ok).toBe(false)
+    const pttl = await raw.pttl(`${prefix}:${key}`)
+    expect(pttl).toBeGreaterThan(1000)
+    expect(pttl).toBeLessThanOrEqual(1500)
+  })
+
   it('separate keys hold separate budgets', async () => {
     const l = limiter(60_000, 1)
     const a = `sep-a-${e2ePrefix()}`

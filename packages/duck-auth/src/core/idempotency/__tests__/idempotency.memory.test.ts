@@ -2,7 +2,25 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { orNull } from '~/core/answer'
 import { IdempotencyImpl } from '../idempotency'
 import { DEFAULT_IDEMPOTENCY_CONFIG } from '../idempotency.constants'
-import { MemoryIdempotency } from '../idempotency.memory'
+import { MemoryIdempotency, memoryIdempotency } from '../idempotency.memory'
+
+describe('MemoryIdempotency follows NODE_ENV', () => {
+  it.each(['production', undefined])('is refused with NODE_ENV=%s, from the class and the factory', (env) => {
+    vi.stubEnv('NODE_ENV', env)
+    const refused = expect.objectContaining({
+      code: 'AUTH_MISCONFIGURED',
+      meta: { detail: 'MemoryIdempotency is refused in production; pass `redisIdempotency({ redis })`' },
+    })
+    expect(() => new MemoryIdempotency()).toThrow(refused)
+    expect(() => memoryIdempotency()).toThrow(refused)
+  })
+
+  it.each(['development', 'test'])('constructs with NODE_ENV=%s', (env) => {
+    vi.stubEnv('NODE_ENV', env)
+    expect(new MemoryIdempotency()).toBeInstanceOf(MemoryIdempotency)
+    expect(memoryIdempotency().headerName).toBe('idempotency-key')
+  })
+})
 
 describe('MemoryIdempotencyStore', () => {
   it('get rejects for unseen keys, and orNull reads that back as null', async () => {

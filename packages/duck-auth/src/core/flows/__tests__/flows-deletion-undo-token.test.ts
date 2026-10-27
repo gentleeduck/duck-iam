@@ -39,7 +39,7 @@ describe('account deletion - the undo token', () => {
     auth = new AuthEngine<MyProfile>({
       baseUrl: 'https://app',
       deliver: channel.deliver,
-      transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
+      transport: new CookieTransport({ name: 'duck-sid' }),
       stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
       limiter: new MemoryLimiter({ max: 5, windowMs: 60_000 }),
       providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) })],
@@ -153,7 +153,7 @@ describe('account deletion - the undo token', () => {
           identities: ad.identities,
           sessions: ad.sessions,
         },
-        transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+        transport: new CookieTransport({ name: 'duck-sid' }),
       })
       const ident = await engine.identities.create({ profile: { email: 'c@x.com', username: 'c@x.com' } })
       await engine.flows.requestAccountDeletion({ identityId: ident.id })

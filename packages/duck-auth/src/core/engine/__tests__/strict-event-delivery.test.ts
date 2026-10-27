@@ -1,6 +1,6 @@
 /** In production, `strict()` refuses an in-process bus only while it holds a `fleet` handler; a Redis bus
  *  passes whatever it holds. */
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { FakeRedis } from '~/core/drivers/redis-like'
 import { AuthError } from '~/core/errors'
@@ -10,6 +10,11 @@ import { WebhookDeliverer } from '~/core/webhooks'
 import type { Limiter } from '~/limiters'
 import { CookieTransport } from '../../transport/cookie.transport'
 import { AuthEngine } from '../engine'
+
+// Every case is a production one unless it says otherwise.
+beforeEach(() => {
+  vi.stubEnv('NODE_ENV', 'production')
+})
 
 const ORIGIN: Events.OnOptions = { delivery: 'origin' }
 const noop = () => {}
@@ -44,7 +49,7 @@ function makeAuth(events?: Events.IBus) {
     ...(events && { events }),
     limiter: foreignLimiter,
     stores: foreignStores(),
-    transport: new CookieTransport({ name: 'duck-sid', secure: true }),
+    transport: new CookieTransport({ name: 'duck-sid' }),
   })
   auth.providers.register({
     async begin() {
@@ -62,7 +67,7 @@ function makeAuth(events?: Events.IBus) {
 /** What `strict()` refused in production, or `''` when it booted. */
 function refusal(auth: AuthEngine): string {
   try {
-    auth.strict({ env: 'production' })
+    auth.strict()
     return ''
   } catch (err) {
     if (!(err instanceof AuthError) || err.code !== 'AUTH_MISCONFIGURED') throw err
@@ -130,6 +135,12 @@ describe.each([
     expect(refusal(auth)).toBe(detail(`\`authz.revoked\` ${FLEET_RULE}`))
   })
 
+  it("passes a plugin whose handlers are 'origin', as the docs' audit plugin is", async () => {
+    const auth = makeAuth(bus())
+    await auth.use({ delivery: 'origin', events: { lockout: noop, 'signin.success': noop }, id: 'audit' })
+    expect(refusal(auth)).toBe('')
+  })
+
   it('passes a webhook deliverer, which posts from the server that emitted', () => {
     const auth = makeAuth(bus())
     new WebhookDeliverer({
@@ -147,11 +158,11 @@ describe.each([
     expect(refusal(auth)).toBe(detail(`\`session.created\` ${FLEET_RULE}`))
   })
 
-  it('is not checked outside production', () => {
+  it.each(['development', 'test'])('is not checked with NODE_ENV=%s', (env) => {
+    vi.stubEnv('NODE_ENV', env)
     const auth = makeAuth(bus())
     auth.events.on('authz.revoked', noop)
-    expect(() => auth.strict({ env: 'development' })).not.toThrow()
-    expect(() => auth.strict({ env: 'test' })).not.toThrow()
+    expect(() => auth.strict()).not.toThrow()
   })
 })
 

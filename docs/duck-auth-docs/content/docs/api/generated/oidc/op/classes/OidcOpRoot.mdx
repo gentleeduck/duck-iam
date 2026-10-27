@@ -3,7 +3,7 @@ title: "Class: OidcOpRoot"
 description: "The OP. Build it with createOidcOP({ auth, signIdToken, ... }) and route authorize, token,  userinfo, introspect and revoke to it from your HTTP layer."
 ---
 
-Defined in: [packages/duck-auth/src/oidc/op/index.ts:70](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/index.ts#L70)
+Defined in: [packages/duck-auth/src/oidc/op/index.ts:71](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/op/index.ts#L71)
 
 The OP. Build it with `createOidcOP({ auth, signIdToken, ... })` and route `authorize`, `token`,
  `userinfo`, `introspect` and `revoke` to it from your HTTP layer.
@@ -20,7 +20,7 @@ The OP. Build it with `createOidcOP({ auth, signIdToken, ... })` and route `auth
 
 > **new OidcOpRoot**\<`Profile` *extends* [`ProfileMetadataBase`](../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase) = [`ProfileMetadataBase`](../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase)\>(`cfg`: [`Cfg`](../namespaces/AuthOidcOP/type-aliases/Cfg), `deps`: [`IDeps`](../-internal-/interfaces/IDeps)\<`Profile`\>, `dcr?`: [`DcrCfg`](../namespaces/AuthOidcOP/type-aliases/DcrCfg)): `OidcOpRoot`\<`Profile`\>
 
-Defined in: [packages/duck-auth/src/oidc/op/index.ts:77](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/index.ts#L77)
+Defined in: [packages/duck-auth/src/oidc/op/index.ts:78](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/op/index.ts#L78)
 
 #### Parameters
 
@@ -46,7 +46,7 @@ Defined in: [packages/duck-auth/src/oidc/op/index.ts:77](https://github.com/gent
 
 > `readonly` **issuer**: `string`
 
-Defined in: [packages/duck-auth/src/oidc/op/index.ts:71](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/index.ts#L71)
+Defined in: [packages/duck-auth/src/oidc/op/index.ts:72](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/op/index.ts#L72)
 
 ***
 
@@ -54,15 +54,15 @@ Defined in: [packages/duck-auth/src/oidc/op/index.ts:71](https://github.com/gent
 
 > `readonly` **supportedScopes**: `string`[]
 
-Defined in: [packages/duck-auth/src/oidc/op/index.ts:72](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/index.ts#L72)
+Defined in: [packages/duck-auth/src/oidc/op/index.ts:73](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/op/index.ts#L73)
 
 ## Methods
 
 ### authorize()
 
-> **authorize**(`req`: [`AuthorizeRequest`](../namespaces/AuthOidcOP/type-aliases/AuthorizeRequest), `httpReq`: \{ `headers`: `Headers`; \}): `Promise`\<[`AuthorizeResult`](../namespaces/AuthOidcOP/type-aliases/AuthorizeResult)\<`Profile`\>\>
+> **authorize**(`req`: [`AuthorizeRequest`](../namespaces/AuthOidcOP/type-aliases/AuthorizeRequest), `httpReq`: \{ `headers`: `Headers`; \}, `ctx?`: \{ `tenantId?`: `string`; \}): `Promise`\<[`AuthorizeResult`](../namespaces/AuthOidcOP/type-aliases/AuthorizeResult)\<`Profile`\>\>
 
-Defined in: [packages/duck-auth/src/oidc/op/index.ts:252](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/index.ts#L252)
+Defined in: [packages/duck-auth/src/oidc/op/index.ts:293](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/op/index.ts#L293)
 
 Validate an /authorize request and say what the host does next: 302 to login, prompt consent, or 302 to
  the redirect_uri with a fresh code.
@@ -79,6 +79,12 @@ Validate an /authorize request and say what the host does next: 302 to login, pr
 
 `Headers`
 
+##### ctx?
+
+###### tenantId?
+
+`string`
+
 #### Returns
 
 `Promise`\<[`AuthorizeResult`](../namespaces/AuthOidcOP/type-aliases/AuthorizeResult)\<`Profile`\>\>
@@ -87,9 +93,9 @@ Validate an /authorize request and say what the host does next: 302 to login, pr
 
 ### completeConsent()
 
-> **completeConsent**(`input`: \{ `client_id`: `string`; `code_challenge?`: `string`; `code_challenge_method?`: `string`; `identity`: [`Me`](../../../index/namespaces/Identities/type-aliases/Me)\<`Profile`\>; `nonce?`: `string`; `redirect_uri`: `string`; `scope`: `string`[]; `sid`: `string`; `state?`: `string`; `tenant_id`: `string` \| `null`; \}): `Promise`\<[`AuthorizeResult`](../namespaces/AuthOidcOP/type-aliases/AuthorizeResult)\<`Profile`\>\>
+> **completeConsent**(`input`: \{ `auth_time?`: `number`; `client_id`: `string`; `code_challenge?`: `string`; `code_challenge_method?`: `string`; `identity`: [`Me`](../../../index/namespaces/Identities/type-aliases/Me)\<`Profile`\>; `nonce?`: `string`; `redirect_uri`: `string`; `scope`: `string`[]; `sid`: `string`; `state?`: `string`; `tenant_id`: `string` \| `null`; \}): `Promise`\<[`AuthorizeResult`](../namespaces/AuthOidcOP/type-aliases/AuthorizeResult)\<`Profile`\>\>
 
-Defined in: [packages/duck-auth/src/oidc/op/index.ts:376](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/index.ts#L376)
+Defined in: [packages/duck-auth/src/oidc/op/index.ts:425](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/op/index.ts#L425)
 
 Host calls this after the user clicks "Allow" on the consent UI.
 Persists the consent record and mints the code.
@@ -97,6 +103,13 @@ Persists the consent record and mints the code.
 #### Parameters
 
 ##### input
+
+###### auth_time?
+
+`number`
+
+The `auth_time` `authorize` answered with. Omitted, the id_token carries no `auth_time` claim, which
+ an RP that asked for `max_age` is entitled to.
 
 ###### client_id
 
@@ -146,16 +159,25 @@ Persists the consent record and mints the code.
 
 ### introspect()
 
-> **introspect**(`req`: \{ `token`: `string`; `token_type_hint?`: `"refresh_token"` \| `"access_token"`; \}, `headers`: `Headers`): `Promise`\<\{\[`k`: `string`\]: `unknown`; `active`: `boolean`; \}\>
+> **introspect**(`req`: \{ `client_id?`: `string`; `client_secret?`: `string`; `token`: `string`; `token_type_hint?`: `"refresh_token"` \| `"access_token"`; \}, `headers`: `Headers`): `Promise`\<\{\[`k`: `string`\]: `unknown`; `active`: `boolean`; \}\>
 
-Defined in: [packages/duck-auth/src/oidc/op/index.ts:634](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/index.ts#L634)
+Defined in: [packages/duck-auth/src/oidc/op/index.ts:743](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/op/index.ts#L743)
 
-RFC 7662 introspection. Confidential clients only.
-Returns `{ active: false }` for unknown / expired tokens.
+RFC 7662 introspection. Confidential clients only, authenticating by Basic or, for `client_secret_post`,
+by `client_id` and `client_secret` in the body. Returns `{ active: false }` for unknown / expired tokens,
+and for a subject since erased or deleted.
 
 #### Parameters
 
 ##### req
+
+###### client_id?
+
+`string`
+
+###### client_secret?
+
+`string`
 
 ###### token
 
@@ -179,7 +201,7 @@ Returns `{ active: false }` for unknown / expired tokens.
 
 > **register**(`req`: [`DcrRequest`](../namespaces/AuthOidcOP/type-aliases/DcrRequest), `headers`: `Headers`): `Promise`\<\{ `body`: [`DcrResponse`](../namespaces/AuthOidcOP/type-aliases/DcrResponse); `status`: `201`; \} \| \{ `body`: [`DcrError`](../namespaces/AuthOidcOP/type-aliases/DcrError); `status`: `number`; \}\>
 
-Defined in: [packages/duck-auth/src/oidc/op/index.ts:139](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/index.ts#L139)
+Defined in: [packages/duck-auth/src/oidc/op/index.ts:160](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/op/index.ts#L160)
 
 RFC 7591 dynamic client registration, wired on `POST /register` and returned as application/json. With
 `dcrCfg.initialAccessToken` set the request must carry a matching `Authorization: Bearer <token>`, compared
@@ -206,7 +228,7 @@ behind a private network. Pass `registrationEndpoint` to `authBuildOidcDiscovery
 
 > **registerClient**(`input`: \{ `client_id`: `string`; `client_name?`: `string`; `client_secret?`: `string`; `client_uri?`: `string`; `grant_types?`: [`GrantType`](../namespaces/AuthOidcOP/type-aliases/GrantType)[]; `logo_uri?`: `string`; `redirect_uris`: `string`[]; `response_types?`: `"code"`[]; `scope?`: `string`[]; `token_endpoint_auth_method?`: [`TokenEndpointAuthMethod`](../namespaces/AuthOidcOP/type-aliases/TokenEndpointAuthMethod); \}): `Promise`\<\{ `client_id`: `string`; `client_secret`: `string` \| `null`; \}\>
 
-Defined in: [packages/duck-auth/src/oidc/op/index.ts:96](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/index.ts#L96)
+Defined in: [packages/duck-auth/src/oidc/op/index.ts:115](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/op/index.ts#L115)
 
 Register a new client. Returns the plaintext client_secret (or null
 for public clients). Plaintext is never persisted.
@@ -263,15 +285,25 @@ for public clients). Plaintext is never persisted.
 
 ### revoke()
 
-> **revoke**(`req`: \{ `token`: `string`; `token_type_hint?`: `"refresh_token"` \| `"access_token"`; \}, `headers`: `Headers`): `Promise`\<`void`\>
+> **revoke**(`req`: \{ `client_id?`: `string`; `client_secret?`: `string`; `token`: `string`; `token_type_hint?`: `"refresh_token"` \| `"access_token"`; \}, `headers`: `Headers`): `Promise`\<[`OauthError`](../namespaces/AuthOidcOP/type-aliases/OauthError) \| `undefined`\>
 
-Defined in: [packages/duck-auth/src/oidc/op/index.ts:672](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/index.ts#L672)
+Defined in: [packages/duck-auth/src/oidc/op/index.ts:794](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/op/index.ts#L794)
 
-RFC 7009 token revocation.
+RFC 7009 revocation of a token issued to the calling client, which authenticates as it does at `/token`: a
+public client by `client_id` in the body. Answers `invalid_client` for one that fails to, which the host
+sends as a 401; otherwise nothing, a 200, including for a token unknown or issued to another client.
 
 #### Parameters
 
 ##### req
+
+###### client_id?
+
+`string`
+
+###### client_secret?
+
+`string`
 
 ###### token
 
@@ -287,7 +319,7 @@ RFC 7009 token revocation.
 
 #### Returns
 
-`Promise`\<`void`\>
+`Promise`\<[`OauthError`](../namespaces/AuthOidcOP/type-aliases/OauthError) \| `undefined`\>
 
 ***
 
@@ -295,7 +327,7 @@ RFC 7009 token revocation.
 
 > **token**(`req`: [`TokenRequest`](../namespaces/AuthOidcOP/type-aliases/TokenRequest), `headers`: `Headers`): `Promise`\<[`OauthError`](../namespaces/AuthOidcOP/type-aliases/OauthError) \| [`TokenResponse`](../namespaces/AuthOidcOP/type-aliases/TokenResponse)\>
 
-Defined in: [packages/duck-auth/src/oidc/op/index.ts:448](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/index.ts#L448)
+Defined in: [packages/duck-auth/src/oidc/op/index.ts:529](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/op/index.ts#L529)
 
 Handle a POST /token request.
 
@@ -319,7 +351,7 @@ Handle a POST /token request.
 
 > **userinfo**(`headers`: `Headers`, `ctx?`: \{ `tenantId?`: `string`; \}): `Promise`\<[`OauthError`](../namespaces/AuthOidcOP/type-aliases/OauthError) \| [`UserinfoClaims`](../namespaces/AuthOidcOP/type-aliases/UserinfoClaims)\>
 
-Defined in: [packages/duck-auth/src/oidc/op/index.ts:596](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/index.ts#L596)
+Defined in: [packages/duck-auth/src/oidc/op/index.ts:704](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/oidc/op/index.ts#L704)
 
 Handle /userinfo. Verifies bearer access token and returns scope-gated claims.
 

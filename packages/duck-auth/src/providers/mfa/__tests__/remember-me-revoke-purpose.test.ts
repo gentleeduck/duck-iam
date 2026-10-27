@@ -3,7 +3,7 @@ import { MemoryAdapter } from '~/adapters/memory'
 import { orNull } from '~/core/answer'
 import { RECOVERY_PURPOSES } from '~/core/credentials/credentials.constants'
 import { randomToken, sha256 } from '~/core/crypto'
-import { credentialInput, identityInput } from '~/test/store-inputs'
+import { credentialInput, identityInput, makeSession } from '~/test/store-inputs'
 import { DEFAULT_REMEMBER_ME_CONFIG, RememberMeFacet } from '../internal/remember-me'
 
 const CRYPTO = { authRandomToken: randomToken, authSha256: sha256 }
@@ -50,7 +50,7 @@ describe('RememberMeFacet.revoke only touches trusted devices', () => {
   })
 
   it('still revokes an actual trusted device', async () => {
-    const { credentialId } = await facet.issue(identityId)
+    const { credentialId } = await facet.issue(identityId, makeSession({ aal: 2, identityId: identityId }))
     await facet.revoke(identityId, credentialId)
     expect(await orNull(adapter.credentials.findById(credentialId, {}))).toBeNull()
   })
@@ -77,7 +77,7 @@ describe('RememberMeFacet list and revokeAll agree about what a device is', () =
   const elapsed = async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     const facet = new RememberMeFacet(adapter.credentials, CRYPTO, { ...DEFAULT_REMEMBER_ME_CONFIG, ttlMs: 5 })
-    const issued = await facet.issue(identityId)
+    const issued = await facet.issue(identityId, makeSession({ aal: 2, identityId: identityId }))
     vi.setSystemTime(Date.now() + 30)
     return { facet, issued }
   }
@@ -103,7 +103,7 @@ describe('RememberMeFacet list and revokeAll agree about what a device is', () =
         ),
       ),
     )
-    const { credentialId } = await facet.issue(identityId)
+    const { credentialId } = await facet.issue(identityId, makeSession({ aal: 2, identityId: identityId }))
 
     await facet.revokeAll(identityId)
     expect(await orNull(adapter.credentials.findById(credentialId, {}))).toBeNull()

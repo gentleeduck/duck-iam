@@ -5,7 +5,7 @@ description: "Who starts an impersonation, of whom, and why."
 
 > **ImpersonateOptions** = \{ `iamDecisionId?`: `string`; `realSid`: `string`; `reason`: `string`; `targetIdentityId`: `string`; `tenantId?`: `string`; `ttlMs?`: `number`; \}
 
-Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:113](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L113)
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:146](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/flows/flows.types.ts#L146)
 
 Who starts an impersonation, of whom, and why.
 
@@ -15,7 +15,7 @@ Who starts an impersonation, of whom, and why.
 
 > `optional` **iamDecisionId?**: `string`
 
-Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:122](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L122)
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:155](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/flows/flows.types.ts#L155)
 
 Which IAM decision authorised this, audit-logged beside `reason`. The event has always declared
  the field and nothing could supply it, so every impersonation was untraceable to an authorization.
@@ -26,7 +26,7 @@ Which IAM decision authorised this, audit-logged beside `reason`. The event has 
 
 > **realSid**: `string`
 
-Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:115](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L115)
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:148](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/flows/flows.types.ts#L148)
 
 Caller's session id (the real subject).
 
@@ -36,7 +36,7 @@ Caller's session id (the real subject).
 
 > **reason**: `string`
 
-Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:119](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L119)
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:152](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/flows/flows.types.ts#L152)
 
 Audit-logged on the `identity.impersonated` event.
 
@@ -46,7 +46,7 @@ Audit-logged on the `identity.impersonated` event.
 
 > **targetIdentityId**: `string`
 
-Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:117](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L117)
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:150](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/flows/flows.types.ts#L150)
 
 Identity being impersonated.
 
@@ -56,7 +56,9 @@ Identity being impersonated.
 
 > `optional` **tenantId?**: `string`
 
-Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:125](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L125)
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:159](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/flows/flows.types.ts#L159)
+
+The operator session's tenant, which the impersonation is in; naming none accepts only an operator session with no tenant.
 
 ***
 
@@ -64,7 +66,7 @@ Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:125](https://githu
 
 > `optional` **ttlMs?**: `number`
 
-Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:124](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L124)
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:157](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/flows/flows.types.ts#L157)
 
 One hour, and an override cannot raise it.
 

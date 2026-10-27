@@ -3,7 +3,7 @@ title: "Interface: MetadataOptions"
 description: "What the SP metadata XML is built from."
 ---
 
-Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:158](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L158)
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:164](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/saml/saml.types.ts#L164)
 
 What the SP metadata XML is built from.
 
@@ -13,7 +13,7 @@ What the SP metadata XML is built from.
 
 > **acsUrl**: `string`
 
-Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:162](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L162)
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:168](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/saml/saml.types.ts#L168)
 
 The AssertionConsumerService URL, where the SAMLResponse is POSTed.
 
@@ -23,7 +23,7 @@ The AssertionConsumerService URL, where the SAMLResponse is POSTed.
 
 > `optional` **decryptionCert?**: `string`
 
-Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:169](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L169)
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:175](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/saml/saml.types.ts#L175)
 
 Decrypts encrypted assertions. A PEM body, no markers.
 
@@ -33,7 +33,7 @@ Decrypts encrypted assertions. A PEM body, no markers.
 
 > `optional` **displayName?**: `string`
 
-Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:173](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L173)
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:179](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/saml/saml.types.ts#L179)
 
 Shown in the IdP's UI.
 
@@ -43,7 +43,7 @@ Shown in the IdP's UI.
 
 > **entityId**: `string`
 
-Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:160](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L160)
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:166](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/saml/saml.types.ts#L166)
 
 Must match the AudienceRestriction set at the IdP.
 
@@ -53,7 +53,7 @@ Must match the AudienceRestriction set at the IdP.
 
 > `optional` **nameIdFormat?**: `string`
 
-Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:171](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L171)
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:177](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/saml/saml.types.ts#L177)
 
 Default emailAddress.
 
@@ -63,7 +63,7 @@ Default emailAddress.
 
 > `optional` **signingCert?**: `string`
 
-Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:167](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L167)
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:173](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/saml/saml.types.ts#L173)
 
 Signs AuthnRequests and validates encrypted assertions. A PEM body with no `-----BEGIN-----`
  markers.
@@ -74,7 +74,7 @@ Signs AuthnRequests and validates encrypted assertions. A PEM body with no `----
 
 > `optional` **sloUrl?**: `string`
 
-Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:164](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L164)
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:170](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/saml/saml.types.ts#L170)
 
 Omit it when SLO is not supported.
 
@@ -84,7 +84,7 @@ Omit it when SLO is not supported.
 
 > `optional` **wantAssertionsSigned?**: `boolean`
 
-Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:175](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L175)
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:181](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/saml/saml.types.ts#L181)
 
 Rendered as the `WantAssertionsSigned` attribute. Default true.
 
@@ -94,7 +94,7 @@ Rendered as the `WantAssertionsSigned` attribute. Default true.
 
 > `optional` **wantAuthnResponseSigned?**: `boolean`
 
-Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:179](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L179)
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:185](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/providers/saml/saml.types.ts#L185)
 
 WARN: inert. `SPSSODescriptor` has no attribute for response signing, so this never reaches the
  generated XML and both values produce the same document; ask the IdP for a signed response in

@@ -2,11 +2,56 @@ import { AuthError } from '~/core/errors'
 import { isFiniteNumber, isRecord } from '~/core/predicates'
 import type { OAuth } from './oauth.types'
 
+/** How long one request to the IdP may take, its body included, unless `timeoutMs` says otherwise. */
+export const OAUTH_TIMEOUT_DEFAULT_MS = 10_000
+
 /** The OAuth 2.0 client the providers share: authorize URLs, code exchange, refresh, revoke and userinfo. */
 export class OAuthClient {
   private _endpoints: OAuth.Endpoints | null = null
+  private readonly _timeoutMs: number
 
-  constructor(private readonly _opts: OAuth.ClientOptions) {}
+  constructor(private readonly _opts: OAuth.ClientOptions) {
+    const timeoutMs = _opts.timeoutMs ?? OAUTH_TIMEOUT_DEFAULT_MS
+    // `setTimeout`'s ceiling: past it the timer fires at once.
+    if (!Number.isFinite(timeoutMs) || timeoutMs < 1 || timeoutMs > 2_147_483_647) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: `oauth: timeoutMs must be a number of milliseconds from 1 to 2147483647, got ${String(timeoutMs)}`,
+      })
+    }
+    this._timeoutMs = timeoutMs
+  }
+
+  /** Every request to the IdP, abandoned after `timeoutMs`. A transport failure is `AUTH_PROVIDER_FAILED`
+   *  like any refusal, since a callback route catches `AuthError` and rethrows the rest. */
+  private async _send(
+    what: string,
+    url: string,
+    init: { method?: 'POST'; headers: Record<string, string>; body?: string },
+    providerId = 'oauth',
+  ): Promise<Response> {
+    const fetchImpl = this._opts.fetch ?? globalThis.fetch
+    try {
+      return await fetchImpl(url, {
+        ...init,
+        headers: {
+          // GitHub's token endpoint answers form-encoded unless asked for JSON.
+          accept: 'application/json',
+          // GitHub's API refuses a request without one, and the Workers runtime's fetch sends none.
+          'user-agent': '@gentleduck/auth',
+          ...init.headers,
+        },
+        // SECURITY: the scheme check applies to this URL, not to wherever a redirect would land, and a 307
+        // re-posts the body -- `client_secret` included -- to whatever the `Location` names.
+        redirect: 'error',
+        signal: AbortSignal.timeout(this._timeoutMs),
+      })
+    } catch (err) {
+      throw new AuthError('AUTH_PROVIDER_FAILED', {
+        providerId,
+        detail: `${what} unreachable: ${err instanceof Error ? err.message : String(err)}`,
+      })
+    }
+  }
 
   /** The dynamic generator wins when supplied (Sign in with Apple); undefined means a PKCE public client. */
   private async _resolveSecret(): Promise<string | undefined> {
@@ -67,13 +112,15 @@ export class OAuthClient {
       ...(opts.nonce !== undefined && { nonce: opts.nonce }),
       ...(opts.extraParams ?? {}),
     })
-    return `${e.authorizationEndpoint}?${params.toString()}`
+    // RFC 6749 section 3.1: an endpoint may carry a query of its own, which is kept.
+    const url = new URL(e.authorizationEndpoint)
+    for (const [key, value] of params) url.searchParams.set(key, value)
+    return url.toString()
   }
 
   /** Exchange an authorisation code for tokens. PKCE verifier required. */
   async exchangeCode(opts: { code: string; redirectUri: string; codeVerifier: string }): Promise<OAuth.TokenResponse> {
     const e = await this._resolveEndpoints()
-    const fetchImpl = this._opts.fetch ?? globalThis.fetch
     const secret = await this._resolveSecret()
     const body = new URLSearchParams({
       grant_type: 'authorization_code',
@@ -83,13 +130,10 @@ export class OAuthClient {
       code_verifier: opts.codeVerifier,
       ...(secret !== undefined && { client_secret: secret }),
     })
-    const res = await fetchImpl(e.tokenEndpoint, {
+    const res = await this._send('token endpoint', e.tokenEndpoint, {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
       body: body.toString(),
-      // SECURITY: the scheme check above applies to this URL, not to wherever a redirect would land, and
-      // a 307 re-posts this body -- `client_secret` included -- to whatever the `Location` names.
-      redirect: 'error',
     })
     if (!res.ok) {
       const text = await res.text().catch(() => '')
@@ -112,7 +156,6 @@ export class OAuthClient {
   /** Refresh-token rotation. Throws on any non-2xx. */
   async refresh(refreshToken: string): Promise<OAuth.TokenResponse> {
     const e = await this._resolveEndpoints()
-    const fetchImpl = this._opts.fetch ?? globalThis.fetch
     const secret = await this._resolveSecret()
     const body = new URLSearchParams({
       grant_type: 'refresh_token',
@@ -120,13 +163,10 @@ export class OAuthClient {
       client_id: this._opts.clientId,
       ...(secret !== undefined && { client_secret: secret }),
     })
-    const res = await fetchImpl(e.tokenEndpoint, {
+    const res = await this._send('token endpoint', e.tokenEndpoint, {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
       body: body.toString(),
-      // SECURITY: the scheme check above applies to this URL, not to wherever a redirect would land, and
-      // a 307 re-posts this body -- `client_secret` included -- to whatever the `Location` names.
-      redirect: 'error',
     })
     if (!res.ok) {
       const text = await res.text().catch(() => '')
@@ -159,7 +199,6 @@ export class OAuthClient {
         detail: 'oauth: revocationEndpoint not configured for this provider',
       })
     }
-    const fetchImpl = this._opts.fetch ?? globalThis.fetch
     const secret = await this._resolveSecret()
     const body = new URLSearchParams({
       token,
@@ -167,13 +206,10 @@ export class OAuthClient {
       ...(opts.tokenTypeHint !== undefined && { token_type_hint: opts.tokenTypeHint }),
       ...(secret !== undefined && { client_secret: secret }),
     })
-    const res = await fetchImpl(e.revocationEndpoint, {
+    const res = await this._send('revocation endpoint', e.revocationEndpoint, {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
       body: body.toString(),
-      // SECURITY: as at the token endpoint -- a 307 re-posts this body, `client_secret` and the token being
-      // revoked included, to whatever the `Location` names.
-      redirect: 'error',
     })
     if (!res.ok) {
       const text = await res.text().catch(() => '')
@@ -192,10 +228,8 @@ export class OAuthClient {
         detail: 'oauth: userinfoEndpoint not configured for this provider',
       })
     }
-    const fetchImpl = this._opts.fetch ?? globalThis.fetch
-    const res = await fetchImpl(e.userinfoEndpoint, {
+    const res = await this._send('userinfo endpoint', e.userinfoEndpoint, {
       headers: { authorization: `Bearer ${accessToken}` },
-      redirect: 'error',
     })
     if (!res.ok) {
       throw new AuthError('AUTH_PROVIDER_FAILED', {
@@ -224,11 +258,12 @@ export class OAuthClient {
     if (!isHttpUrl(url)) {
       throw new AuthError('AUTH_MISCONFIGURED', { detail: 'oauth: authedJson url must be an http(s) URL' })
     }
-    const fetchImpl = this._opts.fetch ?? globalThis.fetch
-    const res = await fetchImpl(url, {
-      headers: { authorization: `Bearer ${accessToken}` },
-      redirect: 'error',
-    })
+    const res = await this._send(
+      'authed request',
+      url,
+      { headers: { authorization: `Bearer ${accessToken}` } },
+      providerId,
+    )
     if (!res.ok) {
       throw new AuthError('AUTH_PROVIDER_FAILED', { providerId, detail: `authed request failed ${res.status}` })
     }

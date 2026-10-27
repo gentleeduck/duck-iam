@@ -4,6 +4,7 @@ import { AuthError } from '../errors'
 import { isExpiredAt, isFiniteNumber, isRecord } from '../predicates/predicates'
 import type { Provider } from '../provider/provider.types'
 import { isFactorMethod, isSessionKind, type Sessions } from '../sessions/sessions.types'
+import { cookieSecurity } from './cookie.transport'
 import { signEddsa, verifyEddsa } from './jwt-algs/eddsa.alg'
 import { signEs256, verifyEs256 } from './jwt-algs/es256.alg'
 import { signHs256, verifyHs256 } from './jwt-algs/hs256.alg'
@@ -50,7 +51,8 @@ export namespace JwtTransport {
     clockSkewSec?: number
     /** Optional refresh cookie shape. */
     refresh?: {
-      /** Cookie name carrying the opaque refresh token. */
+      /** Cookie name carrying the opaque refresh token. Default `__Host-duck-refresh`, which outside
+       *  production drops its prefix along with Secure; read it back by `refreshCookieName`. */
       cookieName?: string
       /** Refresh TTL in ms. Default 7 days. */
       ttlMs?: number
@@ -64,7 +66,7 @@ export namespace JwtTransport {
   /** A key tokens are verified against, by `kid`. */
   export interface IVerifyKey {
     kid: string
-    /** `'HS256'` by default, for backwards compatibility; ES256 and RS256 callers set it explicitly. */
+    /** `'HS256'` by default, for backwards compatibility; an asymmetric key must name its alg, since a PEM under HS256 is refused. */
     alg?: JwtTransport.IJwtAlg
     /** The UTF-8 secret for `HS256`, and the PEM-encoded public key (SPKI or RSA-PUBLIC) for `ES256`
      *  and `RS256`. */
@@ -234,7 +236,7 @@ function parseJwtPayload(raw: unknown): JwtTransport.Payload | null {
 
 /** The floor every key must clear. The constructor and `rotateSignKey` install into the same two
  *  fields, and only the constructor used to check. */
-function assertKeyMaterial(k: { kid: string; key: string }, field: string): void {
+function assertKeyMaterial(k: { kid: string; alg?: JwtTransport.IJwtAlg; key: string }, field: string): void {
   // The kid flows into the JOSE header of every token, so a huge or non-string one inflates them all.
   if (typeof k.kid !== 'string' || k.kid.length === 0 || k.kid.length > 256) {
     throw new AuthError('AUTH_MISCONFIGURED', {
@@ -247,6 +249,22 @@ function assertKeyMaterial(k: { kid: string; key: string }, field: string): void
     throw new AuthError('AUTH_MISCONFIGURED', {
       detail: `JwtTransport.${field}.key must be a non-empty string (HS256 secret or PEM)`,
     })
+  }
+  // SECURITY: an asymmetric key under HS256, which an omitted `alg` defaults to, makes the public key the
+  // HMAC secret, so anyone holding it signs tokens for any identity (RFC 8725 section 2.1).
+  if ((k.alg ?? 'HS256') === 'HS256' && isAsymmetricKey(k.key)) {
+    throw new AuthError('AUTH_MISCONFIGURED', {
+      detail: `JwtTransport.${field} '${k.kid}' is HS256 but its key is a PEM; set the alg it was made for`,
+    })
+  }
+}
+
+function isAsymmetricKey(key: string): boolean {
+  try {
+    createPublicKey(key)
+    return true
+  } catch {
+    return false
   }
 }
 
@@ -262,6 +280,7 @@ export class JwtTransport implements Transport.ITransport {
   private readonly _refreshTtlMs: number
   private readonly _refreshEnabled: boolean
   private readonly _refreshSameSite: 'strict' | 'lax' | 'none'
+  private readonly _refreshSecure: boolean
   private readonly _clockSkewSec: number
   /** Read by `strict()`, which enforces the production floor. A boolean, never the key. Computed on
    *  read: frozen at construction it went on attesting to a signing key `rotateSignKey` had replaced,
@@ -269,7 +288,7 @@ export class JwtTransport implements Transport.ITransport {
   get __weakSigningKey(): boolean {
     // RFC 7518 section 3.2 puts a floor under the HMAC algorithms; an asymmetric `key` is a PEM, whose
     // strength is in the key it encodes and not in its length. Reported, not thrown: a short secret is a
-    // production footgun, and `strict({ env: 'production' })` is where those are refused.
+    // production footgun, and `strict()` in production is where those are refused.
     return (this._signKey.alg ?? 'HS256').startsWith('HS') && Buffer.byteLength(this._signKey.key, 'utf8') < 32
   }
 
@@ -315,9 +334,11 @@ export class JwtTransport implements Transport.ITransport {
     this._ttlMs = _cfg.ttlMs ?? 15 * 60 * 1000
     this._freshnessMs = _cfg.freshnessMs ?? 5 * 60 * 1000
     this._refreshEnabled = Boolean(_cfg.refresh)
-    this._refreshCookieName = _cfg.refresh?.cookieName ?? DEFAULT_REFRESH_COOKIE
     this._refreshTtlMs = _cfg.refresh?.ttlMs ?? 7 * 24 * 60 * 60 * 1000
     this._refreshSameSite = _cfg.refresh?.sameSite ?? 'strict'
+    const refreshCookie = cookieSecurity(_cfg.refresh?.cookieName ?? DEFAULT_REFRESH_COOKIE, this._refreshSameSite)
+    this._refreshCookieName = refreshCookie.name
+    this._refreshSecure = refreshCookie.secure
     const skew = _cfg.clockSkewSec ?? 0
     if (!Number.isFinite(skew) || skew < 0) {
       throw new AuthError('AUTH_MISCONFIGURED', {
@@ -413,7 +434,7 @@ export class JwtTransport implements Transport.ITransport {
         value: sid,
         options: {
           httpOnly: true,
-          secure: true,
+          secure: this._refreshSecure,
           sameSite: this._refreshSameSite,
           path: '/',
           maxAge: expiresInSec,
@@ -421,6 +442,11 @@ export class JwtTransport implements Transport.ITransport {
       })
     }
     return intents
+  }
+
+  /** The refresh cookie's name as set, for the refresh route to read it back by. */
+  get refreshCookieName(): string {
+    return this._refreshCookieName
   }
 
   /** Revokes the refresh cookie when one is in use; a no-op for the stateless JWT. */
@@ -433,7 +459,13 @@ export class JwtTransport implements Transport.ITransport {
         type: 'clearCookie',
         name: this._refreshCookieName,
         // Same attributes as the set, or the browser keeps the cookie the clear was meant to remove.
-        options: { httpOnly: true, secure: true, sameSite: this._refreshSameSite, path: '/', maxAge: 0 },
+        options: {
+          httpOnly: true,
+          secure: this._refreshSecure,
+          sameSite: this._refreshSameSite,
+          path: '/',
+          maxAge: 0,
+        },
       },
     ]
   }
@@ -588,6 +620,17 @@ export class JwtTransport implements Transport.ITransport {
     if (opts.verifyKey && opts.verifyKey.kid !== newSign.kid) {
       throw new AuthError('AUTH_MISCONFIGURED', {
         detail: 'rotateSignKey: verifyKey.kid must match signKey.kid',
+      })
+    }
+    // The constructor's check on a kid both sides name: a mismatch fails every token the rotation mints.
+    if (opts.verifyKey && (opts.verifyKey.alg ?? 'HS256') !== newAlg) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: `rotateSignKey: verifyKey alg (${opts.verifyKey.alg ?? 'HS256'}) does not match signKey alg (${newAlg})`,
+      })
+    }
+    if (opts.verifyKey && newAlg === 'HS256' && opts.verifyKey.key !== newSign.key) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: 'rotateSignKey: an HS256 verifyKey must hold the signKey secret',
       })
     }
     if (opts.verifyKey) {

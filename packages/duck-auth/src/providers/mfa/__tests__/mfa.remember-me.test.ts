@@ -3,7 +3,8 @@ import { MemoryAdapter } from '~/adapters/memory'
 import { RECOVERY_PURPOSES } from '~/core/credentials/credentials.constants'
 import { randomToken, sha256 } from '~/core/crypto'
 import { InMemoryEvents } from '~/core/events'
-import { credentialInput, identityInput } from '~/test/store-inputs'
+import { authTestDataAtRest } from '~/test'
+import { credentialInput, identityInput, makeSession } from '~/test/store-inputs'
 import { RememberMeFacet } from '../internal/remember-me'
 import { MfaImpl } from '../mfa'
 import { DEFAULT_MFA_CONFIG } from '../mfa.constants'
@@ -27,14 +28,16 @@ describe('RememberMeFacet', () => {
   })
 
   it('issue + verify round-trip returns the same identity', async () => {
-    const { token } = await facet.issue(identityId, { metadata: { label: 'macbook' } })
+    const { token } = await facet.issue(identityId, makeSession({ aal: 2, identityId: identityId }), {
+      metadata: { label: 'macbook' },
+    })
     const verified = await facet.verify(token)
     expect(verified.identityId).toBe(identityId)
     expect(verified.metadata).toMatchObject({ purpose: 'trusted-device', label: 'macbook' })
   })
 
   it('keeps its own purpose whatever metadata the caller passes', async () => {
-    const { token } = await facet.issue(identityId, {
+    const { token } = await facet.issue(identityId, makeSession({ aal: 2, identityId: identityId }), {
       metadata: { label: 'laptop', purpose: RECOVERY_PURPOSES.passwordReset },
     })
     await expect(facet.verify(token)).resolves.toMatchObject({
@@ -45,7 +48,7 @@ describe('RememberMeFacet', () => {
   })
 
   it('verify rejects a token never issued', async () => {
-    await facet.issue(identityId)
+    await facet.issue(identityId, makeSession({ aal: 2, identityId: identityId }))
     await expect(facet.verify('not-a-real-token')).rejects.toMatchObject({ code: 'AUTH_CREDENTIAL_NOT_FOUND' })
   })
 
@@ -54,14 +57,14 @@ describe('RememberMeFacet', () => {
   })
 
   it('verify does NOT consume the token (reusable across requests)', async () => {
-    const { token } = await facet.issue(identityId)
+    const { token } = await facet.issue(identityId, makeSession({ aal: 2, identityId: identityId }))
     await expect(facet.verify(token)).resolves.toBeDefined()
     await expect(facet.verify(token)).resolves.toBeDefined()
     await expect(facet.verify(token)).resolves.toBeDefined()
   })
 
   it('verify rejects after revoke', async () => {
-    const { token, credentialId } = await facet.issue(identityId)
+    const { token, credentialId } = await facet.issue(identityId, makeSession({ aal: 2, identityId: identityId }))
     await facet.revoke(identityId, credentialId)
     await expect(facet.verify(token)).rejects.toMatchObject({ code: 'AUTH_CREDENTIAL_NOT_FOUND' })
   })
@@ -70,23 +73,23 @@ describe('RememberMeFacet', () => {
     const otherIdentity = await adapter.identities.create(
       identityInput({ profile: { email: 'other@x.com', username: 'other' }, providers: [] }),
     )
-    const { token, credentialId } = await facet.issue(identityId)
+    const { token, credentialId } = await facet.issue(identityId, makeSession({ aal: 2, identityId: identityId }))
     await facet.revoke(otherIdentity.id, credentialId)
     // Token still verifies - the cross-identity revoke was refused.
     await expect(facet.verify(token)).resolves.toBeDefined()
   })
 
   it('list returns live trusted devices with metadata', async () => {
-    await facet.issue(identityId, { metadata: { label: 'macbook' } })
-    await facet.issue(identityId, { metadata: { label: 'iphone' } })
+    await facet.issue(identityId, makeSession({ aal: 2, identityId: identityId }), { metadata: { label: 'macbook' } })
+    await facet.issue(identityId, makeSession({ aal: 2, identityId: identityId }), { metadata: { label: 'iphone' } })
     const devices = await facet.list(identityId)
     expect(devices).toHaveLength(2)
     expect(devices.map((d) => d.metadata?.label).sort()).toEqual(['iphone', 'macbook'])
   })
 
   it('revokeAll wipes every trusted device for the identity', async () => {
-    await facet.issue(identityId)
-    await facet.issue(identityId)
+    await facet.issue(identityId, makeSession({ aal: 2, identityId: identityId }))
+    await facet.issue(identityId, makeSession({ aal: 2, identityId: identityId }))
     await facet.revokeAll(identityId)
     expect(await facet.list(identityId)).toEqual([])
   })
@@ -113,9 +116,20 @@ describe('RememberMeFacet', () => {
       { authRandomToken: randomToken, authSha256: sha256 },
       { ttlMs: 5, byteLength: 32 },
     )
-    const { token } = await tiny.issue(identityId)
+    const { token } = await tiny.issue(identityId, makeSession({ aal: 2, identityId: identityId }))
     vi.setSystemTime(Date.now() + 20)
     await expect(tiny.verify(token)).rejects.toMatchObject({ code: 'AUTH_CREDENTIAL_NOT_FOUND' })
+  })
+
+  it('refuses at construction a ttl whose deadline no store holds, where a long one issues', async () => {
+    const crypto = { authRandomToken: randomToken, authSha256: sha256 }
+    expect(() => new RememberMeFacet(adapter.credentials, crypto, { ttlMs: 1e15, byteLength: 32 })).toThrow(
+      expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
+    )
+    const decade = new RememberMeFacet(adapter.credentials, crypto, { ttlMs: 10 * 365 * 86_400_000, byteLength: 32 })
+    await expect(decade.issue(identityId, makeSession({ aal: 2, identityId: identityId }))).resolves.toMatchObject({
+      token: expect.any(String),
+    })
   })
 })
 
@@ -127,24 +141,29 @@ describe('a remembered device goes with the factor it skipped', () => {
   beforeEach(() => {
     adapter = new MemoryAdapter()
     devices = new RememberMeFacet(adapter.credentials, { authRandomToken: randomToken, authSha256: sha256 })
-    mfa = new MfaImpl(adapter.credentials, new InMemoryEvents(), DEFAULT_MFA_CONFIG)
+    mfa = new MfaImpl(adapter.credentials, new InMemoryEvents(), {
+      ...DEFAULT_MFA_CONFIG,
+      dataAtRest: authTestDataAtRest(),
+    })
   })
 
   it.each(['removeTotp', 'removeWebauthnMfa'] as const)(
     "%s revokes the identity's devices and no one else's",
     async (remove) => {
-      const mine = await devices.issue('user-1')
-      const theirs = await devices.issue('user-2')
-      await mfa[remove]('user-1')
+      const mine = await devices.issue('user-1', makeSession({ aal: 2, identityId: 'user-1' }))
+      const theirs = await devices.issue('user-2', makeSession({ aal: 2, identityId: 'user-2' }))
+      await mfa[remove]('user-1', null)
       await expect(devices.verify(mine.token)).rejects.toMatchObject({ code: 'AUTH_CREDENTIAL_NOT_FOUND' })
       await expect(devices.verify(theirs.token)).resolves.toMatchObject({ identityId: 'user-2' })
     },
   )
 
   it('removeBackupCodes keeps them: a device skips the factor, not its fallback', async () => {
-    const { token } = await devices.issue('user-1')
-    await mfa.regenerateBackupCodes('user-1')
-    expect(await mfa.removeBackupCodes('user-1')).toEqual({ removed: DEFAULT_MFA_CONFIG.backupCodeCount })
+    const { token } = await devices.issue('user-1', makeSession({ aal: 2, identityId: 'user-1' }))
+    await mfa.regenerateBackupCodes('user-1', makeSession({ aal: 2, identityId: 'user-1' }))
+    expect(await mfa.removeBackupCodes('user-1', makeSession({ aal: 2, identityId: 'user-1' }))).toEqual({
+      removed: DEFAULT_MFA_CONFIG.backupCodeCount,
+    })
     await expect(devices.verify(token)).resolves.toMatchObject({ identityId: 'user-1' })
   })
 })

@@ -514,7 +514,7 @@ suite('the exported tables hand back the types they declare (real Postgres)', ()
 
   it('gives auth_identity_providers.added_at as a Date on a direct select', async () => {
     const addedAt = new Date('2026-01-02T03:04:05.000Z')
-    await stores.identities.link(ID, { addedAt, providerId: 'google', providerSub: 'sub-1' })
+    await stores.identities.link(ID, { addedAt, providerId: 'google', providerSub: 'sub-1', tenantId: null })
 
     // A real `timestamptz` now, not a date inside jsonb: what is under test is the driver handing back a
     // Date rather than the string it read off the wire.

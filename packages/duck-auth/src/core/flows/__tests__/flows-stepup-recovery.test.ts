@@ -9,6 +9,7 @@ import { MemoryLimiter } from '~/limiters/memory'
 import { mfaProvider, totpAt } from '~/providers/mfa'
 import { AuthMemoryPasskeyChallengeStore, type Passkey } from '~/providers/passkey'
 import { passwords, ScryptHasher } from '~/providers/passwords'
+import { authTestDataAtRest } from '~/test'
 
 interface MyProfile extends Identities.ProfileMetadataBase {
   email: string
@@ -37,14 +38,14 @@ function buildAuth(opts: { credentials?: (base: Credential.Store) => Credential.
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app.example.com',
     deliver: channel,
-    transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
+    transport: new CookieTransport({ name: 'duck-sid' }),
     stores: {
       identities: adapter.identities,
       sessions: adapter.sessions,
       credentials: opts.credentials?.(adapter.credentials) ?? adapter.credentials,
     },
     limiter: new MemoryLimiter({ max: 5, windowMs: 60_000 }),
-    providers: [passwords({ hasher: fastHasher }), mfaProvider()],
+    providers: [passwords({ hasher: fastHasher }), mfaProvider({ dataAtRest: authTestDataAtRest() })],
   })
   return { auth, adapter, channel }
 }
@@ -80,8 +81,19 @@ async function enrolWebauthnMfa(auth: AuthEngine<MyProfile>, identityId: string)
   const webauthnModule = fakeWebauthn()
   const challengeStore = new AuthMemoryPasskeyChallengeStore()
   const rp = { challengeStore, expectedOrigins: 'https://app.example.com', rpID: 'app.example.com', webauthnModule }
-  await auth.mfa.beginWebauthnMfaEnrollment(identityId, { ...rp, challengeKey: 'enrol', rpName: 'app', userName: 'a' })
-  await auth.mfa.confirmWebauthnMfaEnrollment(identityId, { ...rp, challengeKey: 'enrol', response: { id: 'wa-1' } })
+  await auth.mfa.beginWebauthnMfaEnrollment(identityId, {
+    session: null,
+    ...rp,
+    challengeKey: 'enrol',
+    rpName: 'app',
+    userName: 'a',
+  })
+  await auth.mfa.confirmWebauthnMfaEnrollment(identityId, {
+    session: null,
+    ...rp,
+    challengeKey: 'enrol',
+    response: { id: 'wa-1' },
+  })
   return async () => {
     await auth.mfa.beginWebauthnMfaVerify(identityId, { ...rp, challengeKey: 'verify' })
     return { ...rp, challengeKey: 'verify', response: { id: 'wa-1' } }
@@ -123,9 +135,9 @@ describe('FlowsImpl - step-up', () => {
   it('completeStepUp verifies TOTP + rotates the session to AAL=2', async () => {
     const { auth } = buildAuth()
     const identity = await auth.identities.create({ profile: { username: 'a@x.com', email: 'a@x.com' } })
-    const challenge = await auth.mfa.beginTotpEnrollment(identity.id, 'a@x.com')
+    const challenge = await auth.mfa.beginTotpEnrollment(identity.id, 'a@x.com', null)
     const enrolledStep = Math.floor(Date.now() / 1000 / 30)
-    await auth.mfa.confirmTotpEnrollment(identity.id, totpAt(challenge.secret, enrolledStep))
+    await auth.mfa.confirmTotpEnrollment(identity.id, totpAt(challenge.secret, enrolledStep), null)
 
     const { session: aal1, sid: aal1Sid } = await auth.sessions.create({
       identityId: identity.id,
@@ -175,8 +187,12 @@ describe('FlowsImpl - step-up', () => {
   it('completeStepUp with wrong code surfaces AUTH_INVALID_CREDENTIALS', async () => {
     const { auth } = buildAuth()
     const identity = await auth.identities.create({ profile: { username: 'a@x.com', email: 'a@x.com' } })
-    const challenge = await auth.mfa.beginTotpEnrollment(identity.id, 'a@x.com')
-    await auth.mfa.confirmTotpEnrollment(identity.id, totpAt(challenge.secret, Math.floor(Date.now() / 1000 / 30)))
+    const challenge = await auth.mfa.beginTotpEnrollment(identity.id, 'a@x.com', null)
+    await auth.mfa.confirmTotpEnrollment(
+      identity.id,
+      totpAt(challenge.secret, Math.floor(Date.now() / 1000 / 30)),
+      null,
+    )
 
     const { sid } = await auth.sessions.create({
       identityId: identity.id,
@@ -204,7 +220,7 @@ describe('FlowsImpl - password reset', () => {
   it('requestPasswordReset for known email persists a recovery token + dispatches link', async () => {
     const { auth, channel, adapter } = buildAuth()
     const identity = await auth.identities.create({ profile: { username: 'a@x.com', email: 'a@x.com' } })
-    await auth.passwords.set(identity.id, 'old-password', adapter.credentials)
+    await auth.passwords.set(identity.id, 'old-password', adapter.credentials, null)
     const handler = vi.fn()
     auth.events.on('recovery.password.requested', handler)
 
@@ -223,7 +239,7 @@ describe('FlowsImpl - password reset', () => {
   it('completePasswordReset swaps password + revokes all sessions', async () => {
     const { auth, channel, adapter } = buildAuth()
     const identity = await auth.identities.create({ profile: { username: 'a@x.com', email: 'a@x.com' } })
-    await auth.passwords.set(identity.id, 'old-password-9', adapter.credentials)
+    await auth.passwords.set(identity.id, 'old-password-9', adapter.credentials, null)
     await auth.sessions.create({ identityId: identity.id, kind: 'user', aal: 1, factors: [] })
 
     await auth.flows.requestPasswordReset({
@@ -268,7 +284,7 @@ describe('FlowsImpl - password reset', () => {
       }),
     })
     const identity = await auth.identities.create({ profile: { username: 'a@x.com', email: 'a@x.com' } })
-    await auth.passwords.set(identity.id, 'old-password-9', adapter.credentials)
+    await auth.passwords.set(identity.id, 'old-password-9', adapter.credentials, null)
     await auth.flows.requestPasswordReset({
       findIdentityByEmail: (email) => auth.identities.getByEmail(email),
       input: { email: 'a@x.com' },
@@ -296,7 +312,7 @@ describe('FlowsImpl - password reset', () => {
   it('replay of reset token surfaces AUTH_RECOVERY_TOKEN_INVALID', async () => {
     const { auth, channel, adapter } = buildAuth()
     const identity = await auth.identities.create({ profile: { username: 'a@x.com', email: 'a@x.com' } })
-    await auth.passwords.set(identity.id, 'old-password-9', adapter.credentials)
+    await auth.passwords.set(identity.id, 'old-password-9', adapter.credentials, null)
     await auth.flows.requestPasswordReset({
       input: { email: 'a@x.com' },
       findIdentityByEmail: (email) => auth.identities.getByEmail(email),
@@ -311,9 +327,9 @@ describe('FlowsImpl - password reset', () => {
   it('reset with MFA enrolled requires fresh AAL=2 session', async () => {
     const { auth, channel, adapter } = buildAuth()
     const identity = await auth.identities.create({ profile: { username: 'a@x.com', email: 'a@x.com' } })
-    await auth.passwords.set(identity.id, 'old-password-9', adapter.credentials)
-    const ch = await auth.mfa.beginTotpEnrollment(identity.id, 'a@x.com')
-    await auth.mfa.confirmTotpEnrollment(identity.id, totpAt(ch.secret, Math.floor(Date.now() / 1000 / 30)))
+    await auth.passwords.set(identity.id, 'old-password-9', adapter.credentials, null)
+    const ch = await auth.mfa.beginTotpEnrollment(identity.id, 'a@x.com', null)
+    await auth.mfa.confirmTotpEnrollment(identity.id, totpAt(ch.secret, Math.floor(Date.now() / 1000 / 30)), null)
 
     await auth.flows.requestPasswordReset({
       input: { email: 'a@x.com' },
@@ -359,7 +375,7 @@ describe('FlowsImpl - password reset', () => {
   it('reset of an account whose second factor is WebAuthn-MFA requires a fresh AAL=2 session', async () => {
     const { auth, channel, adapter } = buildAuth()
     const identity = await auth.identities.create({ profile: { username: 'a@x.com', email: 'a@x.com' } })
-    await auth.passwords.set(identity.id, 'old-password-9', adapter.credentials)
+    await auth.passwords.set(identity.id, 'old-password-9', adapter.credentials, null)
     const assertion = await enrolWebauthnMfa(auth, identity.id)
     await auth.flows.requestPasswordReset({
       input: { email: 'a@x.com' },
@@ -390,7 +406,7 @@ describe('FlowsImpl - password reset', () => {
   it('expired reset token surfaces AUTH_RECOVERY_TOKEN_EXPIRED', async () => {
     const { auth, channel, adapter } = buildAuth()
     const identity = await auth.identities.create({ profile: { username: 'a@x.com', email: 'a@x.com' } })
-    await auth.passwords.set(identity.id, 'old-password-9', adapter.credentials)
+    await auth.passwords.set(identity.id, 'old-password-9', adapter.credentials, null)
     await auth.flows.requestPasswordReset({
       input: { email: 'a@x.com' },
       findIdentityByEmail: (email) => auth.identities.getByEmail(email),
@@ -408,7 +424,7 @@ describe('FlowsImpl - password reset', () => {
   it('completePasswordReset rejects email-verification tokens (cross-kind confusion)', async () => {
     const { auth, channel, adapter } = buildAuth()
     const identity = await auth.identities.create({ profile: { username: 'a@x.com', email: 'a@x.com' } })
-    await auth.passwords.set(identity.id, 'old-password-9', adapter.credentials)
+    await auth.passwords.set(identity.id, 'old-password-9', adapter.credentials, null)
 
     // Mint an email-verification token directly via the flow.
     await auth.flows.requestEmailVerification({
@@ -433,7 +449,7 @@ describe('FlowsImpl - password reset', () => {
   it('completePasswordReset rejects account-deletion tokens', async () => {
     const { auth, channel, adapter } = buildAuth()
     const identity = await auth.identities.create({ profile: { username: 'a@x.com', email: 'a@x.com' } })
-    await auth.passwords.set(identity.id, 'old-password-9', adapter.credentials)
+    await auth.passwords.set(identity.id, 'old-password-9', adapter.credentials, null)
 
     await auth.flows.requestAccountDeletion({
       identityId: identity.id,

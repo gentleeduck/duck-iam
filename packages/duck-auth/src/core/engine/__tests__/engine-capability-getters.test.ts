@@ -5,6 +5,7 @@ import { OrgsImpl } from '~/core/orgs'
 import { ApiKeysFacet, apiKeyProvider } from '~/providers/api-key'
 import { MfaFacet, mfaProvider } from '~/providers/mfa'
 import { PasskeyImpl, passkey } from '~/providers/passkey'
+import { authTestDataAtRest } from '~/test'
 
 function base() {
   const a = new MemoryAdapter()
@@ -23,7 +24,10 @@ type Facets = {
 
 describe('engine capability getters', () => {
   it('resolves mfa + apiKeys facets by type', () => {
-    const auth = createAuth({ ...base(), providers: [mfaProvider(), apiKeyProvider()] })
+    const auth = createAuth({
+      ...base(),
+      providers: [mfaProvider({ dataAtRest: authTestDataAtRest() }), apiKeyProvider()],
+    })
     expect(auth.mfa).toBeInstanceOf(MfaFacet)
     expect(auth.apiKeys).toBeInstanceOf(ApiKeysFacet)
   })

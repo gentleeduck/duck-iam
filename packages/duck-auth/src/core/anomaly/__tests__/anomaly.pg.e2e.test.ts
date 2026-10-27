@@ -52,7 +52,7 @@ suite('E2E anomaly and hijack verdicts over HTTP on real Postgres', () => {
       baseUrl: 'https://app.test',
       limiter: new MemoryLimiter({ max: 1_000, windowMs: 60_000 }),
       stores: { credentials: stores.credentials, identities: stores.identities, sessions: stores.sessions },
-      transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+      transport: new CookieTransport({ name: 'duck-sid' }),
     })
     auth.providers.register(passwords<Profile>({ hasher: new ScryptHasher({ keylen: 32, N: 1 << 10 }) }))
     const lastSeen = new Map<string, { lat: number; lon: number; at: number }>()
@@ -92,7 +92,7 @@ suite('E2E anomaly and hijack verdicts over HTTP on real Postgres', () => {
       const address = `${name}-${e2ePrefix()}@anomaly.test`
       const identity = await auth.identities.create({ profile: { email: address, username: address } })
       planted.push(identity.id)
-      await auth.passwords.set(identity.id, PASSWORD, stores.credentials)
+      await auth.passwords.set(identity.id, PASSWORD, stores.credentials, null)
       const { sid } = await auth.flows.signIn({
         input: { email: address, password: PASSWORD },
         ip: '127.0.0.1',

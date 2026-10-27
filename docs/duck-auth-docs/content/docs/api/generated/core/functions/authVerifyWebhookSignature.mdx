@@ -5,7 +5,7 @@ description: "Constant-time verify a webhook signature against the raw body, bef
 
 > **authVerifyWebhookSignature**(`secret`: `string`, `body`: `string`, `signature`: `string`, `opts?`: \{ `timestamp?`: `number`; `toleranceMs?`: `number`; \}): `boolean`
 
-Defined in: [packages/duck-auth/src/core/webhooks/index.ts:344](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/webhooks/index.ts#L344)
+Defined in: [packages/duck-auth/src/core/webhooks/index.ts:361](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/webhooks/index.ts#L361)
 
 Constant-time verify a webhook signature against the raw body, before the handler parses the JSON.
 `timestamp` must be the `X-Duck-Timestamp` value the signature covers; a stale one is refused.

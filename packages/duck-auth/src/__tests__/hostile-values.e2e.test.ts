@@ -55,7 +55,7 @@ suite('E2E hostile values on real Postgres + Redis', () => {
     auth = new AuthEngine<Profile>({
       baseUrl: 'https://app.test',
       stores: { credentials: stores.credentials, identities: stores.identities, sessions: stores.sessions },
-      transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+      transport: new CookieTransport({ name: 'duck-sid' }),
     })
 
     // The OP keeps its own in-memory stores here: what is under test is the
@@ -68,7 +68,7 @@ suite('E2E hostile values on real Postgres + Redis', () => {
     })
     op = createOidcOP({
       auth: opAuth,
-      config: { allowHttp: true, issuer: 'http://localhost:8787/auth', supportedScopes: ['openid'] },
+      config: { issuer: 'http://localhost:8787/auth', supportedScopes: ['openid'] },
       signIdToken: (payload) => {
         const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url')
         const body = Buffer.from(JSON.stringify(payload)).toString('base64url')

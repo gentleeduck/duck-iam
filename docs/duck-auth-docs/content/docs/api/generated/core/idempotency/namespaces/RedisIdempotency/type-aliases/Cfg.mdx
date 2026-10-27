@@ -5,7 +5,7 @@ description: "The Redis idempotency store's options."
 
 > **Cfg**\<`TRedis` *extends* [`Client`](../../../../../adapters/redis/namespaces/RedisLike/type-aliases/Client) = [`Client`](../../../../../adapters/redis/namespaces/RedisLike/type-aliases/Client)\> = \{ `prefix?`: `string`; `redis`: `TRedis`; \}
 
-Defined in: [packages/duck-auth/src/core/idempotency/idempotency.redis.ts:10](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/idempotency/idempotency.redis.ts#L10)
+Defined in: [packages/duck-auth/src/core/idempotency/idempotency.redis.ts:10](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/idempotency/idempotency.redis.ts#L10)
 
 The Redis idempotency store's options.
 
@@ -21,7 +21,7 @@ The Redis idempotency store's options.
 
 > `optional` **prefix?**: `string`
 
-Defined in: [packages/duck-auth/src/core/idempotency/idempotency.redis.ts:15](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/idempotency/idempotency.redis.ts#L15)
+Defined in: [packages/duck-auth/src/core/idempotency/idempotency.redis.ts:15](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/idempotency/idempotency.redis.ts#L15)
 
 Default `auth:idem`, composing `${prefix}:{uriEncodedTenantId}:{idempotencyKey}`; the tenant
  segment is empty when there is none.
@@ -32,7 +32,7 @@ Default `auth:idem`, composing `${prefix}:{uriEncodedTenantId}:{idempotencyKey}`
 
 > **redis**: `TRedis`
 
-Defined in: [packages/duck-auth/src/core/idempotency/idempotency.redis.ts:12](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/idempotency/idempotency.redis.ts#L12)
+Defined in: [packages/duck-auth/src/core/idempotency/idempotency.redis.ts:12](https://github.com/gentleeduck/duck-iam/blob/7b68e272765f6b233d7451837d0df2fdbddd0658/packages/duck-auth/src/core/idempotency/idempotency.redis.ts#L12)
 
 An `@upstash/redis`-shaped client or `FakeRedis`; wrap ioredis and iovalkey with `valkeyAdapter`.
 

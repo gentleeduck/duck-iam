@@ -1,4 +1,4 @@
-import { generateKeyPairSync } from 'node:crypto'
+import { generateKeyPairSync, type KeyObject } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { AuthEngine } from '~/core/engine'
@@ -45,35 +45,38 @@ function engine(provider: Provider.Me<OAuth.BeginInput, OAuth.CompleteInput, P>)
     baseUrl: 'https://app',
     providers: [provider],
     stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
-    transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+    transport: new CookieTransport({ name: 'duck-sid' }),
   })
 }
 
 describe('Sign in with Apple, form_post', () => {
+  // Secure outside production too for Apple, since a browser drops a SameSite=None cookie without it.
   it.each([
-    ['apple', () => appleWith(), 'form_post', 'none'],
-    ['google', () => google<P>({ clientId: 'g', clientSecret: 's', ...SHARED }), null, 'lax'],
-  ])('%s: response_mode is %s and the pre-auth cookie SameSite=%s', async (_, make, mode, sameSite) => {
+    ['apple', () => appleWith(), 'form_post', 'none', true],
+    ['google', () => google<P>({ clientId: 'g', clientSecret: 's', ...SHARED }), null, 'lax', false],
+  ])('%s: response_mode is %s and the pre-auth cookie SameSite=%s', async (_, make, mode, sameSite, secure) => {
     const provider = make()
     const intents = await engine(provider).flows.beginProvider(provider.id, {})
     const redirect = intents.find((i) => i.type === 'redirect')
     const url = new URL(redirect && 'url' in redirect ? redirect.url : '')
     expect(url.searchParams.get('response_mode')).toBe(mode)
     expect(intents).toContainEqual(
-      expect.objectContaining({ type: 'setCookie', options: expect.objectContaining({ sameSite, secure: true }) }),
+      expect.objectContaining({ type: 'setCookie', options: expect.objectContaining({ sameSite, secure }) }),
     )
   })
 
-  it('refuses an insecure cookie for Apple, whose SameSite=None a browser drops without Secure', () => {
-    expect(() => appleWith({ stateCookie: { name: 'duck-oauth', secure: false } })).toThrow(
-      expect.objectContaining({
-        code: 'AUTH_MISCONFIGURED',
-        meta: { detail: 'oauth.stateCookie: apple posts its callback cross-site and needs secure:true' },
-      }),
-    )
-    expect(() =>
-      google<P>({ clientId: 'g', clientSecret: 's', ...SHARED, stateCookie: { name: 'duck-oauth', secure: false } }),
-    ).not.toThrow()
+  it('refuses a privateKey that cannot sign ES256 when built, not at the first callback', () => {
+    const pem = (key: KeyObject) => key.export({ format: 'pem', type: 'pkcs8' }).toString()
+    for (const privateKey of [
+      '',
+      'not a key',
+      PEM.replace(/\n/g, '\\n'),
+      pem(generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey),
+      pem(generateKeyPairSync('ec', { namedCurve: 'P-384' }).privateKey),
+    ]) {
+      expect(() => appleWith({ privateKey })).toThrow(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
+    }
+    expect(() => appleWith()).not.toThrow()
   })
 
   it.each([

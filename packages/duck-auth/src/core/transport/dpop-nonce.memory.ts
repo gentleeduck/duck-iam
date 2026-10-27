@@ -1,25 +1,18 @@
-import { env } from 'node:process'
+import { isProduction } from '~/core/env'
 import { AuthError } from '~/core/errors'
 import type { DPoPVerifier } from './dpop.transport'
 import type { RedisDPoPNonceStore } from './dpop-nonce.redis'
 
-/** Single-process only: a multi-pod deploy needs {@link RedisDPoPNonceStore}, whose `SETNX` claim is
- *  atomic across pods. */
+/** Development and test only, and refused in production: a multi-pod deploy needs
+ *  {@link RedisDPoPNonceStore}, whose `SETNX` claim is atomic across pods. */
 export class MemoryDPoPNonceStore implements DPoPVerifier.NonceStore {
   private readonly _seen = new Map<string, number>()
 
-  constructor(
-    private readonly cfg?: {
-      /** Escape hatch to allow this store under `NODE_ENV=production`. */
-      development?: boolean
-    },
-  ) {
-    // `DPoPVerifier` is built outside the engine, so `strict()` cannot see this store at all and the
-    // refusal has to live here - the same reason `MemoryIdempotency` refuses itself. A per-node replay
-    // cache is no replay cache: the proof a pod rejects is accepted by every other pod in the fleet.
-    if (env.NODE_ENV === 'production' && !this.cfg?.development) {
+  constructor() {
+    // A per-node replay cache is no replay cache: the proof a pod rejects is accepted by every other pod.
+    if (isProduction()) {
       throw new AuthError('AUTH_MISCONFIGURED', {
-        detail: 'MemoryDPoPNonceStore is not production ready; pass `nonceStore: redisDPoPNonceStore({ redis })`',
+        detail: 'MemoryDPoPNonceStore is refused in production; pass `nonceStore: redisDPoPNonceStore({ redis })`',
       })
     }
   }
@@ -40,9 +33,7 @@ export class MemoryDPoPNonceStore implements DPoPVerifier.NonceStore {
   }
 }
 
-/** In-process DPoP nonce store. Single node only; a fleet needs the Redis store. */
-export function memoryDPoPNonceStore(
-  ...args: ConstructorParameters<typeof MemoryDPoPNonceStore>
-): MemoryDPoPNonceStore {
-  return new MemoryDPoPNonceStore(...args)
+/** In-process DPoP nonce store, for development and test. A fleet needs the Redis store. */
+export function memoryDPoPNonceStore(): MemoryDPoPNonceStore {
+  return new MemoryDPoPNonceStore()
 }

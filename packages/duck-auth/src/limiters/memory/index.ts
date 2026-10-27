@@ -10,15 +10,16 @@ export namespace MemoryLimiter {
   export type Cfg = {
     /** Max consumed weight before further consume() returns ok:false. Default 10. */
     max?: number
-    /** Window size in ms. Default 15 minutes. */
+    /** Window size in whole ms. Default 15 minutes. */
     windowMs?: number
   }
 }
 
-/** Expired buckets are swept only once the map has grown past this, so the cost is amortised: sweeping
- *  on every new key is O(n) per request during exactly the flood it exists to survive. */
+/** Expired buckets are swept only once the map has grown past this, and then at most once a window, so the
+ *  cost is amortised: sweeping on every new key is O(n) per request during exactly the flood it exists to
+ *  survive. */
 const SWEEP_AT = 1024
-/** Past this `now + windowMs` stops being a representable `Date`, and a window this long is a ban. */
+/** About 274 years, a window this long being a ban. */
 const WINDOW_MAX_MS = 8_640_000_000_000
 
 /**
@@ -30,13 +31,15 @@ const WINDOW_MAX_MS = 8_640_000_000_000
  * deployment facing a flood of distinct keys wants the Redis limiter, whose buckets expire in the store.
  */
 export class MemoryLimiter implements Limiter.Me {
-  /** Read by `AuthEngine.strict({ env: 'production' })`, which refuses this class there: a bucket per
+  /** Read by `AuthEngine.strict()`, which refuses this class in production: a bucket per
    *  node multiplies every budget by the node count, and a restart returns them all. A tag rather than a
    *  class-identity compare, for the reason `NoopLimiter` carries one. */
   readonly __isInProcessLimiter = true as const
   private readonly _max: number
   private readonly _windowMs: number
   private _buckets = new Map<string, { count: number; resetAt: number }>()
+  /** No sweep runs before this. One a window keeps an expired bucket resident for two windows at most. */
+  private _sweepDue = 0
 
   constructor(cfg: MemoryLimiter.Cfg = {}) {
     this._max = cfg.max ?? 10
@@ -48,9 +51,10 @@ export class MemoryLimiter implements Limiter.Me {
         detail: `memoryLimiter: max must be a number between 1 and ${Number.MAX_SAFE_INTEGER} (got ${this._max})`,
       })
     }
-    if (!Number.isFinite(this._windowMs) || this._windowMs < 1 || this._windowMs > WINDOW_MAX_MS) {
+    // Whole, as the Redis limiter takes it, so a config that works here works there.
+    if (!Number.isSafeInteger(this._windowMs) || this._windowMs < 1 || this._windowMs > WINDOW_MAX_MS) {
       throw new AuthError('AUTH_MISCONFIGURED', {
-        detail: `memoryLimiter: windowMs must be a number between 1 and ${WINDOW_MAX_MS} (got ${this._windowMs})`,
+        detail: `memoryLimiter: windowMs must be a whole number between 1 and ${WINDOW_MAX_MS} (got ${this._windowMs})`,
       })
     }
   }
@@ -69,7 +73,8 @@ export class MemoryLimiter implements Limiter.Me {
       // request can name - an email for the password guard, an identity id elsewhere - so a flood of
       // distinct addresses grew this map for as long as the process lived. `strict()` does not stop that
       // reaching production; it refuses only the noop limiter.
-      if (this._buckets.size >= SWEEP_AT) {
+      if (this._buckets.size >= SWEEP_AT && now >= this._sweepDue) {
+        this._sweepDue = now + this._windowMs
         for (const [k, v] of this._buckets) if (v.resetAt < now) this._buckets.delete(k)
       }
       b = { count: 0, resetAt: now + this._windowMs }

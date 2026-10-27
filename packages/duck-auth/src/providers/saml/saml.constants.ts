@@ -28,7 +28,8 @@ export const SAML_ASSERTION_ID_MAX = 256
 export const SAML_LIMITER_PREFIX = 'saml:'
 
 /**
- * AuthnContextClassRefs that mean the IdP actually performed a second factor.
+ * AuthnContextClassRefs that mean the IdP actually performed a second factor. `SecureRemotePassword` is a
+ * password and `Smartcard` is the card alone, one factor each; `SmartcardPKI` is the card with its PIN.
  *
  * SECURITY: stamping every SAML sign-in aal 2 whatever the IdP did lets a password-only IdP mint a
  * session that satisfies every step-up requirement in this library.
@@ -36,8 +37,6 @@ export const SAML_LIMITER_PREFIX = 'saml:'
 export const SAML_MFA_AUTHN_CONTEXTS = [
   'urn:oasis:names:tc:SAML:2.0:ac:classes:MobileTwoFactorContract',
   'urn:oasis:names:tc:SAML:2.0:ac:classes:MobileTwoFactorUnregistered',
-  'urn:oasis:names:tc:SAML:2.0:ac:classes:SecureRemotePassword',
-  'urn:oasis:names:tc:SAML:2.0:ac:classes:Smartcard',
   'urn:oasis:names:tc:SAML:2.0:ac:classes:SmartcardPKI',
   'urn:oasis:names:tc:SAML:2.0:ac:classes:SoftwarePKI',
   'urn:oasis:names:tc:SAML:2.0:ac:classes:TimeSyncToken',

@@ -14,6 +14,7 @@ import { assertIdentityAllowed } from '~/core/identities/identities.constants'
 import { isFiniteNumber, isRecord } from '~/core/predicates'
 import type { Provider } from '~/core/provider/provider.types'
 import type { Sessions } from '~/core/sessions/sessions.types'
+import { ALL_TENANTS } from '~/core/tenant/tenant'
 import type { Flows } from './flows.types'
 
 export async function beginSignUp<Profile extends Identities.ProfileMetadataBase>(
@@ -30,6 +31,10 @@ export async function beginSignUp<Profile extends Identities.ProfileMetadataBase
   }
   if (opts.required !== undefined && (!Array.isArray(opts.required) || opts.required.length > 16)) {
     throw new AuthError('AUTH_MISCONFIGURED', { detail: 'beginSignUp: required must be an array <=16' })
+  }
+  // Before any write: the flow's reader refuses a stage it does not know, so the token answered would be dead.
+  if (opts.required?.some((stage) => typeof stage !== 'string' || !isSignUpStage(stage))) {
+    throw new AuthError('AUTH_MISCONFIGURED', { detail: 'beginSignUp: required names a stage that does not exist' })
   }
   const ctx = deps.ctxFactory(opts.tenantId)
   const now = Date.now()
@@ -64,13 +69,13 @@ export async function beginSignUp<Profile extends Identities.ProfileMetadataBase
     // Kill the flow the previous attempt was holding. Two live tokens on one row
     // would let whoever started first finish the signup the second caller is
     // paying for.
-    for (const c of await ctx.stores.credentials.listByIdentity(existing.id, 'recovery', {})) {
+    for (const c of await ctx.stores.credentials.listByIdentity(existing.id, 'recovery', ALL_TENANTS)) {
       if (!isRevoked(c) && getCredentialPurpose(c) === RECOVERY_PURPOSES.signupFlow) {
-        await ctx.stores.credentials.revoke(c.id, {})
+        await ctx.stores.credentials.revoke(c.id, ALL_TENANTS)
       }
     }
     // A sign-up completed without a verified address leaves the row abandoned and its session live.
-    await deps.sessions.revokeAllForIdentity(existing.id)
+    await deps.sessions.revokeAllForIdentity(existing.id, ALL_TENANTS)
     identityId = (await deps.identities.updateProfile(existing.id, profile, existing.version)).id
   } else {
     identityId = (
@@ -172,6 +177,10 @@ export async function advanceSignUp<Profile extends Identities.ProfileMetadataBa
   if (typeof opts.stage !== 'string' || opts.stage.length === 0 || opts.stage.length > 64) {
     throw new AuthError('AUTH_SIGNUP_TOKEN_INVALID')
   }
+  // The reader drops a stage it does not know, so recording one answered a completion that never counts.
+  if (!isSignUpStage(opts.stage)) {
+    throw new AuthError('AUTH_MISCONFIGURED', { detail: 'advanceSignUp: stage does not exist' })
+  }
   const ctx = deps.ctxFactory(opts.tenantId)
   const { flow, row } = await liveSignUpFlow<Profile>(ctx, opts.flowToken, 'AUTH_SIGNUP_TOKEN_INVALID')
 
@@ -219,7 +228,7 @@ export async function completeSignUp<Profile extends Identities.ProfileMetadataB
     userAgent?: string
     previousSid?: string
   },
-): Promise<Flows.SignInOutcome> {
+): Promise<Extract<Flows.SignInOutcome, { challenge: null }>> {
   if (typeof opts.flowToken !== 'string' || opts.flowToken.length === 0 || opts.flowToken.length > 256) {
     throw new AuthError('AUTH_SIGNUP_TOKEN_INVALID')
   }
@@ -279,7 +288,7 @@ export async function completeSignUp<Profile extends Identities.ProfileMetadataB
     ...(opts.userAgent !== undefined && { userAgent: opts.userAgent }),
   })
   const intents = deps.transport.issue(sid, session, { fresh: true, absolute: false, csrfToken })
-  return { session, sid, intents }
+  return { challenge: null, intents, session, sid }
 }
 
 /**
@@ -289,7 +298,7 @@ export async function completeSignUp<Profile extends Identities.ProfileMetadataB
  * SECURITY: the three checks are the whole safety argument, because reusing a row means the next
  * caller's `completeSignUp` mints a session for it. Anything that carries or proves something, a
  * password, a Google link, a TOTP secret or an MFA backup code, reads as established, which is right.
- * The credential read is unscoped on purpose: identities are global while credentials are not, so a
+ * The credential read is across every tenant: identities are global while credentials are not, so a
  * tenant-scoped read would miss a password in another tenant and call the account abandoned.
  */
 async function isAbandonedSignUp<Profile extends Identities.ProfileMetadataBase>(
@@ -298,7 +307,7 @@ async function isAbandonedSignUp<Profile extends Identities.ProfileMetadataBase>
 ): Promise<boolean> {
   if (identity.emailVerified) return false
   if (identity.providers.length > 0) return false
-  const credentials = await ctx.stores.credentials.listByIdentity(identity.id, null, {})
+  const credentials = await ctx.stores.credentials.listByIdentity(identity.id, null, ALL_TENANTS)
   return credentials.every((c) => isRevoked(c) || getCredentialPurpose(c) === RECOVERY_PURPOSES.signupFlow)
 }
 

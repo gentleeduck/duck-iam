@@ -34,6 +34,7 @@ export const authOidcCodesTable = mysqlTable(
     codeChallengeMethod: varchar('code_challenge_method', { length: 16 }),
     tenantId: varchar('tenant_id', { length: 128 }),
     sid: varchar('sid', { length: 128 }).notNull(),
+    authTime: bigint('auth_time', { mode: 'number' }),
     exp: bigint('exp', { mode: 'number' }).notNull(),
   },
   (t) => [index('oidc_codes_exp').on(t.exp)],
@@ -44,13 +45,14 @@ export const authOidcAccessTokensTable = mysqlTable(
   'oidc_access_tokens',
   {
     tokenHash: varchar('token_hash', { length: 64 }).primaryKey(),
+    familyId: varchar('family_id', { length: 64 }).notNull(),
     clientId: varchar('client_id', { length: 255 }).notNull(),
     identityId: varchar('identity_id', { length: 128 }).notNull(),
     scope: text('scope').notNull(),
     tenantId: varchar('tenant_id', { length: 128 }),
     exp: bigint('exp', { mode: 'number' }).notNull(),
   },
-  (t) => [index('oidc_at_exp').on(t.exp)],
+  (t) => [index('oidc_at_family').on(t.familyId), index('oidc_at_exp').on(t.exp)],
 )
 
 /** Issued refresh tokens, by hash. */
@@ -63,6 +65,8 @@ export const authOidcRefreshTokensTable = mysqlTable(
     identityId: varchar('identity_id', { length: 128 }).notNull(),
     scope: text('scope').notNull(),
     tenantId: varchar('tenant_id', { length: 128 }),
+    sid: varchar('sid', { length: 128 }).notNull(),
+    authTime: bigint('auth_time', { mode: 'number' }),
     exp: bigint('exp', { mode: 'number' }).notNull(),
     consumedAt: bigint('consumed_at', { mode: 'number' }),
   },
@@ -144,6 +148,7 @@ function rowToCode(row: typeof authOidcCodesTable.$inferSelect): OidcOP.Code {
         : null,
     tenant_id: row.tenantId,
     sid: row.sid,
+    auth_time: row.authTime,
     exp: row.exp,
   }
 }
@@ -151,6 +156,7 @@ function rowToCode(row: typeof authOidcCodesTable.$inferSelect): OidcOP.Code {
 function rowToAccess(row: typeof authOidcAccessTokensTable.$inferSelect): OidcOP.AccessToken {
   return {
     token_hash: row.tokenHash,
+    family_id: row.familyId,
     client_id: row.clientId,
     identity_id: row.identityId,
     scope: decodeArray(row.scope),
@@ -167,6 +173,8 @@ function rowToRefresh(row: typeof authOidcRefreshTokensTable.$inferSelect): Oidc
     identity_id: row.identityId,
     scope: decodeArray(row.scope),
     tenant_id: row.tenantId,
+    sid: row.sid,
+    auth_time: row.authTime,
     exp: row.exp,
     consumedAt: row.consumedAt,
   }
@@ -250,6 +258,7 @@ export function authCreateDrizzleMysqlOidcOpStores(db: AnyMySqlDatabase): {
           codeChallengeMethod: c.code_challenge_method,
           tenantId: c.tenant_id,
           sid: c.sid,
+          authTime: c.auth_time,
           exp: c.exp,
         })
       },
@@ -273,6 +282,7 @@ export function authCreateDrizzleMysqlOidcOpStores(db: AnyMySqlDatabase): {
       async insert(t) {
         await db.insert(authOidcAccessTokensTable).values({
           tokenHash: t.token_hash,
+          familyId: t.family_id,
           clientId: t.client_id,
           identityId: t.identity_id,
           scope: encodeArray(t.scope),
@@ -297,6 +307,9 @@ export function authCreateDrizzleMysqlOidcOpStores(db: AnyMySqlDatabase): {
       async revokeByHash(hash) {
         await db.delete(authOidcAccessTokensTable).where(eq(authOidcAccessTokensTable.tokenHash, hash))
       },
+      async revokeFamily(family_id) {
+        await db.delete(authOidcAccessTokensTable).where(eq(authOidcAccessTokensTable.familyId, family_id))
+      },
     },
     refreshTokens: {
       async insert(t) {
@@ -307,6 +320,8 @@ export function authCreateDrizzleMysqlOidcOpStores(db: AnyMySqlDatabase): {
           identityId: t.identity_id,
           scope: encodeArray(t.scope),
           tenantId: t.tenant_id,
+          sid: t.sid,
+          authTime: t.auth_time,
           exp: t.exp,
           consumedAt: t.consumedAt,
         })

@@ -16,27 +16,27 @@ export function mfaRoutes(auth: AppAuth) {
     })
 
     app.post('/totp/begin', async (req) => {
-      const { identity } = await signedIn(auth, nodeHeadersToFetch(req.headers))
-      return auth.mfa.beginTotpEnrollment(identity.id, identity.profile.email)
+      const { identity, session } = await signedIn(auth, nodeHeadersToFetch(req.headers))
+      return auth.mfa.beginTotpEnrollment(identity.id, identity.profile.email, session)
     })
 
     app.post('/totp/confirm', async (req) => {
-      const { identity } = await signedIn(auth, nodeHeadersToFetch(req.headers))
-      const confirmed = await auth.mfa.confirmTotpEnrollment(identity.id, readString(req.body, 'code') ?? '')
+      const { identity, session } = await signedIn(auth, nodeHeadersToFetch(req.headers))
+      const confirmed = await auth.mfa.confirmTotpEnrollment(identity.id, readString(req.body, 'code') ?? '', session)
       if (!confirmed.ok) throw new AuthError('AUTH_INVALID_CREDENTIALS')
       return { backupCodes: confirmed.backupCodes }
     })
 
     app.post('/totp/remove', async (req) => {
-      const { identity } = await signedIn(auth, nodeHeadersToFetch(req.headers))
-      await auth.mfa.removeTotp(identity.id)
-      await auth.mfa.removeBackupCodes(identity.id)
+      const { identity, session } = await signedIn(auth, nodeHeadersToFetch(req.headers))
+      await auth.mfa.removeTotp(identity.id, session)
+      await auth.mfa.removeBackupCodes(identity.id, session)
       return { ok: true }
     })
 
     app.post('/backup-codes', async (req) => {
-      const { identity } = await signedIn(auth, nodeHeadersToFetch(req.headers))
-      return { backupCodes: await auth.mfa.regenerateBackupCodes(identity.id) }
+      const { identity, session } = await signedIn(auth, nodeHeadersToFetch(req.headers))
+      return { backupCodes: await auth.mfa.regenerateBackupCodes(identity.id, session) }
     })
   }
 }

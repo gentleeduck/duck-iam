@@ -23,6 +23,7 @@ export function google<Profile extends Identities.ProfileMetadataBase = Identiti
     endpoints: GOOGLE_ENDPOINTS,
     scopes: opts.scopes ?? ['openid', 'email', 'profile'],
     fetch: opts.fetch,
+    timeoutMs: opts.timeoutMs,
   })
   return oProvider<Profile>({
     providerId: 'google',
@@ -30,7 +31,6 @@ export function google<Profile extends Identities.ProfileMetadataBase = Identiti
     redirectUri: opts.redirectUri,
     stateSigningSecret: opts.stateSigningSecret,
     nonceStore: opts.nonceStore,
-    allowStateReplay: opts.allowStateReplay,
     stateCookie: opts.stateCookie,
     onSignIn: opts.onSignIn,
     onFederationConflict: opts.onFederationConflict,
