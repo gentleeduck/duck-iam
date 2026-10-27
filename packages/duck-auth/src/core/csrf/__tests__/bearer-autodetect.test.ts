@@ -101,7 +101,7 @@ describe('a bearer configured on another header or scheme', () => {
       baseUrl: 'https://x.test',
       providers: [],
       stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
-      transport: new CompositeTransport([new CookieTransport(), bearer]),
+      transport: new CompositeTransport([new CookieTransport({ name: 'duck-sid' }), bearer]),
     })
     const identity = await adapter.identities.create(
       identityInput({ profile: { email: 'a@b.test', username: 'a' }, providers: [] }),
@@ -125,7 +125,7 @@ describe('a bearer configured on another header or scheme', () => {
 
   it('does not exempt the cookie request beside it, whose token check still runs', async () => {
     const { auth, sid } = await engineWith(new BearerTransport({ scheme: 'Token' }))
-    const cookie = `__Host-duck-sid=${sid}`
+    const cookie = `duck-sid=${sid}`
 
     await expect(csrfGuard(auth, { headers: new Headers({ cookie }), method: 'POST' })).rejects.toMatchObject({
       code: 'AUTH_CSRF',

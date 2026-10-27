@@ -35,7 +35,7 @@ function buildAuth(): {
     limiter: new MemoryLimiter({ max: 50, windowMs: 60_000 }),
     providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) })],
     stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
-    transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+    transport: new CookieTransport({ name: 'duck-sid' }),
   })
   return { adapter, auth, channel }
 }
@@ -76,7 +76,7 @@ describe('completePasswordReset writes the new password into the tenant it was a
     const ident = await adapter.identities.create(
       identityInput({ profile: { email: 'a@x.com', username: 'a@x.com' }, providers: [] }),
     )
-    await auth.passwords.set(ident.id, 'old-password-123', adapter.credentials, { tenantId: 'tenant-a' })
+    await auth.passwords.set(ident.id, 'old-password-123', adapter.credentials, null, { tenantId: 'tenant-a' })
 
     await resetPassword(auth, ident.id, 'a@x.com', 'new-password-456', 'tenant-a', channel)
 
@@ -93,7 +93,7 @@ describe('completePasswordReset writes the new password into the tenant it was a
     const ident = await adapter.identities.create(
       identityInput({ profile: { email: 'a@x.com', username: 'a@x.com' }, providers: [] }),
     )
-    await auth.passwords.set(ident.id, 'old-password-123', adapter.credentials, { tenantId: 'tenant-a' })
+    await auth.passwords.set(ident.id, 'old-password-123', adapter.credentials, null, { tenantId: 'tenant-a' })
 
     await resetPassword(auth, ident.id, 'a@x.com', 'new-password-456', 'tenant-a', channel)
 
@@ -108,8 +108,8 @@ describe('completePasswordReset writes the new password into the tenant it was a
     const ident = await adapter.identities.create(
       identityInput({ emailVerified: true, profile: { email: 'a@x.com', username: 'a@x.com' }, providers: [] }),
     )
-    await auth.passwords.set(ident.id, 'tenant-a-password', adapter.credentials, { tenantId: 'tenant-a' })
-    await auth.passwords.set(ident.id, 'tenant-b-password', adapter.credentials, { tenantId: 'tenant-b' })
+    await auth.passwords.set(ident.id, 'tenant-a-password', adapter.credentials, null, { tenantId: 'tenant-a' })
+    await auth.passwords.set(ident.id, 'tenant-b-password', adapter.credentials, null, { tenantId: 'tenant-b' })
 
     await resetPassword(auth, ident.id, 'a@x.com', 'new-password-456', 'tenant-a', channel)
 
@@ -131,7 +131,7 @@ describe('a new password the policy refuses spends nothing', () => {
     const ident = await adapter.identities.create(
       identityInput({ profile: { email: 'a@x.com', username: 'a@x.com' }, providers: [] }),
     )
-    await auth.passwords.set(ident.id, 'old-password-123', adapter.credentials)
+    await auth.passwords.set(ident.id, 'old-password-123', adapter.credentials, null)
     await auth.sessions.create({
       aal: 1,
       factors: [{ completedAt: new Date(), method: 'password' }],
@@ -172,9 +172,9 @@ describe('a password reset revokes every remembered device', () => {
     const ident = await adapter.identities.create(
       identityInput({ profile: { email: 'a@x.com', username: 'a@x.com' }, providers: [] }),
     )
-    await auth.passwords.set(ident.id, 'old-password-123', adapter.credentials, tenant)
-    const mine = await devices.issue(ident.id, {}, tenant)
-    const theirs = await devices.issue('someone-else', {}, tenant)
+    await auth.passwords.set(ident.id, 'old-password-123', adapter.credentials, null, tenant)
+    const mine = await devices.issue(ident.id, null, {}, tenant)
+    const theirs = await devices.issue('someone-else', null, {}, tenant)
 
     await resetPassword(auth, ident.id, 'a@x.com', 'new-password-456', 'tenant-a', channel)
 

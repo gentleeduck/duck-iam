@@ -30,7 +30,7 @@ describe('the last-factor guard, through both doors', () => {
       limiter: new MemoryLimiter({ max: 20, windowMs: 60_000 }),
       providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) })],
       stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
-      transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+      transport: new CookieTransport({ name: 'duck-sid' }),
     })
     const ident = await auth.identities.create({ profile: { email: 'a@x.com', username: 'a@x.com' } })
     identityId = ident.id
@@ -40,6 +40,7 @@ describe('the last-factor guard, through both doors', () => {
       identityId,
       providerId: 'google',
       providerSub: 'google-1',
+      session: null,
     })
   })
 
@@ -47,13 +48,23 @@ describe('the last-factor guard, through both doors', () => {
     vi.useRealTimers()
   })
 
+  /** The identity's own session, stepped up, so the step-up passes and the guard is what answers. */
+  const steppedUp = async () => {
+    const factors = [{ completedAt: new Date(), method: 'totp' as const }]
+    return (await auth.sessions.create({ aal: 2, factors, identityId, kind: 'user' })).session
+  }
+
   /** Both doors onto the same act, so a case can be asserted against each without repeating itself. */
   const doors = [
     {
       name: 'flows.unlinkProvider',
-      unlink: async () => (await auth.flows.unlinkProvider({ identityId, providerId: 'google' })).identity.id,
+      unlink: async () =>
+        (await auth.flows.unlinkProvider({ identityId, providerId: 'google', session: await steppedUp() })).identity.id,
     },
-    { name: 'identities.unlink', unlink: async () => (await auth.identities.unlink(identityId, 'google')).id },
+    {
+      name: 'identities.unlink',
+      unlink: async () => (await auth.identities.unlink(identityId, 'google', await steppedUp())).id,
+    },
   ] as const
 
   describe.each(doors)('$name', ({ unlink }) => {

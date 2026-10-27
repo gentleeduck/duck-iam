@@ -20,6 +20,8 @@ export default mergeConfig(baseConfig, {
     coverage: {
       thresholds: { branches: 79, functions: 75, lines: 83, statements: 81 },
     },
+    // Every `vi.stubEnv` is undone after its test, so a production case cannot leak into the next one.
+    unstubEnvs: true,
     // Provisions throwaway Redis + Postgres for the e2e suites and removes them
     // afterwards. No-ops when DUCKAUTH_E2E_* is already set or docker is absent.
     globalSetup: [fileURLToPath(new URL('./src/test/e2e-containers.ts', import.meta.url))],

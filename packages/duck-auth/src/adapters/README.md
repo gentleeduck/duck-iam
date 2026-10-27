@@ -177,7 +177,7 @@ left that moves a read here.
 | --- | --- |
 | `{ id }` | `auth_identities_pkey` |
 | `{ email }` | `uq_auth_identities_email` on `lower(profile->>'email')` |
-| `{ providerId, providerSub }` | `uq_auth_identity_providers_sub` → pkey → `auth_identity_providers_identity` |
+| `{ providerId, providerSub, tenantId }` | `uq_auth_identity_providers_sub` (`_sub_tenant` in a tenant) → pkey → `auth_identity_providers_identity` |
 
 | call | p50 | p95 | before | statements |
 | --- | --- | --- | --- | --- |
@@ -306,7 +306,7 @@ Reading an identity by provider sub touches `auth_identity_providers` twice — 
 `uq_auth_identity_providers_sub` to learn whose login it is, then through
 `auth_identity_providers_identity` to list that identity's logins. They answer different questions, so
 one touch means denormalising the logins onto the identity row, which drops the
-`(provider_id, provider_sub)` unique that stops two accounts claiming one login. The second probe is a
+per-tenant `(provider_id, provider_sub)` unique that stops two accounts claiming one login. The second probe is a
 range scan over a handful of rows. Leave it.
 
 MySQL's `erase` keeps the `select … for update` the other writes lost. It has to answer with the row it

@@ -12,6 +12,7 @@ import { apiKeyProvider } from '~/providers/api-key'
 import { magicLink } from '~/providers/magic-link'
 import { mfaProvider } from '~/providers/mfa'
 import { passwords, ScryptHasher } from '~/providers/passwords'
+import { authTestDataAtRest } from '~/test'
 
 /**
  * Deleting an account must end every way into it, not just the ones that go
@@ -36,7 +37,11 @@ function build() {
     baseUrl: 'https://app.test',
     deliver: channel,
     limiter: new MemoryLimiter({ max: 50, windowMs: 60_000 }),
-    providers: [apiKeyProvider(), passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) }), mfaProvider()],
+    providers: [
+      apiKeyProvider(),
+      passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) }),
+      mfaProvider({ dataAtRest: authTestDataAtRest() }),
+    ],
     stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
     transport: new JwtTransport({
       issuer: 'https://app.test',
@@ -58,7 +63,7 @@ function build() {
 }
 
 async function issueKey(auth: AuthEngine<P>, identityId: string) {
-  const created = await auth.apiKeys.create(identityId, { name: 'ci', scopes: ['read:users'] })
+  const created = await auth.apiKeys.create(identityId, { name: 'ci', scopes: ['read:users'], session: null })
   return { plaintext: created.plaintext, id: created.key.id }
 }
 

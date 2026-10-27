@@ -1,6 +1,7 @@
 import type { Events } from '~/core/events'
 import type { Provider, Providers } from '~/core/provider'
-import type { MfaFacet } from '~/providers/mfa'
+import type { Mfa, MfaFacet } from '~/providers/mfa'
+import type { Passkey } from '~/providers/passkey/passkey.types'
 import type { PasswordsImpl } from '~/providers/passwords'
 import type { Identities, IdentitiesImpl } from '../identities'
 import type { Sessions, SessionsImpl } from '../sessions'
@@ -44,20 +45,52 @@ export namespace Flows {
     ip?: string
     userAgent?: string
     tenantId?: string
+    /** A `RememberMeFacet.issue` token from the device. Its own identity's sign-in skips the challenge, at the AAL
+     *  the first factor reached, so a step-up still asks for the second. */
+    rememberedDevice?: string
   }
 
-  /** What `flows.signIn` answers: the new session and the intents to apply to the response. */
-  export type SignInOutcome = {
-    /** Persisted session row, keyed by the hashed sid. Null when the provider issued no `startSession`
-     *  intent and wants the caller to answer with something else - a redirect or a json body it put in
-     *  `intents`; `sid` is then empty too. A `requireMfa` intent does not land here: it throws
-     *  `AUTH_STEP_UP_REQUIRED`. */
-    session: Sessions.Me | null
-    /** Plaintext SID the client uses to authenticate; empty when `session` is null. */
-    sid: string
-    /** Intents the framework adapter must execute on the response. */
-    intents: Provider.Intent[]
+  /** What `flows.signIn` answers: the new session and the intents to apply to the response, or the challenge a
+   *  second factor has to answer before there is one. */
+  export type SignInOutcome =
+    | {
+        /** Persisted session row, keyed by the hashed sid. Null when the provider issued no `startSession`
+         *  intent and wants the caller to answer with something else - a redirect or a json body it put in
+         *  `intents`; `sid` is then empty too. A `requireMfa` intent the account has no second factor for
+         *  does not land here: it throws `AUTH_STEP_UP_REQUIRED`. */
+        session: Sessions.Me | null
+        /** Plaintext SID the client uses to authenticate; empty when `session` is null. */
+        sid: string
+        /** Intents the framework adapter must execute on the response. */
+        intents: Provider.Intent[]
+        challenge: null
+      }
+    | {
+        session: null
+        sid: ''
+        /** The provider's own intents, which still apply to the response. */
+        intents: Provider.Intent[]
+        challenge: SignInChallenge
+      }
+
+  /** A sign-in stopped at its second factor: no session is open until `completeStepUp` takes the token. */
+  export type SignInChallenge = {
+    /** Single-use and stored hashed. A newer challenge for the identity retires it, and so does a password reset. */
+    token: string
+    /** Whose sign-in it is, for beginning a security-key or passkey assertion. */
+    identityId: string
+    /** The factors that can finish it. */
+    methods: Sessions.FactorMethod[]
+    expiresAt: Date
   }
+
+  /** The factor `completeStepUp` verifies. */
+  export type StepUpFactor =
+    | { method: 'totp' | 'backup-code'; code: string }
+    | { method: 'webauthn'; webauthn: Mfa.WebauthnMfaVerifyOpts }
+    /** An assertion by one of the identity's passkeys that verified the user, begun with
+     *  `beginProvider('passkey', { sessionId })`. */
+    | { method: 'passkey'; passkey: Passkey.StepUpInput }
 
   /** What a privileged operation demands of the session before it runs. */
   export type StepUpRequirement = {
@@ -122,7 +155,7 @@ export namespace Flows {
     iamDecisionId?: string
     /** One hour, and an override cannot raise it. */
     ttlMs?: number
-    /** The request's tenant. The impersonation is in the operator's session's tenant, and naming another is refused. */
+    /** The operator session's tenant, which the impersonation is in; naming none accepts only an operator session with no tenant. */
     tenantId?: string
   }
 
@@ -164,7 +197,10 @@ export namespace Flows {
       providerId: string
       providerSub: string
     }) => Promise<boolean>
-    /** Tenant scope. */
+    /** The caller's session, `null` without one. Beside any factor but the password, this is refused with
+     *  `AUTH_MFA_REQUIRED` unless it is the identity's own, stepped up to AAL 2. */
+    session: Sessions.Me | null
+    /** The tenant the link signs in to; omitted is no tenant. */
     tenantId?: string
   }
 
@@ -172,8 +208,13 @@ export namespace Flows {
   export type UnlinkProviderInput = {
     identityId: string
     providerId: string
+    /** The caller's session, `null` without one. Beside any factor but the password, this is refused with
+     *  `AUTH_MFA_REQUIRED` unless it is the identity's own, stepped up to AAL 2. */
+    session: Sessions.Me | null
+    /** The tenant whose link is dropped; omitted is no tenant. */
     tenantId?: string
-    /** Bypasses the "would lock out the user" guard. For account deletion and admin overrides only. */
+    /** Bypasses the "would lock out the user" guard, never `session`'s. For account deletion and admin
+     *  overrides only. */
     allowLockout?: boolean
   }
 

@@ -11,6 +11,7 @@ import { MemoryAdapter } from '~/adapters/memory'
 import { toCredentialCreate } from '~/core/credentials/credentials'
 import type { Credential } from '~/core/credentials/credentials.types'
 import { InMemoryEvents } from '~/core/events'
+import { authTestDataAtRest } from '~/test'
 import { generateSecret, totpAt } from '../internal/totp'
 import { MfaImpl } from '../mfa'
 import { DEFAULT_MFA_CONFIG } from '../mfa.constants'
@@ -29,7 +30,10 @@ describe('MfaImpl honours a credential expiry', () => {
 
   beforeEach(() => {
     adapter = new MemoryAdapter()
-    facet = new MfaImpl(adapter.credentials, new InMemoryEvents(), DEFAULT_MFA_CONFIG)
+    facet = new MfaImpl(adapter.credentials, new InMemoryEvents(), {
+      ...DEFAULT_MFA_CONFIG,
+      dataAtRest: authTestDataAtRest(),
+    })
   })
 
   /** Read at the moment it is used, so a step index does not go stale across a clock boundary. */
@@ -39,8 +43,8 @@ describe('MfaImpl honours a credential expiry', () => {
    *  row is recreated from what `confirmTotpEnrollment` actually wrote rather than from a guess at it.
    *  `expiresAt` is read at the write, so a slow enrolment cannot leave it behind `createdAt`. */
   async function enrolledTotp(expiresAt: () => Date | null): Promise<string> {
-    const challenge = await facet.beginTotpEnrollment(ID, 'alice@x.com')
-    await facet.confirmTotpEnrollment(ID, totpAt(challenge.secret, nowStep()))
+    const challenge = await facet.beginTotpEnrollment(ID, 'alice@x.com', null)
+    await facet.confirmTotpEnrollment(ID, totpAt(challenge.secret, nowStep()), null)
     const [row] = await adapter.credentials.listByIdentity(ID, 'totp', {})
     if (!row) throw new Error('enrolment wrote no row')
     await adapter.credentials.delete(row.id, {})
@@ -60,8 +64,9 @@ describe('MfaImpl honours a credential expiry', () => {
   /** The row `beginTotpEnrollment` writes, with a deadline on it. */
   async function pendingTotp(expiresAt: Date): Promise<string> {
     const secret = generateSecret()
+    const sealed = await authTestDataAtRest().encrypt(secret, { field: 'totp', identityId: ID })
     await adapter.credentials.create(
-      toCredentialCreate({ expiresAt, identityId: ID, kind: 'totp', metadata: { confirmed: false }, secret }),
+      toCredentialCreate({ expiresAt, identityId: ID, kind: 'totp', metadata: { confirmed: false }, secret: sealed }),
       {},
     )
     return secret
@@ -113,8 +118,10 @@ describe('MfaImpl honours a credential expiry', () => {
 
     it('lets a new enrolment start once the old one has expired, rather than refusing for ever', async () => {
       await enrolledTotp(SOON)
+      // Its backup codes are a factor of their own.
+      await adapter.credentials.deleteByKind(ID, 'recovery', {})
       await elapse()
-      await expect(facet.beginTotpEnrollment(ID, 'alice@x.com')).resolves.toMatchObject({
+      await expect(facet.beginTotpEnrollment(ID, 'alice@x.com', null)).resolves.toMatchObject({
         secret: expect.any(String),
       })
     })
@@ -122,7 +129,7 @@ describe('MfaImpl honours a credential expiry', () => {
     it('refuses to confirm a pending enrolment whose deadline has passed, and mints no codes', async () => {
       const secret = await pendingTotp(SOON())
       await elapse()
-      await expect(facet.confirmTotpEnrollment(ID, totpAt(secret, nowStep()))).rejects.toMatchObject({
+      await expect(facet.confirmTotpEnrollment(ID, totpAt(secret, nowStep()), null)).rejects.toMatchObject({
         code: 'AUTH_MFA_REQUIRED',
       })
       expect(await adapter.credentials.listByIdentity(ID, 'recovery', {})).toEqual([])
@@ -130,13 +137,17 @@ describe('MfaImpl honours a credential expiry', () => {
 
     it('confirms a pending one whose deadline has not', async () => {
       const secret = await pendingTotp(FUTURE)
-      await expect(facet.confirmTotpEnrollment(ID, totpAt(secret, nowStep()))).resolves.toMatchObject({ ok: true })
+      await expect(facet.confirmTotpEnrollment(ID, totpAt(secret, nowStep()), null)).resolves.toMatchObject({
+        ok: true,
+      })
     })
 
     it('still refuses a new enrolment over a live one', async () => {
       await enrolledTotp(() => FUTURE)
-      await expect(facet.beginTotpEnrollment(ID, 'alice@x.com')).rejects.toMatchObject({
+      await adapter.credentials.deleteByKind(ID, 'recovery', {})
+      await expect(facet.beginTotpEnrollment(ID, 'alice@x.com', null)).rejects.toMatchObject({
         code: 'AUTH_MFA_REQUIRED',
+        meta: { methods: ['totp'] },
       })
     })
   })

@@ -17,6 +17,7 @@ import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
 import { mfaProvider, totpAt } from '~/providers/mfa'
 import { passwords, ScryptHasher } from '~/providers/passwords'
+import { authTestDataAtRest } from '~/test'
 
 interface MyProfile extends Identities.ProfileMetadataBase {
   email: string
@@ -45,9 +46,12 @@ function buildAuth(): {
     baseUrl: 'https://app.example.com',
     deliver: channel,
     limiter: new MemoryLimiter({ max: 5, windowMs: 60_000 }),
-    providers: [passwords({ hasher: new ScryptHasher({ keylen: 32, N: 1 << 10 }) }), mfaProvider()],
+    providers: [
+      passwords({ hasher: new ScryptHasher({ keylen: 32, N: 1 << 10 }) }),
+      mfaProvider({ dataAtRest: authTestDataAtRest() }),
+    ],
     stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
-    transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+    transport: new CookieTransport({ name: 'duck-sid' }),
   })
   return { adapter, auth, channel }
 }
@@ -70,9 +74,9 @@ describe('expired sessions are refused at every privileged gate', () => {
   it('completeStepUp refuses an expired sid instead of rotating it into a live session', async () => {
     const { auth, adapter } = buildAuth()
     const identity = await auth.identities.create({ profile: { email: 'a@x.com', username: 'a@x.com' } })
-    const challenge = await auth.mfa.beginTotpEnrollment(identity.id, 'a@x.com')
+    const challenge = await auth.mfa.beginTotpEnrollment(identity.id, 'a@x.com', null)
     const enrolledStep = Math.floor(Date.now() / 1000 / 30)
-    await auth.mfa.confirmTotpEnrollment(identity.id, totpAt(challenge.secret, enrolledStep))
+    await auth.mfa.confirmTotpEnrollment(identity.id, totpAt(challenge.secret, enrolledStep), null)
 
     const { sid } = await auth.sessions.create({
       aal: 1,
@@ -113,9 +117,9 @@ describe('expired sessions are refused at every privileged gate', () => {
   it('completePasswordReset refuses an expired AAL=2 sid at the MFA gate', async () => {
     const { auth, adapter, channel } = buildAuth()
     const identity = await auth.identities.create({ profile: { email: 'a@x.com', username: 'a@x.com' } })
-    await auth.passwords.set(identity.id, 'old-password-9', adapter.credentials)
-    const ch = await auth.mfa.beginTotpEnrollment(identity.id, 'a@x.com')
-    await auth.mfa.confirmTotpEnrollment(identity.id, totpAt(ch.secret, Math.floor(Date.now() / 1000 / 30)))
+    await auth.passwords.set(identity.id, 'old-password-9', adapter.credentials, null)
+    const ch = await auth.mfa.beginTotpEnrollment(identity.id, 'a@x.com', null)
+    await auth.mfa.confirmTotpEnrollment(identity.id, totpAt(ch.secret, Math.floor(Date.now() / 1000 / 30)), null)
     await auth.flows.requestPasswordReset({
       findIdentityByEmail: (email) => auth.identities.getByEmail(email),
       input: { email: 'a@x.com' },
@@ -145,9 +149,9 @@ describe('expired sessions are refused at every privileged gate', () => {
     // recomputes it, and this gate reads that field.
     const { auth, adapter, channel } = buildAuth()
     const identity = await auth.identities.create({ profile: { email: 'a@x.com', username: 'a@x.com' } })
-    await auth.passwords.set(identity.id, 'old-password-9', adapter.credentials)
-    const ch = await auth.mfa.beginTotpEnrollment(identity.id, 'a@x.com')
-    await auth.mfa.confirmTotpEnrollment(identity.id, totpAt(ch.secret, Math.floor(Date.now() / 1000 / 30)))
+    await auth.passwords.set(identity.id, 'old-password-9', adapter.credentials, null)
+    const ch = await auth.mfa.beginTotpEnrollment(identity.id, 'a@x.com', null)
+    await auth.mfa.confirmTotpEnrollment(identity.id, totpAt(ch.secret, Math.floor(Date.now() / 1000 / 30)), null)
     await auth.flows.requestPasswordReset({
       findIdentityByEmail: (email) => auth.identities.getByEmail(email),
       input: { email: 'a@x.com' },
@@ -180,9 +184,9 @@ describe('expired sessions are refused at every privileged gate', () => {
     // The guards above are worthless if they also refuse the legitimate case.
     const { auth, channel, adapter } = buildAuth()
     const identity = await auth.identities.create({ profile: { email: 'a@x.com', username: 'a@x.com' } })
-    await auth.passwords.set(identity.id, 'old-password-9', adapter.credentials)
-    const ch = await auth.mfa.beginTotpEnrollment(identity.id, 'a@x.com')
-    await auth.mfa.confirmTotpEnrollment(identity.id, totpAt(ch.secret, Math.floor(Date.now() / 1000 / 30)))
+    await auth.passwords.set(identity.id, 'old-password-9', adapter.credentials, null)
+    const ch = await auth.mfa.beginTotpEnrollment(identity.id, 'a@x.com', null)
+    await auth.mfa.confirmTotpEnrollment(identity.id, totpAt(ch.secret, Math.floor(Date.now() / 1000 / 30)), null)
     await auth.flows.requestPasswordReset({
       findIdentityByEmail: (email) => auth.identities.getByEmail(email),
       input: { email: 'a@x.com' },

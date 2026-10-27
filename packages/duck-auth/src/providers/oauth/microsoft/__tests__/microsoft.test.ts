@@ -38,7 +38,7 @@ async function profileFrom(userinfo: Record<string, unknown>): Promise<OAuth.Pro
       }),
     ],
     stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
-    transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+    transport: new CookieTransport({ name: 'duck-sid' }),
   })
   const { state, cookieHeader } = afterOAuthBegin(await auth.flows.beginProvider('oauth:microsoft', {}))
   await auth.flows.signIn({ input: { code: 'authcode', cookieHeader, state }, providerId: 'oauth:microsoft' })

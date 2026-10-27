@@ -13,7 +13,7 @@ import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
 import { mfaProvider, totpAt } from '~/providers/mfa'
 import { passwords, ScryptHasher } from '~/providers/passwords'
-import { authTestDeliver } from '~/test'
+import { authTestDataAtRest, authTestDeliver } from '~/test'
 
 interface MyProfile extends Identities.ProfileMetadataBase {
   email: string
@@ -27,9 +27,12 @@ function build(opts: { limit?: number; profileMaxBytes?: number } = {}) {
     deliver: channel.deliver,
     ...(opts.profileMaxBytes !== undefined && { identities: { profileMaxBytes: opts.profileMaxBytes } }),
     limiter: new MemoryLimiter({ max: opts.limit ?? 50, windowMs: 60_000 }),
-    providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) }), mfaProvider()],
+    providers: [
+      passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) }),
+      mfaProvider({ dataAtRest: authTestDataAtRest() }),
+    ],
     stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
-    transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+    transport: new CookieTransport({ name: 'duck-sid' }),
   })
   return { adapter, auth, channel }
 }
@@ -37,8 +40,8 @@ function build(opts: { limit?: number; profileMaxBytes?: number } = {}) {
 const ALLOW_LINK = async () => true
 
 async function enrollTotp(auth: AuthEngine<MyProfile>, identityId: string, email: string): Promise<void> {
-  const ch = await auth.mfa.beginTotpEnrollment(identityId, email)
-  await auth.mfa.confirmTotpEnrollment(identityId, totpAt(ch.secret, Math.floor(Date.now() / 1000 / 30)))
+  const ch = await auth.mfa.beginTotpEnrollment(identityId, email, null)
+  await auth.mfa.confirmTotpEnrollment(identityId, totpAt(ch.secret, Math.floor(Date.now() / 1000 / 30)), null)
 }
 
 function tokenFrom(channel: ReturnType<typeof authTestDeliver>): string {
@@ -158,6 +161,7 @@ describe('F17 / F18 / F19 / F20 - provider linking', () => {
         identityId,
         providerId: 'google',
         providerSub: 'sub-1',
+        session: null,
       }),
     ).rejects.toMatchObject({ code: 'AUTH_PROVIDER_FAILED', meta: { detail: 'authorize() returned false' } })
     expect((await auth.identities.getById(identityId)).providers).toEqual([])
@@ -167,7 +171,13 @@ describe('F17 / F18 / F19 / F20 - provider linking', () => {
     const seen = vi.fn(
       async (_input: { identity: Identities.Me<MyProfile>; providerId: string; providerSub: string }) => true,
     )
-    await auth.flows.linkProvider({ authorize: seen, identityId, providerId: 'google', providerSub: 'sub-1' })
+    await auth.flows.linkProvider({
+      authorize: seen,
+      identityId,
+      providerId: 'google',
+      providerSub: 'sub-1',
+      session: null,
+    })
     expect(seen).toHaveBeenCalledWith(expect.objectContaining({ providerId: 'google', providerSub: 'sub-1' }))
     expect(seen.mock.calls[0]?.[0]?.identity.id).toBe(identityId)
   })
@@ -180,10 +190,16 @@ describe('F17 / F18 / F19 / F20 - provider linking', () => {
       built.push(tenantId)
       return original(tenantId)
     }
-    await auth.flows.linkProvider({ authorize: ALLOW_LINK, identityId, providerId: 'google', providerSub: 's1' })
+    await auth.flows.linkProvider({
+      authorize: ALLOW_LINK,
+      identityId,
+      providerId: 'google',
+      providerSub: 's1',
+      session: null,
+    })
     expect(built).toHaveLength(1)
     built.length = 0
-    await auth.flows.unlinkProvider({ allowLockout: true, identityId, providerId: 'google' })
+    await auth.flows.unlinkProvider({ allowLockout: true, identityId, providerId: 'google', session: null })
     expect(built).toHaveLength(1)
     deps.ctxFactory = original
   })
@@ -191,9 +207,21 @@ describe('F17 / F18 / F19 / F20 - provider linking', () => {
   it('F19 - unlinking emits identity.unlinked, the mirror of identity.linked', async () => {
     const seen = vi.fn()
     auth.events.on('identity.unlinked', seen)
-    await auth.flows.linkProvider({ authorize: ALLOW_LINK, identityId, providerId: 'google', providerSub: 's1' })
-    await auth.flows.linkProvider({ authorize: ALLOW_LINK, identityId, providerId: 'github', providerSub: 's2' })
-    await auth.flows.unlinkProvider({ identityId, providerId: 'google' })
+    await auth.flows.linkProvider({
+      authorize: ALLOW_LINK,
+      identityId,
+      providerId: 'google',
+      providerSub: 's1',
+      session: null,
+    })
+    await auth.flows.linkProvider({
+      authorize: ALLOW_LINK,
+      identityId,
+      providerId: 'github',
+      providerSub: 's2',
+      session: null,
+    })
+    await auth.flows.unlinkProvider({ identityId, providerId: 'google', session: null })
     expect(seen).toHaveBeenCalledOnce()
     expect(seen.mock.calls[0]?.[0]).toMatchObject({
       allowedLockout: false,
@@ -205,19 +233,37 @@ describe('F17 / F18 / F19 / F20 - provider linking', () => {
   it('F19 - the event records that a caller overrode the lockout guard', async () => {
     const seen = vi.fn()
     auth.events.on('identity.unlinked', seen)
-    await auth.flows.linkProvider({ authorize: ALLOW_LINK, identityId, providerId: 'google', providerSub: 's1' })
-    await auth.flows.unlinkProvider({ allowLockout: true, identityId, providerId: 'google' })
+    await auth.flows.linkProvider({
+      authorize: ALLOW_LINK,
+      identityId,
+      providerId: 'google',
+      providerSub: 's1',
+      session: null,
+    })
+    await auth.flows.unlinkProvider({ allowLockout: true, identityId, providerId: 'google', session: null })
     expect(seen.mock.calls[0]?.[0]).toMatchObject({ allowedLockout: true })
   })
 
   it('F18 - two concurrent unlinks of different providers cannot both land', async () => {
-    await auth.flows.linkProvider({ authorize: ALLOW_LINK, identityId, providerId: 'google', providerSub: 's1' })
-    await auth.flows.linkProvider({ authorize: ALLOW_LINK, identityId, providerId: 'github', providerSub: 's2' })
+    await auth.flows.linkProvider({
+      authorize: ALLOW_LINK,
+      identityId,
+      providerId: 'google',
+      providerSub: 's1',
+      session: null,
+    })
+    await auth.flows.linkProvider({
+      authorize: ALLOW_LINK,
+      identityId,
+      providerId: 'github',
+      providerSub: 's2',
+      session: null,
+    })
     // No password, no passkey: these two links are the entire set of factors,
     // and each unlink on its own is legal because the other one survives it.
     const results = await Promise.allSettled([
-      auth.flows.unlinkProvider({ identityId, providerId: 'google' }),
-      auth.flows.unlinkProvider({ identityId, providerId: 'github' }),
+      auth.flows.unlinkProvider({ identityId, providerId: 'google', session: null }),
+      auth.flows.unlinkProvider({ identityId, providerId: 'github', session: null }),
     ])
     const after = await auth.identities.getById(identityId)
     expect(after?.providers.length).toBeGreaterThan(0)
@@ -225,12 +271,24 @@ describe('F17 / F18 / F19 / F20 - provider linking', () => {
   })
 
   it('F18 - a rolled-back unlink restores the link it removed, addedAt and all', async () => {
-    await auth.flows.linkProvider({ authorize: ALLOW_LINK, identityId, providerId: 'google', providerSub: 's1' })
-    await auth.flows.linkProvider({ authorize: ALLOW_LINK, identityId, providerId: 'github', providerSub: 's2' })
+    await auth.flows.linkProvider({
+      authorize: ALLOW_LINK,
+      identityId,
+      providerId: 'google',
+      providerSub: 's1',
+      session: null,
+    })
+    await auth.flows.linkProvider({
+      authorize: ALLOW_LINK,
+      identityId,
+      providerId: 'github',
+      providerSub: 's2',
+      session: null,
+    })
     const before = await auth.identities.getById(identityId)
     await Promise.allSettled([
-      auth.flows.unlinkProvider({ identityId, providerId: 'google' }),
-      auth.flows.unlinkProvider({ identityId, providerId: 'github' }),
+      auth.flows.unlinkProvider({ identityId, providerId: 'google', session: null }),
+      auth.flows.unlinkProvider({ identityId, providerId: 'github', session: null }),
     ])
     const after = await auth.identities.getById(identityId)
     // Not vacuous: the loop below proves nothing about an empty list.
@@ -243,11 +301,19 @@ describe('F17 / F18 / F19 / F20 - provider linking', () => {
   })
 
   it('F18 - a live password still counts as the surviving factor', async () => {
-    await auth.flows.linkProvider({ authorize: ALLOW_LINK, identityId, providerId: 'google', providerSub: 's1' })
-    await auth.passwords.set(identityId, 'a-real-password-1', adapter.credentials)
-    await expect(auth.flows.unlinkProvider({ identityId, providerId: 'google' })).resolves.toMatchObject({
+    await auth.flows.linkProvider({
+      authorize: ALLOW_LINK,
       identityId,
+      providerId: 'google',
+      providerSub: 's1',
+      session: null,
     })
+    await auth.passwords.set(identityId, 'a-real-password-1', adapter.credentials, null)
+    await expect(auth.flows.unlinkProvider({ identityId, providerId: 'google', session: null })).resolves.toMatchObject(
+      {
+        identityId,
+      },
+    )
     expect((await auth.identities.getById(identityId)).providers).toEqual([])
   })
 })
@@ -429,7 +495,7 @@ describe('F2 / F6 / F7 / F28 - password reset', () => {
     ;({ adapter, auth, channel } = build())
     const ident = await auth.identities.create({ profile: { email: 'a@x.com', username: 'a@x.com' } })
     identityId = ident.id
-    await auth.passwords.set(identityId, 'old-password-9', adapter.credentials)
+    await auth.passwords.set(identityId, 'old-password-9', adapter.credentials, null)
   })
 
   it('F2 - the reset row carries its purpose and the address the link went to', async () => {
@@ -501,7 +567,7 @@ describe('F2 / F6 / F7 / F28 - password reset', () => {
     ;({ adapter, auth, channel } = build({ limit }))
     const ident = await auth.identities.create({ profile: { email: 'a@x.com', username: 'a@x.com' } })
     identityId = ident.id
-    await auth.passwords.set(identityId, 'old-password-9', adapter.credentials)
+    await auth.passwords.set(identityId, 'old-password-9', adapter.credentials, null)
     await enrollTotp(auth, identityId, 'a@x.com')
     await request()
     const token = tokenFrom(channel)

@@ -29,7 +29,7 @@ export async function signUp(
   const identity = await auth.identities.create({ profile: { email, name, username: email } })
   const companyId = randomUUID()
   try {
-    await auth.passwords.set(identity.id, password, auth.cfg.stores.credentials)
+    await auth.passwords.set(identity.id, password, auth.cfg.stores.credentials, null)
     // One db transaction: a company row can't exist without its user row, or vice versa.
     await db.transaction(async (tx) => {
       await tx.insert(companies).values({ id: companyId, name: companyName })

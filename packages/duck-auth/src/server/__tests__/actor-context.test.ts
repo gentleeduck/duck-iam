@@ -10,7 +10,7 @@ import type { Sessions } from '~/core/sessions/sessions.types'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
 import { elysiaWithActor } from '~/server/elysia'
-import { expressActorContext } from '~/server/express'
+import { expressActorContext, expressCaller } from '~/server/express'
 import { fastifyWithActor } from '~/server/fastify'
 import { GRPC_STATUS, withGrpc } from '~/server/grpc'
 import { honoActorContext } from '~/server/hono'
@@ -31,7 +31,7 @@ function buildAuth() {
       identities: adapter.identities,
       sessions: adapter.sessions,
     },
-    transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+    transport: new CookieTransport({ name: 'duck-sid' }),
   })
   return { adapter, auth }
 }
@@ -242,6 +242,170 @@ describe('a request is attributed to its own session, never to the scope it arri
       }),
     )
     expect(seen).toBeNull()
+  })
+})
+
+describe("a tenant's session binds only where the request names its tenant", () => {
+  const one = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined)
+  /** One request carrying `sid` and, when given, an `x-tenant` header through a wrapper, which reads that header
+   *  as its tenant when `named`; answers the actor it bound. */
+  type Run = (auth: AuthEngine<Profile>, sid: string, tenant: string | undefined, named: boolean) => Promise<unknown>
+  const headersFor = (sid: string, tenant: string | undefined) => ({
+    ...cookieHeader(sid),
+    ...(tenant !== undefined && { 'x-tenant': tenant }),
+  })
+  const RUNS: Record<string, Run> = {
+    elysia: (auth, sid, tenant, named) =>
+      elysiaWithActor(
+        auth,
+        async () => new Response(actorId() ?? ''),
+        named ? { tenantId: (ctx) => ctx.request.headers.get('x-tenant') ?? undefined } : {},
+      )({ request: new Request('https://x/me', { headers: headersFor(sid, tenant) }) })
+        .then((r) => r.text())
+        .then((t) => t || null),
+    express: async (auth, sid, tenant, named) => {
+      let seen: string | null = 'never ran'
+      await expressActorContext(auth, named ? { tenantId: (req) => one(req.headers['x-tenant']) } : {})(
+        { headers: headersFor(sid, tenant), method: 'POST' },
+        expressRes,
+        () => {
+          seen = actorId()
+        },
+      )
+      return seen
+    },
+    fastify: async (auth, sid, tenant, named) => {
+      let seen: string | null = 'never ran'
+      await fastifyWithActor(
+        auth,
+        async () => {
+          seen = actorId()
+        },
+        named ? { tenantId: (req) => one(req.headers['x-tenant']) } : {},
+      )({ headers: headersFor(sid, tenant), method: 'POST' }, fastifyReply)
+      return seen
+    },
+    grpc: (auth, sid, tenant, named) =>
+      new Promise((resolve) => {
+        let seen: string | null = 'never ran'
+        const values: Record<string, string[]> = { cookie: [`duck-sid=${sid}`], 'x-tenant': tenant ? [tenant] : [] }
+        withGrpc(
+          auth,
+          (_call, cb) => {
+            seen = actorId()
+            cb(null, {})
+          },
+          named ? { required: false, tenantId: (call) => one(call.metadata.get('x-tenant')[0]) } : { required: false },
+        )({ metadata: { get: (key) => values[key] ?? [] }, request: {} }, () => resolve(seen))
+      }),
+    hono: async (auth, sid, tenant, named) => {
+      let seen: string | null = 'never ran'
+      await honoActorContext(auth, named ? { tenantId: (ctx) => one(ctx.req.header('x-tenant')) } : {})(
+        honoCtx(new Request('https://x/me', { headers: headersFor(sid, tenant) })),
+        async () => {
+          seen = actorId()
+        },
+      )
+      return seen
+    },
+    koa: async (auth, sid, tenant, named) => {
+      let seen: string | null = 'never ran'
+      await koaActorContext(auth, named ? { tenantId: (ctx) => one(ctx.request.headers['x-tenant']) } : {})(
+        koaCtx({ headers: headersFor(sid, tenant), method: 'POST' }),
+        async () => {
+          seen = actorId()
+        },
+      )
+      return seen
+    },
+    nest: async (auth, sid, tenant, named) => {
+      let seen: string | null = 'never ran'
+      await nestActorContext(auth, named ? { tenantId: (req) => one(req.headers['x-tenant']) } : {})(
+        { headers: headersFor(sid, tenant), identity: null, method: 'POST' },
+        {},
+        () => {
+          seen = actorId()
+        },
+      )
+      return seen
+    },
+    next: (auth, sid, tenant, named) =>
+      nextWithActor(
+        auth,
+        async () => new Response(actorId() ?? ''),
+        named ? { tenantId: (req) => req.headers.get('x-tenant') ?? undefined } : {},
+      )(new Request('https://x/me', { headers: headersFor(sid, tenant) }))
+        .then((r) => r.text())
+        .then((t) => t || null),
+  }
+
+  it.each(Object.entries(RUNS))('%s', async (_name, run) => {
+    const { auth } = buildAuth()
+    const identity = await auth.identities.create({ emailVerified: true, profile: { email: 't@x.com', username: 't' } })
+    const create = (tenantId?: string) =>
+      auth.sessions.create({
+        aal: 1,
+        factors: [],
+        identityId: identity.id,
+        kind: 'user',
+        ...(tenantId && { tenantId }),
+      })
+    const { sid } = await create('acme')
+    const { sid: untenanted } = await create()
+
+    expect(await run(auth, sid, 'acme', false)).toBeNull()
+    expect(await run(auth, sid, undefined, true)).toBeNull()
+    expect(await run(auth, sid, 'other', true)).toBeNull()
+    expect(await run(auth, sid, 'acme', true)).toBe(identity.id)
+    expect(await run(auth, untenanted, 'acme', true)).toBeNull()
+    expect(await run(auth, untenanted, undefined, true)).toBe(identity.id)
+  })
+
+  it('names the tenant beside a caller fingerprint too', async () => {
+    const { auth } = buildAuth()
+    const identity = await auth.identities.create({ emailVerified: true, profile: { email: 't@x.com', username: 't' } })
+    const { sid } = await auth.sessions.create({
+      aal: 1,
+      factors: [],
+      identityId: identity.id,
+      kind: 'user',
+      tenantId: 'acme',
+    })
+    let seen: string | null = 'never ran'
+    await expressActorContext(auth, {
+      getCaller: expressCaller,
+      onHijack: async () => {},
+      tenantId: (req) => one(req.headers['x-tenant']),
+    })({ headers: headersFor(sid, 'acme'), method: 'POST' }, expressRes, () => {
+      seen = actorId()
+    })
+    expect(seen).toBe(identity.id)
+  })
+
+  it('nest makeGuard admits a tenant session only where the request names its tenant', async () => {
+    const { auth } = buildAuth()
+    const identity = await auth.identities.create({ emailVerified: true, profile: { email: 't@x.com', username: 't' } })
+    const { sid } = await auth.sessions.create({
+      aal: 1,
+      factors: [],
+      identityId: identity.id,
+      kind: 'user',
+      tenantId: 'acme',
+    })
+    const req = (tenant?: string): NestAdapter.Request => ({
+      headers: headersFor(sid, tenant),
+      identity: null,
+      method: 'GET',
+    })
+    const named = makeGuard(auth, { csrf: false, tenantId: (r) => one(r.headers['x-tenant']) })
+
+    await expect(makeGuard(auth, { csrf: false }).canActivate(nestCtx(req('acme')))).rejects.toMatchObject({
+      code: 'AUTH_UNAUTHENTICATED',
+    })
+    await expect(named.canActivate(nestCtx(req('other')))).rejects.toMatchObject({ code: 'AUTH_UNAUTHENTICATED' })
+    const admitted = req('acme')
+    await expect(named.canActivate(nestCtx(admitted))).resolves.toBe(true)
+    expect(admitted.identity).toMatchObject({ id: identity.id })
   })
 })
 

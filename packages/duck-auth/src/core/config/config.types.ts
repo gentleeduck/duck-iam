@@ -40,12 +40,13 @@ export namespace AuthDefine {
     Tenant = string,
     OrgMeta = unknown,
   > extends Omit<Engine.Cfg<Profile, Tenant, OrgMeta>, 'providers' | 'transport'> {
-    /** Default a `duck-sid` cookie. */
+    /** Default a `__Host-duck-sid` cookie, `duck-sid` outside production. */
     transport?: Transport.ITransport
     /** Provider array — falsy entries silently skipped. */
     providers?: IProviderEntry<Profile, Tenant, OrgMeta>[]
-    /** Which environment's checks `auth.strict({ env })` runs at the end of construction. */
-    strict?: 'development' | 'production' | 'test' | false
+    /** `false` defers the checks `createAuth` runs as it returns, for `NODE_ENV`, to the app's own
+     *  `auth.strict()`, called once its `lockout` listener is subscribed. */
+    strict?: false
     /** Compliance preset(s) to shorten the session lifetimes to and hold `strict()` to. */
     compliance?: Compliance.Preset | Compliance.Preset[]
   }

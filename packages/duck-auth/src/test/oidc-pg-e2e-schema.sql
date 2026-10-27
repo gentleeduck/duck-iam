@@ -3,6 +3,7 @@
 -- drizzle schema changes.
 CREATE TABLE "oidc_access_tokens" (
 	"token_hash" text PRIMARY KEY NOT NULL,
+	"family_id" text NOT NULL,
 	"client_id" text NOT NULL,
 	"identity_id" text NOT NULL,
 	"scope" text NOT NULL,
@@ -35,6 +36,7 @@ CREATE TABLE "oidc_codes" (
 	"code_challenge_method" text,
 	"tenant_id" text,
 	"sid" text NOT NULL,
+	"auth_time" bigint,
 	"exp" bigint NOT NULL
 );
 
@@ -52,10 +54,13 @@ CREATE TABLE "oidc_refresh_tokens" (
 	"identity_id" text NOT NULL,
 	"scope" text NOT NULL,
 	"tenant_id" text,
+	"sid" text NOT NULL,
+	"auth_time" bigint,
 	"exp" bigint NOT NULL,
 	"consumed_at" bigint
 );
 
+CREATE INDEX "oidc_at_family" ON "oidc_access_tokens" USING btree ("family_id");
 CREATE INDEX "oidc_at_exp" ON "oidc_access_tokens" USING btree ("exp");
 CREATE INDEX "oidc_codes_exp" ON "oidc_codes" USING btree ("exp");
 CREATE UNIQUE INDEX "oidc_consents_id_client" ON "oidc_consents" USING btree ("identity_id","client_id");

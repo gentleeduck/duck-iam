@@ -10,7 +10,7 @@ function engine(baseUrl: string) {
   const auth = new AuthEngine({
     baseUrl,
     deliver: channel.deliver,
-    transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
+    transport: new CookieTransport({ name: 'duck-sid' }),
     stores: { identities: adapter.identities, sessions: adapter.sessions, credentials: adapter.credentials },
   })
   return { auth, channel }

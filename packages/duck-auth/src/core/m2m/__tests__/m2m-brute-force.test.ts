@@ -53,7 +53,7 @@ describe('the client_credentials grant is bounded', () => {
     const ident = await env.adapter.identities.create(
       identityInput({ profile: { email: `${who}@app.test`, username: who }, providers: [] }),
     )
-    const created = await env.auth.apiKeys.create(ident.id, { name: 'k', scopes: ['read:users'] })
+    const created = await env.auth.apiKeys.create(ident.id, { name: 'k', scopes: ['read:users'], session: null })
     return { clientId: created.key.id, clientSecret: created.plaintext }
   }
 

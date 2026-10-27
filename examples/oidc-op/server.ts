@@ -1,15 +1,14 @@
 /**
  * An OpenID provider on `@gentleduck/auth/oidc/op`, with a demo sign-in and a consent page.
  *
- * One file, one port, everything in memory. For a database, pass the Drizzle stores from
- * `@gentleduck/auth/oidc/op/drizzle/{pg,mysql,sqlite}` to `createOidcOP` as `stores`.
+ * One file, one port, everything in memory, so it runs only outside production. For a database, pass the
+ * Drizzle stores from `@gentleduck/auth/oidc/op/drizzle/{pg,mysql,sqlite}` to `createOidcOP` as `stores`.
  */
 
 import { createHmac } from 'node:crypto'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { memoryAdapter } from '@gentleduck/auth/adapters/memory'
 import { createAuth, verifyCsrf } from '@gentleduck/auth/core'
-import { cookieTransport } from '@gentleduck/auth/core/transport'
 import { authMemoryClientStore, createOidcOP } from '@gentleduck/auth/oidc/op'
 import { executeIntents, nodeHeadersToFetch } from '@gentleduck/auth/server/generic'
 
@@ -17,11 +16,9 @@ const PORT = Number(process.env.PORT ?? 8787)
 const ISSUER = `http://localhost:${PORT}`
 const ID_TOKEN_HS256_SECRET = 'demo-secret-do-not-use-in-prod'
 
-// http, so the cookie cannot carry `Secure`.
 const auth = createAuth({
   baseUrl: ISSUER,
   stores: memoryAdapter(),
-  transport: cookieTransport({ name: 'duck-sid', secure: false }),
 })
 
 // Kept in hand: a declined consent checks its redirect_uri here before sending the person to it.
@@ -29,7 +26,7 @@ const clients = authMemoryClientStore()
 
 const op = createOidcOP({
   auth,
-  config: { allowHttp: true, issuer: ISSUER, supportedScopes: ['openid', 'profile', 'email', 'offline_access'] },
+  config: { issuer: ISSUER, supportedScopes: ['openid', 'profile', 'email', 'offline_access'] },
   signIdToken: (payload) => {
     const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url')
     const body = Buffer.from(JSON.stringify(payload)).toString('base64url')
@@ -186,7 +183,11 @@ async function handle(req: Request): Promise<Response> {
         return Response.json({ error: 'invalid_request' }, { status: 400 })
       return authorizeError({ body: { error: 'access_denied', state: field('state') }, redirectUri, status: 302 })
     }
+    // Read off the session, not a hidden field, or the person could claim a sign-in fresher than they had.
+    const { createdAt, factors } = resolved.session
+    const authTime = factors.length > 0 ? Math.max(...factors.map((f) => f.completedAt.getTime())) : createdAt.getTime()
     const completed = await op.completeConsent({
+      auth_time: authTime,
       client_id: form.get('client_id') ?? '',
       code_challenge: field('code_challenge'),
       code_challenge_method: field('code_challenge_method'),

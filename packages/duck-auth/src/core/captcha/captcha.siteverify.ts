@@ -51,10 +51,7 @@ export function resolveCaptchaCfg(
   }
   const resolvedEndpoint = cfg.endpoint ?? endpoint
   // The secret is posted here, so it gets the guard every other outbound URL does.
-  assertSafeOutboundUrl(resolvedEndpoint, {
-    allowInsecure: cfg.allowInsecureEndpoint ?? false,
-    label: `${verifier} endpoint`,
-  })
+  assertSafeOutboundUrl(resolvedEndpoint, { label: `${verifier} endpoint` })
   const timeoutMs = cfg.timeoutMs ?? CAPTCHA_TIMEOUT_DEFAULT_MS
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0 || timeoutMs > CAPTCHA_TIMEOUT_MAX_MS) {
     throw new AuthError('AUTH_MISCONFIGURED', {

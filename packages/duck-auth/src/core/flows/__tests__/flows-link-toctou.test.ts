@@ -21,7 +21,7 @@ function build() {
   const adapter = new MemoryAdapter<ProfileShape>()
   const auth = new AuthEngine<ProfileShape>({
     baseUrl: 'https://app.test',
-    transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
+    transport: new CookieTransport({ name: 'duck-sid' }),
     stores: {
       identities: adapter.identities,
       sessions: adapter.sessions,
@@ -54,12 +54,14 @@ describe('FlowsImpl.linkProvider - TOCTOU defense', () => {
         identityId: identityA,
         providerId: 'google',
         providerSub: 'sub-X',
+        session: null,
       }),
       auth.flows.linkProvider({
         authorize: ALLOW_LINK,
         identityId: identityB,
         providerId: 'google',
         providerSub: 'sub-X',
+        session: null,
       }),
     ])
     const fulfilled = results.filter((r) => r.status === 'fulfilled')
@@ -84,16 +86,18 @@ describe('FlowsImpl.linkProvider - TOCTOU defense', () => {
         identityId: identityA,
         providerId: 'google',
         providerSub: 'sub-X',
+        session: null,
       }),
       auth.flows.linkProvider({
         authorize: ALLOW_LINK,
         identityId: identityB,
         providerId: 'google',
         providerSub: 'sub-X',
+        session: null,
       }),
     ])
     // Whichever identity won, ONLY that one has the link.
-    const found = await adapter.identities.find({ providerId: 'google', providerSub: 'sub-X' })
+    const found = await adapter.identities.find({ providerId: 'google', providerSub: 'sub-X', tenantId: null })
     expect(found).not.toBeNull()
     const otherId = found?.id === identityA ? identityB : identityA
     const other = await adapter.identities.find({ id: otherId })
@@ -113,6 +117,7 @@ describe('FlowsImpl.linkProvider - TOCTOU defense', () => {
         identityId: id,
         providerId: 'github',
         providerSub: 'race-sub',
+        session: null,
       }),
     )
     const results = await Promise.allSettled(calls)
@@ -127,6 +132,7 @@ describe('FlowsImpl.linkProvider - TOCTOU defense', () => {
       identityId: identityA,
       providerId: 'google',
       providerSub: 'sub-Y',
+      session: null,
     })
     // Second link to same identity is a no-op (the facet's
     // alreadyLinked check fires before the store call).
@@ -135,6 +141,7 @@ describe('FlowsImpl.linkProvider - TOCTOU defense', () => {
       identityId: identityA,
       providerId: 'google',
       providerSub: 'sub-Y',
+      session: null,
     })
     expect(r.identityId).toBe(identityA)
   })
@@ -146,9 +153,15 @@ describe('FlowsImpl.linkProvider - TOCTOU defense', () => {
       providerId: 'github',
       providerSub: 'direct-sub',
       addedAt: new Date(),
+      tenantId: null,
     })
     await expect(
-      adapter.identities.link(identityB, { providerId: 'github', providerSub: 'direct-sub', addedAt: new Date() }),
+      adapter.identities.link(identityB, {
+        providerId: 'github',
+        providerSub: 'direct-sub',
+        addedAt: new Date(),
+        tenantId: null,
+      }),
     ).rejects.toMatchObject({
       code: 'AUTH_PROVIDER_TAKEN',
       meta: { providerId: 'github' },

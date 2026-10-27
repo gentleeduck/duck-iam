@@ -12,7 +12,7 @@ describe('Plugin system', () => {
     const adapter = new MemoryAdapter()
     return new AuthEngine({
       baseUrl: 'https://x',
-      transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
+      transport: new CookieTransport({ name: 'duck-sid' }),
       stores: {
         identities: adapter.identities,
         sessions: adapter.sessions,
@@ -176,7 +176,7 @@ describe('Plugin events on a fleet', () => {
         baseUrl: 'https://x',
         events: new RedisEvents({ prefix: 'auth:events', redis }),
         stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
-        transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+        transport: new CookieTransport({ name: 'duck-sid' }),
       })
       await auth.use({
         ...(delivery && { delivery }),

@@ -56,13 +56,16 @@ CREATE TABLE `auth_identity_providers` (
 	`identity_id` varchar(64) character set ascii collate ascii_bin NOT NULL,
 	`provider_id` varchar(191) character set utf8mb4 collate utf8mb4_bin NOT NULL,
 	`provider_sub` varchar(255) character set utf8mb4 collate utf8mb4_bin NOT NULL,
+	`tenant_id` varchar(64) character set utf8mb4 collate utf8mb4_bin,
 	`added_at` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
 	`added_by` varchar(191),
+	`tenant_key` varchar(64) character set utf8mb4 collate utf8mb4_bin GENERATED ALWAYS AS ((coalesce(tenant_id, ''))) VIRTUAL,
 	CONSTRAINT `auth_identity_providers_id` PRIMARY KEY(`id`),
-	CONSTRAINT `uq_auth_identity_providers_sub` UNIQUE(`provider_id`,`provider_sub`),
-	CONSTRAINT `uq_auth_identity_providers_owned` UNIQUE(`identity_id`,`provider_id`),
+	CONSTRAINT `uq_auth_identity_providers_sub` UNIQUE(`provider_id`,`provider_sub`,`tenant_key`),
+	CONSTRAINT `uq_auth_identity_providers_owned` UNIQUE(`identity_id`,`provider_id`,`tenant_key`),
 	CONSTRAINT `chk_auth_identity_providers_provider_not_blank` CHECK(provider_id <> ''),
-	CONSTRAINT `chk_auth_identity_providers_sub_not_blank` CHECK(provider_sub <> '')
+	CONSTRAINT `chk_auth_identity_providers_sub_not_blank` CHECK(provider_sub <> ''),
+	CONSTRAINT `chk_auth_identity_providers_tenant_not_blank` CHECK(tenant_id IS NULL OR tenant_id <> '')
 );
 
 CREATE TABLE `auth_sessions` (

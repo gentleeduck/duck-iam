@@ -9,7 +9,7 @@ import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
 import { mfaProvider } from '~/providers/mfa'
 import { passwords, ScryptHasher } from '~/providers/passwords'
-import { authTestDeliver } from '~/test'
+import { authTestDataAtRest, authTestDeliver } from '~/test'
 
 interface MyProfile extends Identities.ProfileMetadataBase {
   email: string
@@ -22,9 +22,12 @@ function build(limit = 50) {
     baseUrl: 'https://app',
     deliver: channel.deliver,
     limiter: new MemoryLimiter({ max: limit, windowMs: 60_000 }),
-    providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) }), mfaProvider()],
+    providers: [
+      passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) }),
+      mfaProvider({ dataAtRest: authTestDataAtRest() }),
+    ],
     stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
-    transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+    transport: new CookieTransport({ name: 'duck-sid' }),
   })
   return { adapter, auth, channel }
 }
@@ -97,7 +100,7 @@ describe('F1 - requestPasswordReset is not an enumeration oracle', () => {
       limiter: new MemoryLimiter({ max: 50, windowMs: 60_000 }),
       providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) })],
       stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
-      transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+      transport: new CookieTransport({ name: 'duck-sid' }),
     })
     // Pre-fix this resolved `{ok:true}` while the real address threw - the
     // response body said "no such user" in plain language.
@@ -255,7 +258,7 @@ describe('what these fixes did NOT close', () => {
     // caller has to be told something.
     const { adapter, auth } = build()
     const ident = await auth.identities.create({ profile: { email: 'taken@corp.com', username: 'taken' } })
-    await auth.passwords.set(ident.id, 'correct-horse-battery', adapter.credentials)
+    await auth.passwords.set(ident.id, 'correct-horse-battery', adapter.credentials, null)
     await expect(auth.flows.beginSignUp({ email: 'taken@corp.com' })).rejects.toMatchObject({
       code: 'AUTH_EMAIL_TAKEN',
     })
@@ -289,7 +292,7 @@ describe('what these fixes did NOT close', () => {
       limiter: new MemoryLimiter({ max: 50, windowMs: 60_000 }),
       providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) })],
       stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
-      transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+      transport: new CookieTransport({ name: 'duck-sid' }),
     })
     await expect(
       auth.flows.requestPasswordReset({

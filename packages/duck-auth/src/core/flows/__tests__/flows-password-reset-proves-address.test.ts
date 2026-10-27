@@ -41,7 +41,7 @@ function buildAuth() {
     limiter: new MemoryLimiter({ max: 50, windowMs: 60_000 }),
     providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) }), apiKeyProvider()],
     stores: { credentials, identities: adapter.identities, sessions: adapter.sessions },
-    transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+    transport: new CookieTransport({ name: 'duck-sid' }),
   })
   const arm = (id: string, onSweep: (read: number) => Promise<void>): void => {
     armed = { id, onSweep, reads: 0 }
@@ -56,14 +56,15 @@ async function signedUp({ adapter, auth }: Built) {
   const flow = await auth.flows.beginSignUp({ email: 'victim@x.com', required: [] })
   const id = flow.flow.identityId
   const { sid } = await auth.flows.completeSignUp({ flowToken: flow.flowToken })
-  await auth.passwords.set(id, 'first-password-1', adapter.credentials, {})
+  await auth.passwords.set(id, 'first-password-1', adapter.credentials, null, {})
   await auth.flows.linkProvider({
     authorize: async () => true,
     identityId: id,
     providerId: 'oauth:github',
     providerSub: 'gh',
+    session: null,
   })
-  const key = await auth.apiKeys.create(id, { name: 'k', scopes: [] })
+  const key = await auth.apiKeys.create(id, { name: 'k', scopes: [], session: null })
   return { id, key: key.plaintext, sid }
 }
 
@@ -116,8 +117,9 @@ describe('a password reset proves the address it was mailed to', () => {
       identityId: ident.id,
       providerId: 'oauth:github',
       providerSub: 'gh',
+      session: null,
     })
-    const key = await built.auth.apiKeys.create(ident.id, { name: 'k', scopes: [] })
+    const key = await built.auth.apiKeys.create(ident.id, { name: 'k', scopes: [], session: null })
     await reset(built, ident.id)
 
     expect((await built.adapter.identities.find({ id: ident.id })).providers).toHaveLength(1)

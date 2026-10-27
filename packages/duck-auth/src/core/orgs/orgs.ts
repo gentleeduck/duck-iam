@@ -117,10 +117,10 @@ export class OrgsImpl<OrgMeta = unknown> {
 /** SECURITY: a row from another tenant is refused rather than answered. `Org.Store` is the host's own
  *  read interface, so the scoping is theirs to perform - this is the library checking they did, which is
  *  what the context could not be audited for while the rows carried no tenant. A `ctx` naming no tenant
- *  asks for everything and accepts everything, exactly as `_inTenant` does. */
+ *  accepts only a row with none, and `ALL_TENANTS` every row, exactly as `_inTenant` does. */
 function inScope<T extends { tenantId: string | null }>(row: T, ctx: TenantContext): T {
-  if (ctx.tenantId === undefined || row.tenantId === ctx.tenantId) return row
-  throw new AuthError('AUTH_TENANT_SCOPE_VIOLATION', { asked: ctx.tenantId, got: row.tenantId })
+  if (ctx.allTenants === true || row.tenantId === (ctx.tenantId ?? null)) return row
+  throw new AuthError('AUTH_TENANT_SCOPE_VIOLATION', { asked: ctx.tenantId ?? null, got: row.tenantId })
 }
 
 /** A non-empty string. A JSON `null` or `""` from a request body names no one. */

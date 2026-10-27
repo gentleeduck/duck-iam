@@ -3,7 +3,7 @@ import { AuthEngine, type Engine } from '../engine'
 import { AuthError } from '../errors'
 import type { Identities } from '../identities/identities.types'
 import { CookieTransport } from '../transport/cookie.transport'
-import { assertKnownKeys, normaliseBaseUrl, resolveStrictEnv } from './config.constants'
+import { assertKnownKeys, assertStrictOption, normaliseBaseUrl } from './config.constants'
 import type { AuthDefine } from './config.types'
 
 /** The ergonomic entry point: a fully-wired {@link AuthEngine} from one flat config. */
@@ -21,11 +21,10 @@ export function createAuth<
     })
   }
 
-  // Both are read before the engine exists, so a bad value is named here rather than surfacing as a
-  // redirect to nowhere or a production deploy that skipped every check.
+  // Read before the engine exists, so a bad value is named here rather than surfacing as a redirect to nowhere.
   const baseUrl = normaliseBaseUrl(config.baseUrl)
-  const strictEnv = resolveStrictEnv(config.strict)
-  const transport = config.transport ?? new CookieTransport({ name: 'duck-sid' })
+  assertStrictOption(config.strict)
+  const transport = config.transport ?? new CookieTransport()
 
   // Spread rather than key by key, or a key added later type-checks on the way in, because
   // `AuthDefine.Cfg` inherits it, and then goes nowhere. `strict` rides along unread and is applied below.
@@ -40,7 +39,7 @@ export function createAuth<
     compliance ? applyCompliancePreset(rootCfg, compliance) : rootCfg,
   )
 
-  if (strictEnv) auth.strict({ env: strictEnv })
+  if (config.strict !== false) auth.strict()
 
   return auth
 }

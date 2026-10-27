@@ -23,20 +23,21 @@ function rpc(method: string, request: object, token?: string): Promise<unknown> 
   })
 }
 
-function tokenIn(reply: unknown): string {
-  if (typeof reply !== 'object' || reply === null || !('token' in reply) || typeof reply.token !== 'string') {
-    throw new Error('the reply carries no token')
-  }
-  return reply.token
+/** A string field of a reply, empty when it carries none. */
+function field(reply: unknown, name: 'token' | 'challenge'): string {
+  const value = typeof reply === 'object' && reply !== null ? Reflect.get(reply, name) : undefined
+  return typeof value === 'string' ? value : ''
 }
 
-let token = tokenIn(await rpc('SignIn', DEMO))
-console.log('signed in')
-
-if (process.env.MFA_CODE) {
-  token = tokenIn(await rpc('VerifyMfa', { code: process.env.MFA_CODE }, token))
-  console.log('stepped up to AAL 2')
+const signedIn = await rpc('SignIn', DEMO)
+let token = field(signedIn, 'token')
+const challenge = field(signedIn, 'challenge')
+if (challenge) {
+  if (!process.env.MFA_CODE) throw new Error('the account has TOTP enrolled: set MFA_CODE')
+  token = field(await rpc('VerifyMfa', { challenge, code: process.env.MFA_CODE }), 'token')
 }
+if (!token) throw new Error('the reply carries no token')
+console.log(challenge ? 'signed in with the second factor' : 'signed in')
 
 console.log('me:', await rpc('Me', {}, token).catch((err: ServiceError) => `refused, ${err.details}`))
 await rpc('SignOut', {}, token)

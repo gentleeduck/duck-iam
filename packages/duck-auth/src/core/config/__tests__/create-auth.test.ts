@@ -105,10 +105,10 @@ describe('every knob the config type accepts reaches the engine', () => {
     const auth = createAuth({ ...base(), compliance: 'hipaa', strict: false })
     const { session } = await auth.sessions.create({ aal: 1, factors: [], identityId: 'user-1', kind: 'user' })
     expect(session.expiresAt.getTime() - session.createdAt.getTime()).toBe(60 * 60 * 1000)
-    expect(() => auth.strict({ env: 'test' })).toThrow(
+    expect(() => auth.strict()).toThrow(
       expect.objectContaining({ meta: { detail: expect.stringContaining('mfa provider') } }),
     )
-    expect(() => createAuth({ ...base(), strict: false }).strict({ env: 'test' })).not.toThrow()
+    expect(() => createAuth({ ...base(), strict: false }).strict()).not.toThrow()
   })
 
   it('registers providers, and skips the falsy entries', () => {
@@ -170,10 +170,19 @@ describe('every knob the config type accepts reaches the engine', () => {
 })
 
 describe('the defaults it picks when a knob is omitted', () => {
-  it('defaults to a secure cookie transport', () => {
-    const auth = createAuth(base())
+  it('defaults to a __Host-duck-sid cookie in production, which no subdomain can set', () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    const auth = createAuth({ ...base(), strict: false })
     expect(auth.transport).toBeInstanceOf(CookieTransport)
-    expect(auth.transport).toHaveProperty('secure', true)
+    const [sid] = auth.transport.revoke()
+    expect(sid).toMatchObject({ name: '__Host-duck-sid', options: { path: '/', secure: true } })
+    expect(sid).not.toHaveProperty('options.domain')
+  })
+
+  it('drops the prefix with Secure outside production, so the default cookie is duck-sid', () => {
+    vi.stubEnv('NODE_ENV', 'development')
+    const [sid] = createAuth(base()).transport.revoke()
+    expect(sid).toMatchObject({ name: 'duck-sid', options: { secure: false } })
   })
 
   it('builds without a limiter, an events bus or any provider', () => {
@@ -189,60 +198,47 @@ describe('the defaults it picks when a knob is omitted', () => {
     const auth = createAuth(base())
     expect(auth.cfg.limiter).toBeUndefined()
     expect(auth.limiter).toBeInstanceOf(MemoryLimiter)
-    expect(() => auth.strict({ env: 'production' })).toThrow()
+    vi.stubEnv('NODE_ENV', 'production')
+    expect(() => auth.strict()).toThrow(
+      expect.objectContaining({ meta: { detail: expect.stringContaining('Limiter adapter required') } }),
+    )
   })
 })
 
-describe('the strict flag', () => {
-  it('runs at construction and refuses a production config that is not production ready', () => {
-    expect(() => createAuth({ ...base(), strict: 'production' })).toThrow()
+describe('the strict checks createAuth runs, which follow NODE_ENV', () => {
+  const failed = expect.objectContaining({
+    meta: { detail: expect.stringContaining('production strict() checks failed') },
   })
 
-  it('a development or test env is permissive', () => {
-    expect(() => createAuth({ ...base(), strict: 'development' })).not.toThrow()
-    expect(() => createAuth({ ...base(), strict: 'test' })).not.toThrow()
+  it.each(['production', undefined, '', 'staging'])('runs the production checks with NODE_ENV=%o', (env) => {
+    vi.stubEnv('NODE_ENV', env)
+    expect(() => createAuth(base())).toThrow(failed)
   })
 
-  it('follows NODE_ENV when nothing is said, so a production deploy is checked without being asked', () => {
+  it.each(['development', 'test'])('runs none of them with NODE_ENV=%s', (env) => {
+    vi.stubEnv('NODE_ENV', env)
+    expect(() => createAuth(base())).not.toThrow()
+  })
+
+  it('defers them on `strict: false`, to the auth.strict() an app calls once its listeners exist', () => {
     vi.stubEnv('NODE_ENV', 'production')
-    try {
-      expect(() => createAuth(base())).toThrow(
-        expect.objectContaining({ meta: { detail: expect.stringContaining('production strict() checks failed') } }),
+    const auth = createAuth({ ...base(), strict: false })
+    expect(() => auth.strict()).toThrow(failed)
+  })
+
+  it.each(['production', 'development', 'test', true, 'false', ''])(
+    'refuses strict: %o, since only false means anything',
+    (strict) => {
+      expect(() => createAuth(Object.assign(base(), { strict }))).toThrow(
+        expect.objectContaining({
+          code: 'AUTH_MISCONFIGURED',
+          meta: {
+            detail: `strict takes only false, to defer the checks to auth.strict(); got ${JSON.stringify(strict)}`,
+          },
+        }),
       )
-      expect(() => createAuth({ ...base(), strict: false })).not.toThrow()
-    } finally {
-      vi.unstubAllEnvs()
-    }
-  })
-
-  it('is permissive under a NODE_ENV that names no environment it knows', () => {
-    vi.stubEnv('NODE_ENV', 'staging')
-    try {
-      expect(() => createAuth(base())).not.toThrow()
-    } finally {
-      vi.unstubAllEnvs()
-    }
-  })
-
-  it('refuses an env it does not know rather than reading it as truthy', () => {
-    // It used to be `if (config.strict)` and then handed straight to `strict({ env })`, so a
-    // misspelled environment ran no checks at all under a flag that says it did.
-    // @ts-expect-error not an environment `strict` names
-    expect(() => createAuth({ ...base(), strict: 'prod' })).toThrow(
-      expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
-    )
-  })
-
-  it('refuses the string "false", which a flag threaded from an environment variable arrives as', () => {
-    // `'false'` is a non-empty string, so the truthiness test it used to meet turned strict on.
-    // `false` is the way to say no.
-    // @ts-expect-error the string, not the boolean
-    expect(() => createAuth({ ...base(), strict: 'false' })).toThrow(
-      expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
-    )
-    // @ts-expect-error not an environment `strict` names
-    expect(() => createAuth({ ...base(), strict: '' })).toThrow(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
-  })
+    },
+  )
 })
 
 describe('the store triple', () => {

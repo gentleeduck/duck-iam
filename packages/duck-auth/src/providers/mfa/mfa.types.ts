@@ -1,4 +1,6 @@
 import type { Compliance } from '~/core/compliance'
+import type { DataAtRest } from '~/core/dataAtRest'
+import type { Sessions } from '~/core/sessions/sessions.types'
 import type { Passkey } from '~/providers/passkey/passkey.types'
 
 /** MFA configuration, the factors it enrols, and the step-up contract. */
@@ -13,6 +15,8 @@ export namespace Mfa {
     backupCodeLen: number
     /** Compliance preset(s); ratchets `backupCodeCount` up to the preset floor. */
     compliance: Compliance.Preset | Compliance.Preset[]
+    /** Encrypts each TOTP secret before it is stored, and opens it to check a code. */
+    dataAtRest: DataAtRest.Adapter
   }
 
   /** Every field optional: each is coalesced to its default, so the facet never sees an
@@ -26,6 +30,10 @@ export namespace Mfa {
     backupCodeLen?: number
     /** Compliance preset(s); ratchets `backupCodeCount` up to the preset floor. */
     compliance?: Compliance.Preset | Compliance.Preset[]
+    /** Encrypts each TOTP secret before it is stored, bound to its identity, and opens it to check a code.
+     *  Required: the provider refuses to build without one. After a key rotation, each secret moves to the
+     *  current key on its next good code. */
+    dataAtRest: DataAtRest.Adapter
   }
 
   /** The secret and `otpauth://` URI a TOTP enrollment answers, for the QR code. */
@@ -58,6 +66,9 @@ export namespace Mfa {
     supportedAlgorithmIDs?: number[]
     /** Where a test injects its own library instance. */
     webauthnModule?: Passkey.SimpleWebAuthnServerModule
+    /** The caller's session, `null` without one. Beside any factor but the password, this is refused with
+     *  `AUTH_MFA_REQUIRED` unless it is the identity's own, stepped up to AAL 2. */
+    session: Sessions.Me | null
   }
 
   /** What `confirmWebauthnMfaEnrollment` takes. */
@@ -78,6 +89,9 @@ export namespace Mfa {
     supportedAlgorithmIDs?: number[]
     /** Where a test injects its own library instance. */
     webauthnModule?: Passkey.SimpleWebAuthnServerModule
+    /** The caller's session, `null` without one. Beside any factor but the password, this is refused with
+     *  `AUTH_MFA_REQUIRED` unless it is the identity's own, stepped up to AAL 2. */
+    session: Sessions.Me | null
   }
 
   /** What `beginWebauthnMfaVerify` takes. */

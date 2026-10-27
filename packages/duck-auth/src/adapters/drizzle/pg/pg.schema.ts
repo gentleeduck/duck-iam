@@ -82,6 +82,8 @@ export const authIdentityProviders = pgTable(
     /** The issuing party's own stable subject id for the account. NOT NULL: a row without one answers no
      *  login, and a credential kept here is a `credentials` row, never one of these. */
     providerSub: text('provider_sub').notNull(),
+    /** The tenant the login signs in to; NULL is no tenant. */
+    tenantId: text('tenant_id'),
     addedAt: timestamp('added_at', { withTimezone: true }).notNull().defaultNow(),
     /** Who attached the login, from the ambient actor. A provider link is a new way to sign in as this
      *  identity, so an admin attaching one and the account holder attaching their own must not read alike.
@@ -89,15 +91,21 @@ export const authIdentityProviders = pgTable(
     addedBy: text('added_by'),
   },
   (t) => [
-    // SECURITY: one sub, one row. A hidden row keeps its logins until it is erased, as it keeps its address.
-    uniqueIndex('uq_auth_identity_providers_sub').on(t.providerId, t.providerSub),
-    // One row per provider: `link` refuses a provider the identity holds, and `unlink` takes no sub, so a
-    // second row at the same provider is one nothing could address.
-    uniqueIndex('uq_auth_identity_providers_owned').on(t.identityId, t.providerId),
+    // SECURITY: one sub, one row per tenant. Each unique is split in two, NULL tenants being distinct.
+    uniqueIndex('uq_auth_identity_providers_sub').on(t.providerId, t.providerSub).where(sql`tenant_id is null`),
+    uniqueIndex('uq_auth_identity_providers_sub_tenant')
+      .on(t.providerId, t.providerSub, t.tenantId)
+      .where(sql`tenant_id is not null`),
+    // One row per provider per tenant, since `unlink` takes no sub.
+    uniqueIndex('uq_auth_identity_providers_owned').on(t.identityId, t.providerId).where(sql`tenant_id is null`),
+    uniqueIndex('uq_auth_identity_providers_owned_tenant')
+      .on(t.identityId, t.providerId, t.tenantId)
+      .where(sql`tenant_id is not null`),
     index('auth_identity_providers_identity').on(t.identityId, t.addedAt),
     // Neither half of the pair may be blank: a blank names nobody, and the pair is what a lookup matches.
     check('chk_auth_identity_providers_provider_not_blank', sql`provider_id <> ''`),
     check('chk_auth_identity_providers_sub_not_blank', sql`provider_sub <> ''`),
+    check('chk_auth_identity_providers_tenant_not_blank', sql`tenant_id IS NULL OR tenant_id <> ''`),
     foreignKey({
       name: 'fk_auth_identity_providers_identity',
       columns: [t.identityId],

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { ALL_TENANTS } from '~/core/tenant'
 import { credentialInput, identityInput } from '~/test/store-inputs'
 import { MemoryAdapter } from '..'
 
@@ -50,11 +51,11 @@ describe('MemoryAdapter.findByHashedSecret - tenant filter parity with SQL adapt
       adapter.credentials.findByHashedSecret('hash-secret-3', 'api-key', { tenantId: 'tenant-A' }),
     ).rejects.toMatchObject({ code: 'AUTH_CREDENTIAL_NOT_FOUND' })
 
-    // Still reachable by an unscoped caller, which is what makes it global.
+    // Reached by a caller naming no tenant, the tenant it has.
     await expect(adapter.credentials.findByHashedSecret('hash-secret-3', 'api-key', {})).resolves.toBeTruthy()
   })
 
-  it('returns tenant-scoped row when ctx tenantId is undefined (global search)', async () => {
+  it('does not return a tenant row to a caller naming no tenant, which ALL_TENANTS reaches', async () => {
     const adapter = new MemoryAdapter<{ email: string; username: string }>()
     const ident = await adapter.identities.create(
       identityInput({ profile: { email: 'svc@x.com', username: 'svc@x.com' }, providers: [] }),
@@ -63,8 +64,11 @@ describe('MemoryAdapter.findByHashedSecret - tenant filter parity with SQL adapt
       credentialInput({ identityId: ident.id, kind: 'api-key', secret: 'hash-secret-4', tenantId: 'tenant-A' }),
       { tenantId: 'tenant-A' },
     )
-    const found = await adapter.credentials.findByHashedSecret('hash-secret-4', 'api-key', {})
-    expect(found?.identityId).toBe(ident.id)
+    await expect(adapter.credentials.findByHashedSecret('hash-secret-4', 'api-key', {})).rejects.toMatchObject({
+      code: 'AUTH_CREDENTIAL_NOT_FOUND',
+    })
+    const found = await adapter.credentials.findByHashedSecret('hash-secret-4', 'api-key', ALL_TENANTS)
+    expect(found.identityId).toBe(ident.id)
   })
 
   it('create inherits ctx.tenantId when input.tenantId is unset (SQL adapter parity)', async () => {

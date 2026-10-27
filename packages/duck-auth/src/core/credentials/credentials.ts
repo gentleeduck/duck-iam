@@ -1,10 +1,12 @@
 import { orNull } from '../answer'
 import { AuthError } from '../errors'
 import type { Identities } from '../identities/identities.types'
-import { isExpiredAt } from '../predicates/predicates'
+import { isExpiredAt, isProfileBooleanTrue } from '../predicates/predicates'
 import type { Provider } from '../provider/provider.types'
+import type { Sessions } from '../sessions/sessions.types'
+import { ALL_TENANTS } from '../tenant/tenant'
 import type { TenantContext } from '../tenant/tenant.types'
-import { PUBLIC_METADATA_KEYS } from './credentials.constants'
+import { PUBLIC_METADATA_KEYS, RECOVERY_PURPOSES } from './credentials.constants'
 import type { Credential } from './credentials.types'
 
 export function isRevoked(row: Pick<Credential.Me, 'revokedAt'>): boolean {
@@ -23,6 +25,51 @@ export function isCredentialExpired(row: Pick<Credential.Me, 'expiresAt'>, now: 
 export function isStandingFactor(row: Pick<Credential.Me, 'kind' | 'revokedAt' | 'expiresAt'>): boolean {
   if (isRevoked(row) || isCredentialExpired(row)) return false
   return row.kind === 'password' || row.kind === 'passkey' || row.kind === 'api-key'
+}
+
+/** The factors beside the password `session` still has to step up with: none when the identity holds none, or when
+ *  `session` is its own, in this tenant, at AAL 2 and fresh, as `checkStepUp` asks. Named as `completeStepUp` takes
+ *  them. Every list is read every time, so how long this takes does not say which are held. */
+export async function missingStepUp(
+  credentials: Credential.Store,
+  identityId: string,
+  session: Sessions.Me | null,
+  ctx: TenantContext,
+): Promise<Sessions.FactorMethod[]> {
+  if (
+    session?.identityId === identityId &&
+    session.tenantId === (ctx.tenantId ?? null) &&
+    session.aal >= 2 &&
+    session.fresh
+  ) {
+    return []
+  }
+  const live = (r: Credential.Me): boolean => !isRevoked(r) && !isCredentialExpired(r)
+  const totp = await credentials.listByIdentity(identityId, 'totp', ctx)
+  const recovery = await credentials.listByIdentity(identityId, 'recovery', ctx)
+  const keys = await credentials.listByIdentity(identityId, 'webauthn-mfa', ctx)
+  const passkeys = await credentials.listByIdentity(identityId, 'passkey', ctx)
+  const methods: Sessions.FactorMethod[] = []
+  if (totp.some((r) => live(r) && isProfileBooleanTrue(r.metadata, 'confirmed'))) methods.push('totp')
+  if (recovery.some((r) => live(r) && getCredentialPurpose(r) === RECOVERY_PURPOSES.mfaBackupCode)) {
+    methods.push('backup-code')
+  }
+  if (keys.some(live)) methods.push('webauthn')
+  if (passkeys.some(live)) methods.push('passkey')
+  return methods
+}
+
+/** Refuses with `AUTH_MFA_REQUIRED`, naming {@link missingStepUp}'s methods. Every path that adds, removes or
+ *  replaces a factor, mints backup codes or remembers a device asks it, so a password alone changes nothing beside
+ *  another factor. */
+export async function refuseWithoutStepUp(
+  credentials: Credential.Store,
+  identityId: string,
+  session: Sessions.Me | null,
+  ctx: TenantContext,
+): Promise<void> {
+  const methods = await missingStepUp(credentials, identityId, session, ctx)
+  if (methods.length > 0) throw new AuthError('AUTH_MFA_REQUIRED', { methods })
 }
 
 /** Drops the secret, and every metadata key the kind does not declare public. */
@@ -84,9 +131,9 @@ export async function evictUnproven<Profile extends Identities.ProfileMetadataBa
 ): Promise<void> {
   for (let pass = 0; pass < 2; pass++) {
     const held = await stores.identities.find({ id: identityId })
-    for (const p of held.providers) await stores.identities.unlink(identityId, p.providerId)
-    for (const c of await stores.credentials.listByIdentity(identityId, null, {})) {
-      if (!isRevoked(c) && c.id !== keepId) await orNull(stores.credentials.revoke(c.id, {}))
+    for (const p of held.providers) await stores.identities.unlink(identityId, p.providerId, p.tenantId)
+    for (const c of await stores.credentials.listByIdentity(identityId, null, ALL_TENANTS)) {
+      if (!isRevoked(c) && c.id !== keepId) await orNull(stores.credentials.revoke(c.id, ALL_TENANTS))
     }
   }
 }

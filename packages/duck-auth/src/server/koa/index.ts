@@ -69,7 +69,12 @@ export function koaActorContext(auth: AuthEngine, opts: KoaActorOptions = {}): K
       auth,
       { headers: toFetchHeaders(ctx.request.headers) },
       () => next(),
-      requestSecurity(auth, { caller: opts.getCaller?.(ctx), onAnomaly: opts.onAnomaly, onHijack: opts.onHijack }),
+      requestSecurity(auth, {
+        caller: opts.getCaller?.(ctx),
+        onAnomaly: opts.onAnomaly,
+        onHijack: opts.onHijack,
+        tenantId: opts.tenantId?.(ctx),
+      }),
     )
   }
 }

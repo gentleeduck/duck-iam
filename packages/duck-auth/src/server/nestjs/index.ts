@@ -29,7 +29,14 @@ const resolvedByRequest = new WeakMap<object, Engine.ResolveResult<Identities.Pr
  *  would otherwise have no CSRF defence; pass `csrf: false` only if something upstream did it. */
 export function makeGuard(
   auth: AuthEngine,
-  opts: { required?: boolean; csrf?: boolean; cfg?: Csrf.Cfg } = {},
+  opts: {
+    required?: boolean
+    csrf?: boolean
+    cfg?: Csrf.Cfg
+    /** Read the request's tenant, which its session must belong to; without it only a session with no tenant
+     *  resolves. Unread when `nestActorContext` resolved the request first. */
+    tenantId?: (req: NestAdapter.Request) => string | undefined
+  } = {},
 ): NestAdapter.Guard {
   const required = opts.required ?? true
   const csrf = opts.csrf ?? true
@@ -39,17 +46,22 @@ export function makeGuard(
       // Nest runs middleware before guards, so `nestActorContext` has usually resolved it already.
       const resolved = resolvedByRequest.has(req)
         ? (resolvedByRequest.get(req) ?? null)
-        : await auth.resolveSession({ headers: toFetchHeaders(req.headers) }).orNull()
+        : await auth
+            .resolveSession({ headers: toFetchHeaders(req.headers) }, { expectedTenantId: opts.tenantId?.(req) })
+            .orNull()
       resolvedByRequest.set(req, resolved)
       if (csrf) {
-        // Reuse the session just resolved rather than paying a second
-        // resolveSession inside csrfGuard.
+        // The session the cookie names, in whatever tenant, as `csrfGuard` reads it: the one just resolved
+        // when there is one, so the pair pays no second resolveSession.
+        const named =
+          resolved ??
+          (await auth.resolveSession({ headers: toFetchHeaders(req.headers) }, { allTenants: true }).orNull())
         verifyCsrf({
           headers: toFetchHeaders(req.headers),
           method: req.method,
           transport: auth.transport,
           ...(opts.cfg !== undefined && { cfg: opts.cfg }),
-          ...(resolved?.session.csrfHash != null && { sessionCsrfHash: resolved.session.csrfHash }),
+          ...(named?.session.csrfHash != null && { sessionCsrfHash: named.session.csrfHash }),
         })
       }
       if (!resolved) {
@@ -90,10 +102,14 @@ export function nestActorContext(
         caller: opts.getCaller?.(req),
         onAnomaly: opts.onAnomaly,
         onHijack: opts.onHijack,
+        tenantId: opts.tenantId?.(req),
       })
       // Resolved here rather than by `withRequestActor`, which drops the identity the guard reuses.
       const resolved = await auth
-        .resolveSession({ headers: toFetchHeaders(req.headers) }, { requestSnapshot: security.requestSnapshot })
+        .resolveSession(
+          { headers: toFetchHeaders(req.headers) },
+          { expectedTenantId: security.expectedTenantId, requestSnapshot: security.requestSnapshot },
+        )
         // `.orNull()` answers null for "no session" alone, so a store outage still throws.
         .orNull()
       resolvedByRequest.set(req, resolved)

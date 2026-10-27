@@ -20,6 +20,7 @@ import { honoActorContext, honoCaller } from '~/server/hono'
 import { koaActorContext, koaCaller } from '~/server/koa'
 import { nestActorContext, nestCaller } from '~/server/nestjs'
 import { type NextActorOptions, nextCaller, nextWithActor } from '~/server/next'
+import { authTestDataAtRest } from '~/test'
 import { expressRes, fastifyReply, honoCtx, koaCtx } from '~/test/adapter-fakes'
 
 type Profile = { username: string; email: string }
@@ -35,7 +36,7 @@ function buildAuth(hijack?: Hijack.Cfg) {
       const adapter = new MemoryAdapter<Profile>()
       return { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions }
     })(),
-    transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+    transport: new CookieTransport({ name: 'duck-sid' }),
   })
   return auth
 }
@@ -612,9 +613,9 @@ describe('a rotated session answers to the browser the one before it was issued 
       baseUrl: 'https://x',
       hijack: { onUserAgentChange: 'revoke' },
       limiter: new MemoryLimiter({ max: 50, windowMs: 60_000 }),
-      providers: [mfaProvider()],
+      providers: [mfaProvider({ dataAtRest: authTestDataAtRest() })],
       stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
-      transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+      transport: new CookieTransport({ name: 'duck-sid' }),
     })
   }
 
@@ -629,9 +630,9 @@ describe('a rotated session answers to the browser the one before it was issued 
 
   async function stepUp(auth: AuthEngine<Profile>, sid: string, caller: CallerFingerprint = {}): Promise<string> {
     const { identityId } = await auth.sessions.getBySid(sid)
-    const { secret } = await auth.mfa.beginTotpEnrollment(identityId ?? '', 'a@x.com')
+    const { secret } = await auth.mfa.beginTotpEnrollment(identityId ?? '', 'a@x.com', null)
     const step = Math.floor(Date.now() / 30_000)
-    await auth.mfa.confirmTotpEnrollment(identityId ?? '', totpAt(secret, step))
+    await auth.mfa.confirmTotpEnrollment(identityId ?? '', totpAt(secret, step), null)
     const code = totpAt(secret, step + 1)
     return (await auth.flows.completeStepUp({ code, currentSid: sid, method: 'totp', ...caller })).sid
   }
@@ -683,9 +684,9 @@ describe('a step-up onAnomaly asks a new device for is one it can finish', () =>
       const auth = new AuthEngine<Profile>({
         baseUrl: 'https://x',
         limiter: new MemoryLimiter({ max: 50, windowMs: 60_000 }),
-        providers: [mfaProvider()],
+        providers: [mfaProvider({ dataAtRest: authTestDataAtRest() })],
         stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
-        transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+        transport: new CookieTransport({ name: 'duck-sid' }),
       })
       const store = new AuthMemoryDeviceFingerprintStore()
       auth.anomaly.register(deviceFingerprintDetector({ compose: (req) => req.userAgent ?? null, store }))
@@ -709,9 +710,9 @@ describe('a step-up onAnomaly asks a new device for is one it can finish', () =>
       expect(await answer(sid)).toMatchObject({ code: 'AUTH_STEP_UP_REQUIRED' })
 
       const { identityId } = await auth.sessions.getBySid(sid)
-      const { secret } = await auth.mfa.beginTotpEnrollment(identityId ?? '', 'a@x.com')
+      const { secret } = await auth.mfa.beginTotpEnrollment(identityId ?? '', 'a@x.com', null)
       const step = Math.floor(Date.now() / 30_000)
-      await auth.mfa.confirmTotpEnrollment(identityId ?? '', totpAt(secret, step))
+      await auth.mfa.confirmTotpEnrollment(identityId ?? '', totpAt(secret, step), null)
       const code = totpAt(secret, step + 1)
       const stepped = await auth.flows.completeStepUp({ code, currentSid: sid, method: 'totp', ...SIGNED_IN })
       expect(await answer(stepped.sid)).toBe('served')

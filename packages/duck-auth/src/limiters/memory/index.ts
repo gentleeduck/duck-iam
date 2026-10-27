@@ -31,7 +31,7 @@ const WINDOW_MAX_MS = 8_640_000_000_000
  * deployment facing a flood of distinct keys wants the Redis limiter, whose buckets expire in the store.
  */
 export class MemoryLimiter implements Limiter.Me {
-  /** Read by `AuthEngine.strict({ env: 'production' })`, which refuses this class there: a bucket per
+  /** Read by `AuthEngine.strict()`, which refuses this class in production: a bucket per
    *  node multiplies every budget by the node count, and a restart returns them all. A tag rather than a
    *  class-identity compare, for the reason `NoopLimiter` carries one. */
   readonly __isInProcessLimiter = true as const

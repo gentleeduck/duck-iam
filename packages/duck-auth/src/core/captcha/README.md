@@ -95,9 +95,8 @@ would otherwise fail every call for a reason nothing named.
 **`AuthRecaptchaV3Verifier`** — reCAPTCHA v3. Passes at or above `minScore`, default 0.5. Success with
 no score is `missing-score`, not a low score, so `minScore: 0` still refuses a response carrying none.
 
-**`AuthNullCaptchaVerifier`** — passes everything, for tests. Refuses to construct under
-`NODE_ENV=production` unless `development: true`, and `strict()` refuses it too, keying on a marker field
-rather than on `id`, which any verifier could spell.
+**`AuthNullCaptchaVerifier`** — passes everything, for tests. Refuses to construct in production, which is
+any `NODE_ENV` but `development` or `test`, unset included.
 
 **`AuthUnconfiguredCaptchaVerifier`** — the default. Fails everything with `captcha-not-configured`.
 
@@ -136,11 +135,10 @@ is the other control and they do different jobs.
 the provider's job afterwards.
 
 **Not a reason to trust the endpoint.** `endpoint` is passed to `assertSafeOutboundUrl`, because the
-secret is posted to whatever it points at. `allowInsecureEndpoint` lifts the HTTPS rule and nothing else:
-a loopback or private address stays refused, so it cannot point at `localhost` and what it is for is a
-mock reachable by name. `strict({ env: 'production' })` refuses a verifier built with it, the way it
-refuses `AuthNullCaptchaVerifier` — a cleartext siteverify POST hands the secret to anyone on the path,
-and lets them answer `success: true` to every call.
+secret is posted to whatever it points at. Outside production it admits `http` and loopback, so a local
+mock works in development, and a private address stays refused. In production plain `http` is refused at
+construction: a cleartext siteverify POST hands the secret to anyone on the path, and lets them answer
+`success: true` to every call.
 
 **Not a replay check.** All three providers invalidate a token the first time it is verified, so a
 replayed one comes back as a provider rejection. Nothing here dedupes, which matters if you write your

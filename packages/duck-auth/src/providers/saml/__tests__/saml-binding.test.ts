@@ -42,7 +42,6 @@ function makeProvider(over: Partial<Saml.Options> = {}, client = makeClient()) {
   const provider = saml<MyProfile>({
     // The suite's default is the unsolicited flow, so every test that is not about the binding can
     // keep calling `complete` with a bare response.
-    allowReplay: true,
     allowUnsolicited: true,
     callbackUrl: 'https://app.test/auth/saml/acs',
     client,
@@ -135,6 +134,22 @@ describe('what ties a response to the request that started it', () => {
       code: 'AUTH_PROVIDER_FAILED',
     })
     expect(signIns).toHaveLength(1)
+  })
+
+  it.each(['production', undefined])('requires a replay store with NODE_ENV=%s', (env) => {
+    vi.stubEnv('NODE_ENV', env)
+    expect(() => makeProvider()).toThrow(
+      expect.objectContaining({
+        code: 'AUTH_MISCONFIGURED',
+        meta: { detail: 'samlProvider requires `replayStore` in production' },
+      }),
+    )
+    expect(() => makeProvider({ replayStore: { consume: async () => true } })).not.toThrow()
+  })
+
+  it.each(['development', 'test'])('builds without a replay store with NODE_ENV=%s', (env) => {
+    vi.stubEnv('NODE_ENV', env)
+    expect(() => makeProvider()).not.toThrow()
   })
 
   it('refuses an assertion carrying no id rather than skipping the replay store wired for it', async () => {

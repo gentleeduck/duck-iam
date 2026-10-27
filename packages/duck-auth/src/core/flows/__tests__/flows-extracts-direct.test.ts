@@ -8,7 +8,7 @@ import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
 import { mfaProvider } from '~/providers/mfa'
 import { passwords, ScryptHasher } from '~/providers/passwords'
-import { authTestDeliver } from '~/test'
+import { authTestDataAtRest, authTestDeliver } from '~/test'
 import { cancelAccountDeletion, completeAccountDeletion, requestAccountDeletion } from '../account-deletion.flow'
 import { completeEmailVerification, requestEmailVerification } from '../email-verification.flow'
 import { impersonate, releaseImpersonation } from '../impersonate.flow'
@@ -33,10 +33,13 @@ function build() {
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app',
     deliver: channel.deliver,
-    transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
+    transport: new CookieTransport({ name: 'duck-sid' }),
     stores: { identities: adapter.identities, sessions: adapter.sessions, credentials: adapter.credentials },
     limiter: new MemoryLimiter({ max: 50, windowMs: 60_000 }),
-    providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) }), mfaProvider()],
+    providers: [
+      passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) }),
+      mfaProvider({ dataAtRest: authTestDataAtRest() }),
+    ],
   })
   return { adapter, auth, channel }
 }
@@ -229,6 +232,7 @@ describe('flows/provider-link.ts - direct exports', () => {
       identityId: ident.id,
       providerId: 'github',
       providerSub: 'gh-sub-1',
+      session: null,
     })
     expect(out.identityId).toBe(ident.id)
     expect(out.providerId).toBe('github')
@@ -238,7 +242,13 @@ describe('flows/provider-link.ts - direct exports', () => {
 
   it('linkProvider rejects invalid providerId', async () => {
     await expect(
-      linkProvider(auth.flows.deps, { authorize: ALLOW_LINK, identityId: 'x', providerId: '', providerSub: 's' }),
+      linkProvider(auth.flows.deps, {
+        authorize: ALLOW_LINK,
+        identityId: 'x',
+        providerId: '',
+        providerSub: 's',
+        session: null,
+      }),
     ).rejects.toMatchObject({ code: 'AUTH_PROVIDER_FAILED' })
   })
 
@@ -249,12 +259,13 @@ describe('flows/provider-link.ts - direct exports', () => {
       identityId: ident.id,
       providerId: 'github',
       providerSub: 'gh-1',
+      session: null,
     })
-    await expect(unlinkProvider(auth.flows.deps, { identityId: ident.id, providerId: 'github' })).rejects.toMatchObject(
-      {
-        code: 'AUTH_PROVIDER_FAILED',
-      },
-    )
+    await expect(
+      unlinkProvider(auth.flows.deps, { identityId: ident.id, providerId: 'github', session: null }),
+    ).rejects.toMatchObject({
+      code: 'AUTH_PROVIDER_FAILED',
+    })
   })
 
   it('unlinkProvider allows lockout when allowLockout: true', async () => {
@@ -264,11 +275,13 @@ describe('flows/provider-link.ts - direct exports', () => {
       identityId: ident.id,
       providerId: 'github',
       providerSub: 'gh-2',
+      session: null,
     })
     const out = await unlinkProvider(auth.flows.deps, {
       identityId: ident.id,
       providerId: 'github',
       allowLockout: true,
+      session: null,
     })
     expect(out.providerId).toBe('github')
   })

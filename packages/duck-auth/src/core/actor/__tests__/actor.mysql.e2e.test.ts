@@ -52,7 +52,9 @@ suite('E2E actor attribution through a one-connection MySQL pool', () => {
     const linkers = [...actors].reverse()
     await Promise.all(
       ids.map((id, i) =>
-        withActor(linkers[i], () => stores.identities.link(id, { providerId: 'github', providerSub: `sub-${i}` })),
+        withActor(linkers[i], () =>
+          stores.identities.link(id, { providerId: 'github', providerSub: `sub-${i}`, tenantId: null }),
+        ),
       ),
     )
 

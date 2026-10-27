@@ -13,6 +13,7 @@ import { BearerTransport } from '~/core/transport/bearer.transport'
 import { apiKeyProvider } from '~/providers/api-key'
 import { mfaProvider } from '~/providers/mfa'
 import { passwords, ScryptHasher } from '~/providers/passwords'
+import { authTestDataAtRest } from '~/test'
 import { applyPgSchema, isolatedDatabaseUrl } from '~/test/e2e-env'
 
 const URL = await isolatedDatabaseUrl('tx_participation')
@@ -57,7 +58,11 @@ suite('E2E withTransaction on real Postgres', () => {
     engine = new AuthEngine<P>({
       baseUrl: 'http://localhost:0',
       events: bus,
-      providers: [passwords({ hasher: new ScryptHasher() }), mfaProvider(), apiKeyProvider()],
+      providers: [
+        passwords({ hasher: new ScryptHasher() }),
+        mfaProvider({ dataAtRest: authTestDataAtRest() }),
+        apiKeyProvider(),
+      ],
       stores: new DrizzlePgAdapter(db),
       transport: new BearerTransport(),
     })
@@ -192,8 +197,8 @@ suite('E2E withTransaction on real Postgres', () => {
 
     await rollsBack(async (tx) => {
       const auth = engine.withTransaction(tx)
-      await auth.mfa.beginTotpEnrollment(identity.id, 'mfa@x')
-      await auth.mfa.removeTotp(identity.id)
+      await auth.mfa.beginTotpEnrollment(identity.id, 'mfa@x', null)
+      await auth.mfa.removeTotp(identity.id, null)
       expect(auth.pending.size).toBeGreaterThan(0)
     })
 
@@ -206,7 +211,7 @@ suite('E2E withTransaction on real Postgres', () => {
 
     await rollsBack(async (tx) => {
       const auth = engine.withTransaction(tx)
-      await auth.apiKeys.create(identity.id, { name: 'k', scopes: ['read'] })
+      await auth.apiKeys.create(identity.id, { name: 'k', scopes: ['read'], session: null })
     })
 
     expect(await count('auth_credentials', "WHERE kind = 'api-key'")).toBe(0)

@@ -54,7 +54,7 @@ describe('construction', () => {
 })
 
 describe('extract resolves a request carrying two credentials by array order', () => {
-  const cookie = new CookieTransport({ name: 'duck-sid', secure: true })
+  const cookie = new CookieTransport({ name: 'duck-sid' })
   const bearer = new BearerTransport()
 
   it('falls through to the next transport when the first finds nothing', () => {
@@ -311,10 +311,7 @@ describe('issue and revoke fan out to every transport', () => {
   })
 
   it('a cookie and a bearer compose cleanly, which is the documented case', () => {
-    const composite = new CompositeTransport([
-      new CookieTransport({ name: 'duck-sid', secure: true }),
-      new BearerTransport(),
-    ])
+    const composite = new CompositeTransport([new CookieTransport({ name: 'duck-sid' }), new BearerTransport()])
     const intents = composite.issue('sid', SESSION, OPTS)
     expect(intents.filter((i) => i.type === 'setCookie')).toHaveLength(1)
     expect(intents.filter((i) => i.type === 'json')).toHaveLength(1)

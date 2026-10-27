@@ -19,7 +19,7 @@ function buildAuth(channel: Deliver): {
   const adapter = new MemoryAdapter<MyProfile>()
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app.example.com',
-    transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
+    transport: new CookieTransport({ name: 'duck-sid' }),
     stores: {
       identities: adapter.identities,
       sessions: adapter.sessions,
@@ -111,7 +111,7 @@ describe('magic-link.begin - timing-defense', () => {
     const adapter = new MemoryAdapter<MyProfile>()
     const auth = new AuthEngine<MyProfile>({
       baseUrl: 'https://app.example.com',
-      transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
+      transport: new CookieTransport({ name: 'duck-sid' }),
       stores: {
         credentials: recording(adapter.credentials, 'credentials', log),
         identities: recording(adapter.identities, 'identities', log),

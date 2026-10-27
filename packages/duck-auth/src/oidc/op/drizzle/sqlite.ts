@@ -34,6 +34,7 @@ export const authOidcCodesTable = sqliteTable(
     codeChallengeMethod: text('code_challenge_method'),
     tenantId: text('tenant_id'),
     sid: text('sid').notNull(),
+    authTime: integer('auth_time'),
     exp: integer('exp').notNull(),
   },
   (t) => [index('oidc_codes_exp').on(t.exp)],
@@ -44,13 +45,14 @@ export const authOidcAccessTokensTable = sqliteTable(
   'oidc_access_tokens',
   {
     tokenHash: text('token_hash').primaryKey(),
+    familyId: text('family_id').notNull(),
     clientId: text('client_id').notNull(),
     identityId: text('identity_id').notNull(),
     scope: text('scope').notNull(),
     tenantId: text('tenant_id'),
     exp: integer('exp').notNull(),
   },
-  (t) => [index('oidc_at_exp').on(t.exp)],
+  (t) => [index('oidc_at_family').on(t.familyId), index('oidc_at_exp').on(t.exp)],
 )
 
 /** Issued refresh tokens, by hash. */
@@ -63,6 +65,8 @@ export const authOidcRefreshTokensTable = sqliteTable(
     identityId: text('identity_id').notNull(),
     scope: text('scope').notNull(),
     tenantId: text('tenant_id'),
+    sid: text('sid').notNull(),
+    authTime: integer('auth_time'),
     exp: integer('exp').notNull(),
     consumedAt: integer('consumed_at'),
   },
@@ -141,6 +145,7 @@ function rowToCode(row: typeof authOidcCodesTable.$inferSelect): OidcOP.Code {
         : null,
     tenant_id: row.tenantId,
     sid: row.sid,
+    auth_time: row.authTime,
     exp: row.exp,
   }
 }
@@ -148,6 +153,7 @@ function rowToCode(row: typeof authOidcCodesTable.$inferSelect): OidcOP.Code {
 function rowToAccess(row: typeof authOidcAccessTokensTable.$inferSelect): OidcOP.AccessToken {
   return {
     token_hash: row.tokenHash,
+    family_id: row.familyId,
     client_id: row.clientId,
     identity_id: row.identityId,
     scope: decodeArray(row.scope),
@@ -164,6 +170,8 @@ function rowToRefresh(row: typeof authOidcRefreshTokensTable.$inferSelect): Oidc
     identity_id: row.identityId,
     scope: decodeArray(row.scope),
     tenant_id: row.tenantId,
+    sid: row.sid,
+    auth_time: row.authTime,
     exp: row.exp,
     consumedAt: row.consumedAt,
   }
@@ -229,6 +237,7 @@ export function authCreateDrizzleSqliteOidcOpStores(db: AnySQLiteDatabase): {
           codeChallengeMethod: c.code_challenge_method,
           tenantId: c.tenant_id,
           sid: c.sid,
+          authTime: c.auth_time,
           exp: c.exp,
         })
       },
@@ -244,6 +253,7 @@ export function authCreateDrizzleSqliteOidcOpStores(db: AnySQLiteDatabase): {
       async insert(t) {
         await db.insert(authOidcAccessTokensTable).values({
           tokenHash: t.token_hash,
+          familyId: t.family_id,
           clientId: t.client_id,
           identityId: t.identity_id,
           scope: encodeArray(t.scope),
@@ -268,6 +278,9 @@ export function authCreateDrizzleSqliteOidcOpStores(db: AnySQLiteDatabase): {
       async revokeByHash(hash) {
         await db.delete(authOidcAccessTokensTable).where(eq(authOidcAccessTokensTable.tokenHash, hash))
       },
+      async revokeFamily(family_id) {
+        await db.delete(authOidcAccessTokensTable).where(eq(authOidcAccessTokensTable.familyId, family_id))
+      },
     },
     refreshTokens: {
       async insert(t) {
@@ -278,6 +291,8 @@ export function authCreateDrizzleSqliteOidcOpStores(db: AnySQLiteDatabase): {
           identityId: t.identity_id,
           scope: encodeArray(t.scope),
           tenantId: t.tenant_id,
+          sid: t.sid,
+          authTime: t.auth_time,
           exp: t.exp,
           consumedAt: t.consumedAt,
         })

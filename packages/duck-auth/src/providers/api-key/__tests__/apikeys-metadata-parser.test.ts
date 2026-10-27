@@ -130,7 +130,7 @@ describe('ApiKeysFacet - metadata parser', () => {
         name: 42, // non-string name
         scopes: ['admin', null, 'editor'], // mixed-type scopes
       })
-      const { key } = await facet.rotate(cred.id)
+      const { key } = await facet.rotate(cred.id, null)
       expect(key.name).toBe('') // non-string name coerced
       expect(key.scopes).toEqual(['admin', 'editor']) // bad entry dropped
     })

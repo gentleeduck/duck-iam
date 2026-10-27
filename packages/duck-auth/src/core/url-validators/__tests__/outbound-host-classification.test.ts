@@ -17,8 +17,13 @@
  * `hostname-blocklist.test.ts` covers.
  */
 
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { assertResolvedHostIsPublic, assertSafeOutboundUrl } from '../url-validators'
+
+// The production guard; a case about development or test stubs its own environment.
+beforeEach(() => {
+  vi.stubEnv('NODE_ENV', 'production')
+})
 
 /** Whether the guard refuses this host. Uses https, so only the host decides. */
 function refuses(host: string): boolean {
@@ -232,17 +237,37 @@ describe('assertResolvedHostIsPublic classifies a raw address, with no URL to no
 })
 
 describe('the SSRF guard rules that are not about the host', () => {
-  it('refuses a non-HTTPS scheme unless the caller opts in', () => {
+  it('refuses plain http in production and admits it outside', () => {
     expect(refuses('example.com')).toBe(false)
     expect(() => assertSafeOutboundUrl('http://example.com/x', { label: 'probe' })).toThrow()
-    expect(() => assertSafeOutboundUrl('http://example.com/x', { allowInsecure: true, label: 'probe' })).not.toThrow()
+    expect(() => assertSafeOutboundUrl('ftp://example.com/x', { label: 'probe' })).toThrow()
+    vi.stubEnv('NODE_ENV', 'development')
+    expect(() => assertSafeOutboundUrl('http://example.com/x', { label: 'probe' })).not.toThrow()
+    expect(() => assertSafeOutboundUrl('ftp://example.com/x', { label: 'probe' })).toThrow()
   })
 
-  it('still refuses a blocked host when allowInsecure is set, which is a dev flag and not a bypass', () => {
-    // `engine.strict.ts` states this: allowInsecureEndpoint cannot reach loopback.
-    for (const url of ['http://127.0.0.1/x', 'http://localhost/x', 'http://169.254.169.254/x']) {
-      expect(() => assertSafeOutboundUrl(url, { allowInsecure: true, label: 'probe' })).toThrow()
+  it('refuses loopback in production', () => {
+    for (const url of ['https://127.0.0.1/x', 'https://localhost/x', 'https://[::1]/x']) {
+      expect(() => assertSafeOutboundUrl(url, { label: 'probe' })).toThrow()
     }
+    expect(() => assertResolvedHostIsPublic('127.0.0.1', 'probe')).toThrow()
+  })
+
+  // A receiver on this machine is what a dev server delivers to.
+  it.each(['development', 'test'])('admits loopback under NODE_ENV=%s', (env) => {
+    vi.stubEnv('NODE_ENV', env)
+    for (const url of ['http://127.0.0.1/x', 'http://localhost/x', 'http://[::1]/x']) {
+      expect(() => assertSafeOutboundUrl(url, { label: 'probe' })).not.toThrow()
+    }
+    expect(() => assertResolvedHostIsPublic('127.0.0.1', 'probe')).not.toThrow()
+  })
+
+  it.each(['development', 'test'])('still refuses every other blocked host under NODE_ENV=%s', (env) => {
+    vi.stubEnv('NODE_ENV', env)
+    for (const url of ['http://169.254.169.254/x', 'http://10.0.0.1/x', 'http://[::2]/x']) {
+      expect(() => assertSafeOutboundUrl(url, { label: 'probe' })).toThrow()
+    }
+    expect(() => assertResolvedHostIsPublic('10.0.0.1', 'probe')).toThrow()
   })
 
   it('refuses credentials in the URL, which leak to every proxy and access log on the path', () => {

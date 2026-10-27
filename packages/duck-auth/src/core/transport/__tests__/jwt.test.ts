@@ -1,5 +1,5 @@
 import { createHmac } from 'node:crypto'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { answer } from '~/core/answer'
 import { InMemoryEvents } from '~/core/events'
 import { HijackFacet } from '~/core/hijack'
@@ -76,19 +76,46 @@ describe('JwtTransport', () => {
       expect(back?.factors.map((f) => f.method).sort()).toEqual(['password', 'totp'])
     })
 
-    it('issues a refresh cookie when configured', async () => {
+    it('issues a refresh cookie when configured, Secure under its __Host- name in production', async () => {
+      vi.stubEnv('NODE_ENV', 'production')
       const t = new JwtTransport({
         ...baseCfg,
         refresh: { cookieName: '__Host-rt', ttlMs: 86_400_000 },
       })
       const intents = t.issue('plain-sid', fakeSession(), { fresh: true, absolute: false })
-      const cookieIntent = intents.find((i) => i.type === 'setCookie')
-      expect(cookieIntent).toBeDefined()
-      if (cookieIntent?.type === 'setCookie') {
-        expect(cookieIntent.name).toBe('__Host-rt')
-        expect(cookieIntent.value).toBe('plain-sid')
-        expect(cookieIntent.options.httpOnly).toBe(true)
-      }
+      expect(intents.find((i) => i.type === 'setCookie')).toMatchObject({
+        name: '__Host-rt',
+        value: 'plain-sid',
+        options: { httpOnly: true, secure: true },
+      })
+      expect(t.revoke()).toMatchObject([{ type: 'clearCookie', name: '__Host-rt', options: { secure: true } }])
+      expect(t.refreshCookieName).toBe('__Host-rt')
+    })
+
+    // Over plain http, which is how a dev server runs, a browser drops a Secure cookie and any `__Host-` one.
+    it.each(['development', 'test'])(
+      'drops Secure and the __Host- prefix from the refresh cookie under NODE_ENV=%s',
+      (env) => {
+        vi.stubEnv('NODE_ENV', env)
+        const t = new JwtTransport({ ...baseCfg, refresh: {} })
+        const intents = t.issue('plain-sid', fakeSession(), { fresh: true, absolute: false })
+        expect(intents.find((i) => i.type === 'setCookie')).toMatchObject({
+          name: 'duck-refresh',
+          options: { secure: false },
+        })
+        expect(t.revoke()).toMatchObject([{ type: 'clearCookie', name: 'duck-refresh', options: { secure: false } }])
+        expect(t.refreshCookieName).toBe('duck-refresh')
+      },
+    )
+
+    it('keeps the refresh cookie Secure under SameSite=None outside production', () => {
+      vi.stubEnv('NODE_ENV', 'development')
+      const t = new JwtTransport({ ...baseCfg, refresh: { sameSite: 'none' } })
+      const intents = t.issue('plain-sid', fakeSession(), { fresh: true, absolute: false })
+      expect(intents.find((i) => i.type === 'setCookie')).toMatchObject({
+        name: '__Host-duck-refresh',
+        options: { secure: true, sameSite: 'none' },
+      })
     })
   })
 
@@ -335,9 +362,9 @@ describe('JwtTransport', () => {
 
   describe('revoke', () => {
     it('returns clearCookie intent when refresh enabled', () => {
-      const t = new JwtTransport({ ...baseCfg, refresh: { cookieName: '__Host-rt' } })
+      const t = new JwtTransport({ ...baseCfg, refresh: { cookieName: 'rt' } })
       const intents = t.revoke()
-      expect(intents.some((i) => i.type === 'clearCookie' && i.name === '__Host-rt')).toBe(true)
+      expect(intents.some((i) => i.type === 'clearCookie' && i.name === 'rt')).toBe(true)
     })
 
     it('returns json intent only when refresh disabled', () => {

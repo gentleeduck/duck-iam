@@ -1,6 +1,7 @@
 import { orNull } from '../answer'
 import { randomToken, sha256, timingSafeEqual } from '../crypto'
 import { AuthError } from '../errors'
+import { cookieSecurity } from '../transport/cookie.transport'
 
 export const AUTH_DEFAULT_CSRF_CONFIG: Required<Omit<Csrf.Cfg, 'allowedOrigins'>> & {
   allowedOrigins: string[]
@@ -20,7 +21,8 @@ export function issueCsrfToken(): { token: string; hash: string } {
   return { token, hash: sha256(token) }
 }
 
-/** The double-submit cookie carrying the plaintext token, built for the transport's cookie settings. */
+/** The double-submit cookie carrying the plaintext token. Outside production it is not Secure, and drops a
+ *  `__Host-` prefix with it. */
 export function buildCsrfCookieOptions(
   token: string,
   cfg: Csrf.Cfg = {},
@@ -34,13 +36,14 @@ export function buildCsrfCookieOptions(
     path: string
   }
 } {
+  const { name, secure } = cookieSecurity(cfg.cookieName ?? AUTH_DEFAULT_CSRF_CONFIG.cookieName, 'lax')
   return {
-    name: cfg.cookieName ?? AUTH_DEFAULT_CSRF_CONFIG.cookieName,
+    name,
     value: token,
     options: {
       // WARN: must stay readable by JS, which is what stitches it onto the `x-csrf-token` header.
       httpOnly: false,
-      secure: true,
+      secure,
       sameSite: 'lax',
       path: '/',
     },
@@ -145,7 +148,7 @@ export async function csrfGuard(
   auth: {
     resolveSession(
       req: { headers: Headers },
-      opts?: { expectedTenantId?: string },
+      opts?: { allTenants?: true },
     ): Promise<{
       session: { csrfHash?: string | null }
       identity: unknown
@@ -168,13 +171,9 @@ export async function csrfGuard(
     })
     return
   }
-  // An unauthenticated request still gets the double-submit check below, against the cookie alone.
-  const resolved = await orNull(
-    auth.resolveSession(
-      req,
-      opts.expectedTenantId !== undefined ? { expectedTenantId: opts.expectedTenantId } : undefined,
-    ),
-  )
+  // The session the cookie names, in whatever tenant: the check grants nothing, and one asking for a tenant
+  // would skip the token for every session outside it.
+  const resolved = await orNull(auth.resolveSession(req, { allTenants: true }))
   verifyCsrf({
     method: req.method,
     headers: req.headers,
@@ -187,7 +186,8 @@ export async function csrfGuard(
 export namespace Csrf {
   /** The CSRF check's options. */
   export type Cfg = {
-    /** Cookie name carrying the plaintext token. Default `__Host-duck-csrf`. */
+    /** Cookie name carrying the plaintext token. Default `__Host-duck-csrf`, which outside production drops its
+     *  prefix along with Secure. */
     cookieName?: string
     /** Header name the client puts the token on. Default `x-csrf-token`. */
     headerName?: string
@@ -212,7 +212,5 @@ export namespace Csrf {
     isBearer?: boolean
     /** The cookie and header names, and the strategy. */
     cfg?: Csrf.Cfg
-    /** The tenant the session must belong to. */
-    expectedTenantId?: string
   }
 }

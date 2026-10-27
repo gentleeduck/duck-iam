@@ -63,7 +63,7 @@ suite('E2E magic links on real Postgres', () => {
       baseUrl: 'https://app.test',
       limiter: new MemoryLimiter({ max: 5000, windowMs: 60_000 }),
       stores: { credentials: stores.credentials, identities: stores.identities, sessions: stores.sessions },
-      transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+      transport: new CookieTransport({ name: 'duck-sid' }),
     })
     auth.providers.register(
       magicLink<Profile>({

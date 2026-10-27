@@ -29,7 +29,7 @@ suite('E2E actor attribution over HTTP into real Postgres', () => {
   async function signUp(address: string): Promise<string> {
     const identity = await auth.identities.create({ profile: { email: address, username: address } })
     planted.push(identity.id)
-    await auth.passwords.set(identity.id, PASSWORD, stores.credentials)
+    await auth.passwords.set(identity.id, PASSWORD, stores.credentials, null)
     return identity.id
   }
 
@@ -61,7 +61,7 @@ suite('E2E actor attribution over HTTP into real Postgres', () => {
       baseUrl: 'https://app.test',
       limiter: new MemoryLimiter({ max: 1_000, windowMs: 60_000 }),
       stores: { credentials: stores.credentials, identities: stores.identities, sessions: stores.sessions },
-      transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+      transport: new CookieTransport({ name: 'duck-sid' }),
     })
     auth.providers.register(passwords<Profile>({ hasher: new ScryptHasher({ keylen: 32, N: 1 << 10 }) }))
 
@@ -78,7 +78,7 @@ suite('E2E actor attribution over HTTP into real Postgres', () => {
             const { version } = await auth.identities.getById(id)
             return (await auth.identities.updateProfile(id, { username: param('username') }, version)).id
           }
-          return (await auth.identities.link(id, { providerId: 'github', providerSub: param('sub') })).id
+          return (await auth.identities.link(id, { providerId: 'github', providerSub: param('sub') }, null)).id
         })
       }),
     )

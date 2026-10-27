@@ -21,7 +21,7 @@ function buildAuth(opts: { credentials?: (base: Credential.Store) => Credential.
   const adapter = new MemoryAdapter<MyProfile>()
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app',
-    transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
+    transport: new CookieTransport({ name: 'duck-sid' }),
     stores: {
       identities: adapter.identities,
       sessions: adapter.sessions,
@@ -379,19 +379,7 @@ describe('FlowsImpl - impersonation', () => {
       return sid
     }
 
-    it('is the operator session tenant, and release returns the operator there', async () => {
-      const out = await auth.flows.impersonate({
-        authorize: async () => true,
-        realSid: await tenantAdmin(),
-        reason: 'x',
-        targetIdentityId: targetId,
-      })
-      expect(out.session.tenantId).toBe('acme')
-      const back = await auth.flows.releaseImpersonation(out.sid)
-      expect(back.session?.tenantId).toBe('acme')
-    })
-
-    it('accepts the operator session tenant by name', async () => {
+    it('is the operator session tenant, named, and release returns the operator there', async () => {
       const out = await auth.flows.impersonate({
         authorize: async () => true,
         realSid: await tenantAdmin(),
@@ -400,6 +388,16 @@ describe('FlowsImpl - impersonation', () => {
         tenantId: 'acme',
       })
       expect(out.session.tenantId).toBe('acme')
+      const back = await auth.flows.releaseImpersonation(out.sid)
+      expect(back.session?.tenantId).toBe('acme')
+    })
+
+    it('refuses a tenant operator session to a call naming no tenant, before asking authorize', async () => {
+      const authorize = vi.fn(async () => true)
+      await expect(
+        auth.flows.impersonate({ authorize, realSid: await tenantAdmin(), reason: 'x', targetIdentityId: targetId }),
+      ).rejects.toMatchObject({ code: 'AUTH_UNAUTHENTICATED' })
+      expect(authorize).not.toHaveBeenCalled()
     })
 
     it('refuses another, before asking authorize, and leaves the operator signed in', async () => {

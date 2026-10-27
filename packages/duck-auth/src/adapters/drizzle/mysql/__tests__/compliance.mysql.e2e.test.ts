@@ -112,8 +112,13 @@ suite('DrizzleMysql compliance matrix (real MySQL)', () => {
         addedAt: new Date(),
         providerId: 'oauth:google',
         providerSub: 'sub-mysql-1',
+        tenantId: null,
       })
-      const found = await stores.identities.find({ providerId: 'oauth:google', providerSub: 'sub-mysql-1' })
+      const found = await stores.identities.find({
+        providerId: 'oauth:google',
+        providerSub: 'sub-mysql-1',
+        tenantId: null,
+      })
       expect(found?.id).toBe(created.id)
     })
 
@@ -121,14 +126,28 @@ suite('DrizzleMysql compliance matrix (real MySQL)', () => {
       const created = await stores.identities.create(
         identityInput<Profile>({ profile: { email: 'unlink@x.com', username: 'unlink' } }),
       )
-      await stores.identities.link(created.id, { addedAt: new Date(), providerId: 'oauth:a', providerSub: 's-a' })
-      await stores.identities.link(created.id, { addedAt: new Date(), providerId: 'oauth:b', providerSub: 's-b' })
-      await stores.identities.unlink(created.id, 'oauth:a')
+      await stores.identities.link(created.id, {
+        addedAt: new Date(),
+        providerId: 'oauth:a',
+        providerSub: 's-a',
+        tenantId: null,
+      })
+      await stores.identities.link(created.id, {
+        addedAt: new Date(),
+        providerId: 'oauth:b',
+        providerSub: 's-b',
+        tenantId: null,
+      })
+      await stores.identities.unlink(created.id, 'oauth:a', null)
 
-      await expect(stores.identities.find({ providerId: 'oauth:a', providerSub: 's-a' })).rejects.toMatchObject({
+      await expect(
+        stores.identities.find({ providerId: 'oauth:a', providerSub: 's-a', tenantId: null }),
+      ).rejects.toMatchObject({
         code: 'AUTH_IDENTITY_NOT_FOUND',
       })
-      expect((await stores.identities.find({ providerId: 'oauth:b', providerSub: 's-b' }))?.id).toBe(created.id)
+      expect((await stores.identities.find({ providerId: 'oauth:b', providerSub: 's-b', tenantId: null }))?.id).toBe(
+        created.id,
+      )
     })
 
     it('findByEmail reads through the json path', async () => {
@@ -140,7 +159,12 @@ suite('DrizzleMysql compliance matrix (real MySQL)', () => {
       const created = await stores.identities.create(
         identityInput<Profile>({ profile: { email: 'gone@x.com', username: 'gone' } }),
       )
-      await stores.identities.link(created.id, { addedAt: new Date(), providerId: 'oauth:c', providerSub: 's-c' })
+      await stores.identities.link(created.id, {
+        addedAt: new Date(),
+        providerId: 'oauth:c',
+        providerSub: 's-c',
+        tenantId: null,
+      })
       await stores.identities.softDelete(created.id, 60_000)
 
       await expect(stores.identities.find({ id: created.id })).rejects.toMatchObject({
@@ -149,7 +173,9 @@ suite('DrizzleMysql compliance matrix (real MySQL)', () => {
       await expect(stores.identities.find({ email: 'gone@x.com' })).rejects.toMatchObject({
         code: 'AUTH_IDENTITY_NOT_FOUND',
       })
-      await expect(stores.identities.find({ providerId: 'oauth:c', providerSub: 's-c' })).rejects.toMatchObject({
+      await expect(
+        stores.identities.find({ providerId: 'oauth:c', providerSub: 's-c', tenantId: null }),
+      ).rejects.toMatchObject({
         code: 'AUTH_IDENTITY_NOT_FOUND',
       })
     })
@@ -197,10 +223,10 @@ suite('DrizzleMysql compliance matrix (real MySQL)', () => {
 
     it('refuses a provider subject longer than its column as a bad value', async () => {
       await expect(
-        stores.identities.link(OWNER, { providerId: 'saml:long', providerSub: 's'.repeat(256) }),
+        stores.identities.link(OWNER, { providerId: 'saml:long', providerSub: 's'.repeat(256), tenantId: null }),
       ).rejects.toMatchObject({ code: 'AUTH_INVALID_PARAMETERS' })
       await expect(
-        stores.identities.link(OWNER, { providerId: 'saml:long', providerSub: 's'.repeat(255) }),
+        stores.identities.link(OWNER, { providerId: 'saml:long', providerSub: 's'.repeat(255), tenantId: null }),
       ).resolves.toMatchObject({ id: OWNER })
     })
   })
@@ -348,7 +374,7 @@ suite('the exported tables hand back the types they declare (real MySQL)', () =>
 
   it('gives auth_identity_providers.added_at as a Date on a direct select', async () => {
     const addedAt = new Date('2026-01-02T03:04:05.000Z')
-    await stores.identities.link(ID, { addedAt, providerId: 'google', providerSub: 'sub-1' })
+    await stores.identities.link(ID, { addedAt, providerId: 'google', providerSub: 'sub-1', tenantId: null })
 
     // A real `datetime(3)` now, not a date inside a JSON column: what is under test is the driver handing
     // back a Date, and at millisecond precision rather than truncated to the second.

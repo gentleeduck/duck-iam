@@ -29,8 +29,8 @@ export interface Order {
   status: string
 }
 
-// Matches the `duckiam-sid` cookie transport's CSRF companion (see `shared/src/auth.ts`) — not
-// `__Host-` prefixed, because the transport runs with `secure: false` for local dev.
+// Matches the `duckiam-sid` cookie transport's CSRF companion (see `shared/src/auth.ts`), which drops its
+// `__Host-` prefix outside production.
 const CSRF_COOKIE = 'duck-csrf'
 const CSRF_HEADER = 'x-csrf-token'
 

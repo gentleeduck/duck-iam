@@ -11,6 +11,8 @@ import type { Events } from '~/core/events'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
 import { mfaProvider, totpAt } from '~/providers/mfa'
+import { authTestDataAtRest } from '~/test'
+import { makeSession } from '~/test/store-inputs'
 
 type MyProfile = { username: string; email: string }
 
@@ -27,9 +29,9 @@ async function enrolled(): Promise<{
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://x',
     limiter: new MemoryLimiter({ max: 99, windowMs: 60_000 }),
-    providers: [mfaProvider()],
+    providers: [mfaProvider({ dataAtRest: authTestDataAtRest() })],
     stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
-    transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+    transport: new CookieTransport({ name: 'duck-sid' }),
   })
   const escalations: Events.EventMap['recovery.mfa.escalated'][] = []
   auth.events.on('recovery.mfa.escalated', (p) => {
@@ -37,7 +39,7 @@ async function enrolled(): Promise<{
   })
   const email = `a${seq++}@x.com`
   const ident = await auth.identities.create({ profile: { email, username: email } })
-  const [code = ''] = await auth.mfa.regenerateBackupCodes(ident.id)
+  const [code = ''] = await auth.mfa.regenerateBackupCodes(ident.id, null)
   return { adapter, auth, code, escalations, identityId: ident.id }
 }
 
@@ -113,9 +115,11 @@ describe('spending a backup code reaches the bus', () => {
 
   it('does not fire for a TOTP step-up, which satisfied the factor rather than recovering from it', async () => {
     const { auth, escalations, identityId } = await enrolled()
-    const challenge = await auth.mfa.beginTotpEnrollment(identityId, 'a@x.com')
+    // Beside the backup codes, so the session enrolling it has stepped up.
+    const steppedUp = makeSession({ aal: 2, identityId })
+    const challenge = await auth.mfa.beginTotpEnrollment(identityId, 'a@x.com', steppedUp)
     const step = Math.floor(Date.now() / 1000 / 30)
-    await auth.mfa.confirmTotpEnrollment(identityId, totpAt(challenge.secret, step))
+    await auth.mfa.confirmTotpEnrollment(identityId, totpAt(challenge.secret, step), steppedUp)
     const { sid } = await auth.sessions.create({
       identityId,
       kind: 'user',

@@ -116,6 +116,7 @@ export const IDENTITY_FIELDS: FieldSpec = {
   'providers.[].addedAt': 'date',
   'providers.[].providerId': 'string',
   'providers.[].providerSub': 'string|null',
+  'providers.[].tenantId': 'string|null',
   updatedAt: 'date',
   updatedBy: 'string|null',
   version: 'number',
@@ -162,6 +163,7 @@ export const OIDC_CLIENT_FIELDS: FieldSpec = {
 }
 
 export const OIDC_CODE_FIELDS: FieldSpec = {
+  auth_time: 'number|null',
   client_id: 'string',
   code: 'string',
   exp: 'number',
@@ -175,6 +177,7 @@ export const OIDC_CODE_FIELDS: FieldSpec = {
 export const OIDC_ACCESS_TOKEN_FIELDS: FieldSpec = {
   client_id: 'string',
   exp: 'number',
+  family_id: 'string',
   identity_id: 'string',
   'scope.[]': 'string',
   tenant_id: 'string|null',
@@ -182,12 +185,14 @@ export const OIDC_ACCESS_TOKEN_FIELDS: FieldSpec = {
 }
 
 export const OIDC_REFRESH_TOKEN_FIELDS: FieldSpec = {
+  auth_time: 'number|null',
   client_id: 'string',
   consumedAt: 'number|null',
   exp: 'number',
   family_id: 'string',
   identity_id: 'string',
   'scope.[]': 'string',
+  sid: 'string',
   tenant_id: 'string|null',
   token_hash: 'string',
 }

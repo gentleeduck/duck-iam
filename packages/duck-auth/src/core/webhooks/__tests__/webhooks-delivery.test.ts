@@ -5,7 +5,7 @@
  * flow's latency. Both of those are pinned here.
  */
 import { lookup } from 'node:dns/promises'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { InMemoryEvents } from '~/core/events'
 import { makeIdentity, makeSession } from '~/test/store-inputs'
 import { signWebhookBody, verifyWebhookSignature, WebhookDeliverer } from '../index'
@@ -41,6 +41,11 @@ const construct = (url: string, cfg: Partial<WebhookDeliverer.Cfg> = {}) =>
   new WebhookDeliverer({ endpoints: [{ secret: SECRET, url }], fetch: async () => new Response(), ...cfg })
 
 describe('the ssrf guard is a deny-list over the written form of the host', () => {
+  // The production guard; a case about development or test stubs its own environment.
+  beforeEach(() => {
+    vi.stubEnv('NODE_ENV', 'production')
+  })
+
   it('refuses the obvious loopback and private forms', () => {
     for (const host of [
       'localhost',
@@ -179,6 +184,23 @@ describe('the ssrf guard is a deny-list over the written form of the host', () =
     expect(outcome).toMatchObject({ attempts: 2, delivered: false, lastError: expect.stringMatching(/SSRF guard/) })
   })
 
+  it('reaches this machine through the resolver outside production, and nothing else inward', async () => {
+    vi.stubEnv('NODE_ENV', 'development')
+    const local = makeDeliverer({
+      endpoints: [{ secret: SECRET, url: 'http://localhost:3000/hooks' }],
+      maxAttempts: 1,
+      resolveHost: async () => ['127.0.0.1', '::1'],
+    })
+    const [delivered] = await local.deliverer.deliverOne('authz.revoked', { at: 0, identityId: 'u' })
+    expect(delivered).toMatchObject({ delivered: true })
+    expect(local.calls.map((c) => c.url)).toEqual(['http://localhost:3000/hooks'])
+
+    const lan = makeDeliverer({ maxAttempts: 1, resolveHost: async () => ['10.0.0.7'] })
+    const [refused] = await lan.deliverer.deliverOne('authz.revoked', { at: 0, identityId: 'u' })
+    expect(lan.calls).toHaveLength(0)
+    expect(refused).toMatchObject({ delivered: false, lastError: expect.stringMatching(/SSRF guard/) })
+  })
+
   it('sends nothing to a name that resolves to no address', async () => {
     const { deliverer, calls } = makeDeliverer({ maxAttempts: 2, resolveHost: async () => [] })
     const [outcome] = await deliverer.deliverOne('authz.revoked', { at: 0, identityId: 'u' })
@@ -192,16 +214,30 @@ describe('the ssrf guard is a deny-list over the written form of the host', () =
     }
   })
 
-  it('refuses a non-https scheme unless the dev flag is set, and never a non-http one', () => {
+  it('refuses a non-https scheme in production, admits http outside it, and never a non-http one', () => {
     expect(() => construct('http://hooks.example.com/hook')).toThrow()
-    expect(() => construct('http://hooks.example.com/hook', { allowInsecure: true })).not.toThrow()
+    vi.stubEnv('NODE_ENV', 'development')
+    expect(() => construct('http://hooks.example.com/hook')).not.toThrow()
     for (const url of ['ftp://hooks.example.com/', 'file:///etc/passwd', 'javascript:fetch(1)']) {
-      expect(() => construct(url, { allowInsecure: true })).toThrow()
+      expect(() => construct(url)).toThrow()
     }
   })
 
-  it('still refuses loopback when the insecure flag is set', () => {
-    expect(() => construct('http://127.0.0.1/hook', { allowInsecure: true })).toThrow()
+  it.each(['development', 'test'])('admits a receiver on this machine under NODE_ENV=%s', (env) => {
+    for (const host of ['localhost:3000', '127.0.0.1', '127.9.9.9', '[::1]', 'api.localhost', 'localhost.']) {
+      vi.stubEnv('NODE_ENV', 'production')
+      expect(() => construct(`https://${host}/hook`)).toThrow()
+      vi.stubEnv('NODE_ENV', env)
+      expect(() => construct(`http://${host}/hook`)).not.toThrow()
+    }
+  })
+
+  it.each(['development', 'test'])('still refuses every other inward host under NODE_ENV=%s', (env) => {
+    vi.stubEnv('NODE_ENV', env)
+    for (const host of ['10.0.0.1', '172.16.0.1', '192.168.1.1', '169.254.169.254', '[::2]', '[fe80::1]']) {
+      expect(() => construct(`http://${host}/hook`)).toThrow()
+    }
+    expect(() => construct('http://metadata.google.internal/hook')).toThrow()
   })
 
   it('refuses userinfo in the endpoint url rather than sending it on every request', () => {

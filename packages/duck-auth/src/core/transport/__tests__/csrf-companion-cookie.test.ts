@@ -9,7 +9,7 @@
  * state-changing request refused `AUTH_CSRF` with nothing said. `sameSite: 'none'` and `path` diverged the
  * same way, the latter leaving the token readable at `/` while the session was scoped below it.
  */
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { makeSession } from '~/test/store-inputs'
 import { type CookieTransport, cookieTransport } from '../cookie.transport'
 
@@ -31,56 +31,65 @@ const CONFIGS: Array<[string, CookieTransport.Cfg]> = [
   ['a cross-subdomain domain', { domain: '.example.com' }],
   ['sameSite none, for a cross-site SPA', { sameSite: 'none' }],
   ['a scoped path', { name: 'duck-sid', path: '/app' }],
-  ['plain http for local dev', { name: 'duck-sid', secure: false }],
-  ['all of them at once', { domain: '.example.com', name: 'sid', path: '/app', sameSite: 'strict', secure: false }],
+  ['all of them at once', { domain: '.example.com', name: 'sid', path: '/app', sameSite: 'strict' }],
 ]
 
-describe('the CSRF companion is scoped to the session cookie', () => {
-  it.each(CONFIGS)('%s: the two agree on everything but httpOnly', (_label, cfg) => {
-    const { csrf, sid } = cookies(cfg)
-    expect(sid.options.httpOnly).toBe(true)
-    expect(csrf.options.httpOnly).toBe(false)
-    expect({ ...csrf.options, httpOnly: true }).toEqual(sid.options)
-  })
+// Production sets both cookies Secure and plain http for local dev sets neither, so every config runs under both.
+describe.each(['production', 'development'])(
+  'the CSRF companion is scoped to the session cookie, NODE_ENV=%s',
+  (env) => {
+    beforeEach(() => {
+      vi.stubEnv('NODE_ENV', env)
+    })
 
-  it.each(CONFIGS)('%s: the __Host- prefix is there exactly when the cookie satisfies it', (_label, cfg) => {
-    const { csrf } = cookies(cfg)
-    const satisfiable = csrf.options.secure === true && csrf.options.path === '/' && csrf.options.domain === undefined
-    expect(csrf.name).toBe(satisfiable ? '__Host-duck-csrf' : 'duck-csrf')
-  })
+    it.each(CONFIGS)('%s: the two agree on everything but httpOnly', (_label, cfg) => {
+      const { csrf, sid } = cookies(cfg)
+      expect(sid.options.httpOnly).toBe(true)
+      expect(csrf.options.httpOnly).toBe(false)
+      expect({ ...csrf.options, httpOnly: true }).toEqual(sid.options)
+    })
 
-  it('keeps the documented default name and value', () => {
-    const { csrf } = cookies({})
-    expect(csrf.name).toBe('__Host-duck-csrf')
-    expect(csrf.value).toBe('the-token')
-    expect(csrf.options).toMatchObject({ httpOnly: false, path: '/', sameSite: 'lax', secure: true })
-  })
+    it.each(CONFIGS)('%s: the __Host- prefix is there exactly when the cookie satisfies it', (_label, cfg) => {
+      const { csrf } = cookies(cfg)
+      const satisfiable = csrf.options.secure === true && csrf.options.path === '/' && csrf.options.domain === undefined
+      expect(csrf.name).toBe(satisfiable ? '__Host-duck-csrf' : 'duck-csrf')
+    })
 
-  it('a sibling subdomain is in scope for the token under a domain config', () => {
-    const { csrf, sid } = cookies({ domain: '.example.com' })
-    expect(csrf.options.domain).toBe('.example.com')
-    expect(csrf.name).toBe('duck-csrf')
-    expect(sid.name).toBe('duck-sid')
-  })
+    it('keeps the documented default name and value', () => {
+      vi.stubEnv('NODE_ENV', 'production')
+      const { csrf } = cookies({})
+      expect(csrf.name).toBe('__Host-duck-csrf')
+      expect(csrf.value).toBe('the-token')
+      expect(csrf.options).toMatchObject({ httpOnly: false, path: '/', sameSite: 'lax', secure: true })
+    })
 
-  it('survives plain http instead of being dropped by a prefix it cannot satisfy', () => {
-    const { csrf } = cookies({ name: 'duck-sid', secure: false })
-    expect(csrf.name).toBe('duck-csrf')
-    expect(csrf.options.secure).toBe(false)
-  })
+    it('a sibling subdomain is in scope for the token under a domain config', () => {
+      const { csrf, sid } = cookies({ domain: '.example.com' })
+      expect(csrf.options.domain).toBe('.example.com')
+      expect(csrf.name).toBe('duck-csrf')
+      expect(sid.name).toBe('duck-sid')
+    })
 
-  it('csrfCookieName is what issue() emits, for the client to read it back by', () => {
-    for (const [, cfg] of CONFIGS) {
-      expect(cookieTransport(cfg).csrfCookieName).toBe(cookies(cfg).csrf.name)
-    }
-  })
+    it('survives plain http instead of being dropped by a prefix it cannot satisfy', () => {
+      vi.stubEnv('NODE_ENV', 'development')
+      const { csrf } = cookies({})
+      expect(csrf.name).toBe('duck-csrf')
+      expect(csrf.options.secure).toBe(false)
+    })
 
-  it.each(CONFIGS)('%s: revoke clears both under the attributes they were set with', (_label, cfg) => {
-    const issued = cookies(cfg)
-    const [sid, csrf] = cookieTransport(cfg).revoke()
-    if (sid?.type !== 'clearCookie' || csrf?.type !== 'clearCookie') throw new Error('revoke() cleared nothing')
-    expect(sid.name).toBe(issued.sid.name)
-    expect(csrf.name).toBe(issued.csrf.name)
-    expect(csrf.options).toEqual({ ...issued.csrf.options, maxAge: 0 })
-  })
-})
+    it('csrfCookieName is what issue() emits, for the client to read it back by', () => {
+      for (const [, cfg] of CONFIGS) {
+        expect(cookieTransport(cfg).csrfCookieName).toBe(cookies(cfg).csrf.name)
+      }
+    })
+
+    it.each(CONFIGS)('%s: revoke clears both under the attributes they were set with', (_label, cfg) => {
+      const issued = cookies(cfg)
+      const [sid, csrf] = cookieTransport(cfg).revoke()
+      if (sid?.type !== 'clearCookie' || csrf?.type !== 'clearCookie') throw new Error('revoke() cleared nothing')
+      expect(sid.name).toBe(issued.sid.name)
+      expect(csrf.name).toBe(issued.csrf.name)
+      expect(csrf.options).toEqual({ ...issued.csrf.options, maxAge: 0 })
+    })
+  },
+)

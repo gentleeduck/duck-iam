@@ -123,3 +123,14 @@ export function isBlockedHostname(host: string): boolean {
   const name = host.endsWith('.') ? host.slice(0, -1) : host
   return BLOCKED_NAMES.has(name) || BLOCKED_SUFFIXES.some((suffix) => name.endsWith(suffix))
 }
+
+/** Whether `host` is this machine: `localhost`, a name under `.localhost`, 127.0.0.0/8 or ::1. */
+export function isLoopbackHost(host: string): boolean {
+  const name = host.endsWith('.') ? host.slice(0, -1) : host
+  if (name === 'localhost' || name.endsWith('.localhost')) return true
+  const v4 = parseIpv4(name)
+  if (v4 !== null) return v4 >>> 24 === 127
+  const v6 = parseIpv6(name)
+  if (v6 === null) return false
+  return v6.slice(0, 7).every((h) => h === 0) && v6[7] === 1
+}

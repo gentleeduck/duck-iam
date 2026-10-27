@@ -58,7 +58,8 @@ export namespace AuthCaptcha {
     secret: string
     /** Override the global `fetch`, for a test double or an agent with a proxy configured. */
     fetch?: typeof globalThis.fetch
-    /** Override the provider's siteverify URL. Refused unless it passes `assertSafeOutboundUrl`. */
+    /** Override the provider's siteverify URL, such as a local mock. Refused unless it passes
+     *  `assertSafeOutboundUrl`, which admits plain http and loopback only outside production. */
     endpoint?: string
     /** Wall-clock ceiling on the provider call. Default 5s, at most 2^31-1ms. */
     timeoutMs?: number
@@ -67,8 +68,5 @@ export namespace AuthCaptcha {
     expectedHostname?: string | string[]
     /** Ceiling on `challenge_ts` age. Default 5 minutes; 0 disables the check. */
     maxChallengeAgeMs?: number
-    /** Dev-only: permit a plaintext `http:` endpoint, for a mock reachable by name - loopback and
-     *  private hosts stay refused. `strict()` refuses it in production. */
-    allowInsecureEndpoint?: boolean
   }
 }

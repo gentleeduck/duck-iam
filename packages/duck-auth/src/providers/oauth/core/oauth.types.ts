@@ -64,8 +64,6 @@ export namespace OAuth {
     stateCookie?: StateCookie
     /** Burns the state's nonce at `complete`. See {@link OAuth.Options.nonceStore}. */
     nonceStore?: NonceStore
-    /** Accepts a state nothing burns. See {@link OAuth.Options.allowStateReplay}. */
-    allowStateReplay?: boolean
     /** Overrides the provider's default scopes. */
     scopes?: string[]
     /** Override fetch impl (test stubs). */
@@ -91,11 +89,10 @@ export namespace OAuth {
     recordSeen(nonce: string, ttlMs: number): Promise<boolean>
   }
 
-  /** The pre-auth cookie's own settings. `secure` defaults to true and the name to `__Host-duck-oauth`, which
-   *  the browser only accepts over https, so an http development host has to name both. */
+  /** The pre-auth cookie's own settings. The name defaults to `__Host-duck-oauth`, which outside production
+   *  drops its prefix along with Secure. */
   export interface StateCookie {
     name?: string
-    secure?: boolean
     domain?: string
   }
 
@@ -111,14 +108,12 @@ export namespace OAuth {
     stateSigningSecret: string
     /** Binds a callback to the browser that began the flow. See {@link OAuth.StateCookie}. */
     stateCookie?: StateCookie
-    /** Burns `StatePayload.nonce` at `complete`, so one signed state completes exactly once.
+    /** Burns `StatePayload.nonce` at `complete`, so one signed state completes exactly once. Required in
+     *  production; development and test may leave it out.
      *  SECURITY: without it a callback URL recovered from browser history, a `Referer` or a proxy log
      *  completes again for the rest of the state's ten minutes, from any browser still holding the
      *  binding cookie — which a failed completion leaves in place, since only the success path clears it. */
     nonceStore?: NonceStore
-    /** Accepts a state nothing burns. Default false: the nonce is minted and signed either way, so an
-     *  absent store reads as replay protection that is present and off. */
-    allowStateReplay?: boolean
     /**
      * How the IdP returns the authorisation code. `'query'` is the default and the redirect every other
      * provider performs. `'form_post'` (OAuth 2.0 Form Post Response Mode) is what Apple requires as soon

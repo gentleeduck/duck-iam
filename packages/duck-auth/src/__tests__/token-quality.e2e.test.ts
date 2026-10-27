@@ -16,7 +16,7 @@ import { RedisLimiter } from '~/limiters/redis'
 import { ApiKeysFacet } from '~/providers/api-key'
 import { mfaProvider } from '~/providers/mfa'
 import { passwords, ScryptHasher } from '~/providers/passwords'
-import { authTestDeliver } from '~/test'
+import { authTestDataAtRest, authTestDeliver } from '~/test'
 import { applyPgSchema, databaseUrl, dropPrefix, e2ePrefix, redisUrl } from '~/test/e2e-env'
 
 const PG_URL = databaseUrl()
@@ -65,7 +65,7 @@ suite('E2E token quality on real Postgres + Redis', () => {
     const tag = `${label}-${e2ePrefix()}`
     const email = `${tag}@test.local`
     const identity = await auth.identities.create({ profile: { email, username: tag } })
-    await auth.passwords.set(identity.id, PASSWORD, stores.credentials)
+    await auth.passwords.set(identity.id, PASSWORD, stores.credentials, null)
     planted.push(identity.id)
     return { email, id: identity.id }
   }
@@ -97,10 +97,10 @@ suite('E2E token quality on real Postgres + Redis', () => {
         windowMs: 60_000,
       }),
       stores: { credentials: stores.credentials, identities: stores.identities, sessions: stores.sessions },
-      transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+      transport: new CookieTransport({ name: 'duck-sid' }),
     })
     auth.providers.register(passwords<Profile>({ hasher: new ScryptHasher({ keylen: 32, N: 1 << 10 }) }))
-    const m = mfaProvider()
+    const m = mfaProvider({ dataAtRest: authTestDataAtRest() })
     auth.providers.register(typeof m === 'function' ? m(auth) : m)
     keys = new ApiKeysFacet(stores.credentials, new InMemoryEvents(), { randomToken, sha256 })
   }, 60_000)
@@ -200,7 +200,7 @@ suite('E2E token quality on real Postgres + Redis', () => {
   describe('API keys', () => {
     it('carry a recognisable prefix and enough randomness after it', async () => {
       const id = await newUser('key-entropy')
-      const { plaintext } = await keys.create(id.id, { name: 'ci', scopes: ['read'] })
+      const { plaintext } = await keys.create(id.id, { name: 'ci', scopes: ['read'], session: null })
       const random = plaintext.replace(/^[a-z_]+/, '')
       expect(random.length * 6).toBeGreaterThanOrEqual(64)
     })
@@ -208,14 +208,14 @@ suite('E2E token quality on real Postgres + Redis', () => {
     it('never repeat across five hundred issues', async () => {
       const id = await newUser('key-unique')
       const made = await Promise.all(
-        Array.from({ length: 500 }, () => keys.create(id.id, { name: 'ci', scopes: ['read'] })),
+        Array.from({ length: 500 }, () => keys.create(id.id, { name: 'ci', scopes: ['read'], session: null })),
       )
       expect(new Set(made.map((m) => m.plaintext)).size).toBe(500)
     })
 
     it('are stored hashed, so the table never holds the secret', async () => {
       const id = await newUser('key-hashed')
-      const { plaintext } = await keys.create(id.id, { name: 'ci', scopes: ['read'] })
+      const { plaintext } = await keys.create(id.id, { name: 'ci', scopes: ['read'], session: null })
       const { rows } = await pool.query('SELECT count(*)::int AS n FROM auth_credentials WHERE secret = $1', [
         plaintext,
       ])
@@ -280,10 +280,10 @@ suite('E2E token quality on real Postgres + Redis', () => {
           windowMs: 60_000,
         }),
         stores: { credentials: stores.credentials, identities: stores.identities, sessions: stores.sessions },
-        transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+        transport: new CookieTransport({ name: 'duck-sid' }),
       })
       limited.providers.register(passwords<Profile>({ hasher: new ScryptHasher({ keylen: 32, N: 1 << 10 }) }))
-      const m = mfaProvider()
+      const m = mfaProvider({ dataAtRest: authTestDataAtRest() })
       limited.providers.register(typeof m === 'function' ? m(limited) : m)
 
       const user = await newUser('reset-rl')

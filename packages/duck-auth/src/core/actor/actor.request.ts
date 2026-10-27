@@ -15,7 +15,9 @@ export async function withRequestActor<T>(
 ): Promise<T> {
   // SECURITY: no catch. `orNull` answers null for every code meaning "no session", so an anonymous or
   // forged request runs as nobody; a store that is down and a session outliving its identity still throw.
-  const resolved = await orNull(auth.resolveSession(req, { requestSnapshot: opts.requestSnapshot }))
+  const resolved = await orNull(
+    auth.resolveSession(req, { expectedTenantId: opts.expectedTenantId, requestSnapshot: opts.requestSnapshot }),
+  )
   return withResolvedActor(resolved?.session ?? null, fn, opts, resolved?.anomaly)
 }
 

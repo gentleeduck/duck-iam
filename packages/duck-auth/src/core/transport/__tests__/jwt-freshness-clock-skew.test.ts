@@ -82,7 +82,7 @@ describe('freshness is bounded in both directions', () => {
         identities: adapter.identities,
         sessions: adapter.sessions,
       },
-      transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+      transport: new CookieTransport({ name: 'duck-sid' }),
     })
     const r = await auth.flows.checkStepUp(fakeSession({ rotatedAt }), { aal: 2, freshness: FRESHNESS_MS })
     expect(r.satisfied).toBe(false)

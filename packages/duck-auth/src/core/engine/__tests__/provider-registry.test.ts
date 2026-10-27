@@ -8,7 +8,7 @@ function baseCfg(): Engine.Cfg {
   const a = new MemoryAdapter()
   return {
     baseUrl: 'https://x.test',
-    transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
+    transport: new CookieTransport({ name: 'duck-sid' }),
     stores: { identities: a.identities, sessions: a.sessions, credentials: a.credentials },
   }
 }

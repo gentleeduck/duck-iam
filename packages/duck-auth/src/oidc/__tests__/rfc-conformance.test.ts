@@ -4,8 +4,8 @@
  * /.well-known/openid-configuration output.
  */
 
-import { describe, expect, it } from 'vitest'
-import { authBuildOidcDiscovery } from '../index'
+import { describe, expect, it, vi } from 'vitest'
+import { type AuthOidcDiscovery, authBuildOidcDiscovery } from '../index'
 
 const HTTPS_ISSUER = 'https://op.example.com'
 
@@ -108,13 +108,21 @@ describe('id_token signing algs - real-RP expectations', () => {
     }
   })
 
-  it('rejects "none" alg (OIDC Core §16.18 - never advertise unsigned id_tokens)', () => {
+  it('never advertises the "none" alg by default (OIDC Core §16.18)', () => {
     const doc = authBuildOidcDiscovery({ issuer: HTTPS_ISSUER })
     expect(doc.id_token_signing_alg_values_supported).not.toContain('none')
   })
 
-  it('rejects "alg" outside the JWA registered set when custom-passed', () => {
-    expect(() => authBuildOidcDiscovery({ issuer: HTTPS_ISSUER, signingAlgs: ['HS128' as any] })).not.toThrow() // We accept it (config-driven) but it won't pass the JWA assertion above
+  // The union type forbids `none` at a call site a compiler reads; config parsed at runtime is where it
+  // arrives, so that is how these pass it. Ported from better-auth's GHSA-9h47-pqcx-hjr4.
+  it.each(['none', 'None', 'NONE'])('refuses a signingAlgs list carrying %s', (alg) => {
+    const cfg: AuthOidcDiscovery.Cfg = JSON.parse(`{"issuer":"${HTTPS_ISSUER}","signingAlgs":["${alg}"]}`)
+    expect(() => authBuildOidcDiscovery(cfg)).toThrowError(/AUTH_MISCONFIGURED/)
+  })
+
+  it('still builds when every alg is a real one', () => {
+    const doc = authBuildOidcDiscovery({ issuer: HTTPS_ISSUER, signingAlgs: ['ES256', 'RS256'] })
+    expect(doc.id_token_signing_alg_values_supported).toEqual(['ES256', 'RS256'])
   })
 })
 
@@ -155,8 +163,11 @@ describe('issuer normalisation', () => {
     expect(doc.issuer).toBe(HTTPS_ISSUER)
   })
 
-  it('rejects http issuer without allowHttp flag (OIDC Core §16.18)', () => {
-    expect(() => authBuildOidcDiscovery({ issuer: 'http://op.example.com' })).toThrow()
+  it('rejects an http issuer in production (OIDC Core §16.18)', () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    expect(() => authBuildOidcDiscovery({ issuer: 'http://op.example.com' })).toThrow(
+      expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
+    )
   })
 
   it('rejects empty issuer', () => {

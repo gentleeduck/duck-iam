@@ -100,6 +100,7 @@ describe('passkey provider - registration', () => {
 
   it('beginRegistration returns options + persists challenge under reg:{sessionId}', async () => {
     const options = await beginPasskeyRegistration(opts, {
+      session: null,
       identityId,
       userName: 'a@b.com',
       sessionId: 's1',
@@ -116,6 +117,7 @@ describe('passkey provider - registration', () => {
 
   it('completeRegistration persists a passkey credential + returns its id', async () => {
     await beginPasskeyRegistration(opts, {
+      session: null,
       identityId,
       userName: 'a@b.com',
       sessionId: 's1',
@@ -123,6 +125,7 @@ describe('passkey provider - registration', () => {
       tenant: {},
     })
     const credId = await completePasskeyRegistration(opts, {
+      session: null,
       identityId,
       sessionId: 's1',
       response: { id: 'webauthn-cred-1' },
@@ -149,8 +152,8 @@ describe('passkey provider - registration', () => {
       verified: true,
     })
     const input = { credentialStore: adapter.credentials, identityId, sessionId: 's1', tenant: {} }
-    await beginPasskeyRegistration(opts, { ...input, userName: 'a@b.com' })
-    await completePasskeyRegistration(opts, { ...input, response: { id: 'webauthn-cred-1' } })
+    await beginPasskeyRegistration(opts, { session: null, ...input, userName: 'a@b.com' })
+    await completePasskeyRegistration(opts, { session: null, ...input, response: { id: 'webauthn-cred-1' } })
     const [row] = await adapter.credentials.listByIdentity(identityId, 'passkey', {})
     expect(row?.metadata).toMatchObject({ transports: ['usb', 'nfc'] })
   })
@@ -158,6 +161,7 @@ describe('passkey provider - registration', () => {
   it('completeRegistration without prior begin throws AUTH_PASSKEY_MISMATCH', async () => {
     await expect(
       completePasskeyRegistration(opts, {
+        session: null,
         identityId,
         sessionId: 'stale',
         response: { id: 'x' },
@@ -175,6 +179,7 @@ describe('passkey provider - registration', () => {
       throw new Error('Unexpected registration response origin "https://evil.test"')
     })
     await beginPasskeyRegistration(opts, {
+      session: null,
       identityId,
       userName: 'a@b.com',
       sessionId: 's3',
@@ -183,6 +188,7 @@ describe('passkey provider - registration', () => {
     })
     await expect(
       completePasskeyRegistration(opts, {
+        session: null,
         identityId,
         sessionId: 's3',
         response: { id: 'webauthn-cred-1' },
@@ -195,6 +201,7 @@ describe('passkey provider - registration', () => {
   it('completeRegistration with verified:false throws AUTH_PASSKEY_MISMATCH', async () => {
     mockWebauthn.verifyRegistrationResponse = vi.fn(async () => ({ verified: false }))
     await beginPasskeyRegistration(opts, {
+      session: null,
       identityId,
       userName: 'a@b.com',
       sessionId: 's2',
@@ -203,6 +210,7 @@ describe('passkey provider - registration', () => {
     })
     await expect(
       completePasskeyRegistration(opts, {
+        session: null,
         identityId,
         sessionId: 's2',
         response: { id: 'webauthn-cred-1' },
@@ -239,8 +247,8 @@ describe('passkey provider - a credential id already registered', () => {
     }
     const register = async (identityId: string, key: SoftAuthenticator): Promise<string> => {
       const input = { credentialStore: adapter.credentials, identityId, sessionId: identityId, tenant: {} }
-      await beginPasskeyRegistration(opts, { ...input, userName: identityId })
-      return completePasskeyRegistration(opts, { ...input, response: key.register(challenge) })
+      await beginPasskeyRegistration(opts, { session: null, ...input, userName: identityId })
+      return completePasskeyRegistration(opts, { session: null, ...input, response: key.register(challenge) })
     }
     const owned = softAuthenticator('app.test', 'https://app.test')
     await register(owner.id, owned)
@@ -284,8 +292,8 @@ describe('passkey provider - with the real verifier', () => {
 
   const register = async (key: SoftAuthenticator): Promise<string> => {
     const input = { credentialStore: adapter.credentials, identityId: 'u1', sessionId: 'reg', tenant: {} }
-    await beginPasskeyRegistration(opts, { ...input, userName: 'u1' })
-    return completePasskeyRegistration(opts, { ...input, response: key.register(challenge) })
+    await beginPasskeyRegistration(opts, { session: null, ...input, userName: 'u1' })
+    return completePasskeyRegistration(opts, { session: null, ...input, response: key.register(challenge) })
   }
 
   it('refuses a key under an algorithm it did not offer, and takes one it did', async () => {
@@ -351,6 +359,7 @@ describe('passkey provider - sign-in', () => {
       challengeStore,
     }
     await beginPasskeyRegistration(opts, {
+      session: null,
       identityId,
       userName: 'a@b.com',
       sessionId: 'reg-s1',
@@ -358,6 +367,7 @@ describe('passkey provider - sign-in', () => {
       tenant: {},
     })
     await completePasskeyRegistration(opts, {
+      session: null,
       identityId,
       sessionId: 'reg-s1',
       response: { id: 'webauthn-cred-1' },
@@ -666,6 +676,7 @@ describe('passkey provider - the challenge lifetime', () => {
     beginPasskeyRegistration(
       { ...opts, challengeStore, challengeTtlMs, webauthnModule: makeMockWebAuthn() },
       {
+        session: null,
         credentialStore: new MemoryAdapter<ProfileShape>().credentials,
         identityId: 'id-1',
         sessionId: 's1',
@@ -706,6 +717,7 @@ describe('passkey provider - a relying party no browser can satisfy', () => {
     beginPasskeyRegistration(
       { ...opts, ...rp, challengeStore: new AuthMemoryPasskeyChallengeStore(), webauthnModule: makeMockWebAuthn() },
       {
+        session: null,
         credentialStore: new MemoryAdapter<ProfileShape>().credentials,
         identityId: 'id-1',
         sessionId: 's1',

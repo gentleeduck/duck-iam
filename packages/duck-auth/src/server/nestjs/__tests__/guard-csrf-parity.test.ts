@@ -20,10 +20,7 @@ async function signedIn() {
     limiter: new MemoryLimiter({ max: 20, windowMs: 60_000 }),
     providers: [],
     stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
-    transport: new CompositeTransport([
-      new CookieTransport({ name: 'duck-sid', secure: false }),
-      new BearerTransport(),
-    ]),
+    transport: new CompositeTransport([new CookieTransport({ name: 'duck-sid' }), new BearerTransport()]),
   })
   const { csrfToken, sid } = await auth.sessions.create({ aal: 1, factors: [], identityId: null, kind: 'user' })
   return { auth, bearer: { authorization: `Bearer ${sid}` }, cookie: { cookie: `duck-sid=${sid}` }, csrfToken }
@@ -108,7 +105,7 @@ describe('makeGuard and a bearer on another scheme', () => {
       providers: [],
       stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
       transport: new CompositeTransport([
-        new CookieTransport({ name: 'duck-sid', secure: false }),
+        new CookieTransport({ name: 'duck-sid' }),
         new BearerTransport({ scheme: 'Token' }),
       ]),
     })

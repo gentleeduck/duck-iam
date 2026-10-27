@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun run server.ts"
+    "dev": "NODE_ENV=development bun run server.ts"
   },
   "dependencies": {
     "@gentleduck/auth": "workspace:*"

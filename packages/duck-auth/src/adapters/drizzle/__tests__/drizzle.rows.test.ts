@@ -3,7 +3,7 @@ import type { Identities } from '~/core/identities/identities.types'
 import { rowsWithLinks } from '../drizzle.rows'
 
 describe('rowsWithLinks', () => {
-  const link = { addedAt: new Date(0), addedBy: null, providerId: 'github', providerSub: '1' }
+  const link = { addedAt: new Date(0), addedBy: null, providerId: 'github', providerSub: '1', tenantId: null }
   const identity: Omit<Identities.Me, 'providers'> = {
     createdAt: new Date(0),
     createdBy: null,

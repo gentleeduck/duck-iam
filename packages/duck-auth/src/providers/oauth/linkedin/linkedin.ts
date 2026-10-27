@@ -32,7 +32,6 @@ export function linkedin<Profile extends Identities.ProfileMetadataBase = Identi
     redirectUri: opts.redirectUri,
     stateSigningSecret: opts.stateSigningSecret,
     nonceStore: opts.nonceStore,
-    allowStateReplay: opts.allowStateReplay,
     stateCookie: opts.stateCookie,
     onSignIn: opts.onSignIn,
     onFederationConflict: opts.onFederationConflict,

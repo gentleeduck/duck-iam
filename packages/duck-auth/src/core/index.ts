@@ -56,11 +56,7 @@ export type { Pending } from './pending'
 export type { Provider } from './provider'
 export type { Sessions } from './sessions'
 export type { TenantContext } from './tenant'
-export {
-  currentTenant,
-  resolveTenant,
-  withTenant,
-} from './tenant'
+export { ALL_TENANTS } from './tenant'
 export * from './transport'
 export {
   signWebhookBody as authSignWebhookBody,

@@ -3,6 +3,7 @@
 import type { Identities } from '~/core'
 import { randomToken, sha256, timingSafeEqual } from '~/core/crypto'
 import type { AuthEngine } from '~/core/engine'
+import { isProduction } from '~/core/env'
 import { AuthError } from '~/core/errors'
 import { getProfileString, isFiniteNumber } from '~/core/predicates/predicates'
 import {
@@ -95,7 +96,7 @@ export class OidcOpRoot<Profile extends Identities.ProfileMetadataBase = Identit
       })
     }
     if (!cfg.issuer) throw new AuthError('AUTH_MISCONFIGURED', { detail: 'AuthOidcOP: issuer required' })
-    const parsed = parseIssuer(cfg.issuer, cfg.allowHttp ?? false)
+    const parsed = parseIssuer(cfg.issuer)
     this.issuer = parsed
     const scopes = new Set(cfg.supportedScopes)
     scopes.add(REQUIRED_SCOPE)
@@ -292,6 +293,7 @@ export class OidcOpRoot<Profile extends Identities.ProfileMetadataBase = Identit
   async authorize(
     req: OidcOP.AuthorizeRequest,
     httpReq: { headers: Headers },
+    ctx: { tenantId?: string } = {},
   ): Promise<OidcOP.AuthorizeResult<Profile>> {
     if (!req.client_id || typeof req.client_id !== 'string') {
       return { kind: 'error', status: 400, body: { error: 'invalid_request', error_description: 'client_id required' } }
@@ -356,7 +358,8 @@ export class OidcOpRoot<Profile extends Identities.ProfileMetadataBase = Identit
         body: { error: 'invalid_request', error_description: 'max_age must be whole seconds', state: req.state },
       }
     }
-    const resolved = await this.deps.auth.resolveSession(httpReq).orNull()
+    // A session in a tenant reads as signed out unless the request names that tenant.
+    const resolved = await this.deps.auth.resolveSession(httpReq, { expectedTenantId: ctx.tenantId }).orNull()
     if (!resolved?.identity) {
       if (prompts.has('none')) {
         return {
@@ -370,9 +373,9 @@ export class OidcOpRoot<Profile extends Identities.ProfileMetadataBase = Identit
     }
     // Asked of a signed-in person too: the host signs them in again and resumes without `login`.
     if (prompts.has('login')) return { kind: 'login_required', reason: 'prompt_login' }
+    const { createdAt, factors } = resolved.session
+    const authAt = factors.length > 0 ? Math.max(...factors.map((f) => f.completedAt.getTime())) : createdAt.getTime()
     if (req.max_age !== undefined) {
-      const { createdAt, factors } = resolved.session
-      const authAt = factors.length > 0 ? Math.max(...factors.map((f) => f.completedAt.getTime())) : createdAt.getTime()
       // At the limit too, so `max_age=0` is `prompt=login` (OIDC Core 3.1.2.1).
       if (Date.now() - authAt >= Number(req.max_age) * 1000) {
         if (prompts.has('none')) {
@@ -397,10 +400,11 @@ export class OidcOpRoot<Profile extends Identities.ProfileMetadataBase = Identit
           body: { error: 'consent_required', state: req.state },
         }
       }
-      return { kind: 'consent_required', client, scope: requested, identity: resolved.identity }
+      return { auth_time: authAt, client, identity: resolved.identity, kind: 'consent_required', scope: requested }
     }
     // All gates passed; mint a code.
     return this.mintCodeAndRedirect({
+      auth_time: authAt,
       client,
       identity: resolved.identity,
       redirect_uri: req.redirect_uri,
@@ -429,6 +433,9 @@ export class OidcOpRoot<Profile extends Identities.ProfileMetadataBase = Identit
     code_challenge_method?: string
     sid: string
     tenant_id: string | null
+    /** The `auth_time` `authorize` answered with. Omitted, the id_token carries no `auth_time` claim, which
+     *  an RP that asked for `max_age` is entitled to. */
+    auth_time?: number
   }): Promise<OidcOP.AuthorizeResult<Profile>> {
     const client = await this.deps.clients.findById(input.client_id)
     if (!client?.redirect_uris.includes(input.redirect_uri)) {
@@ -444,6 +451,7 @@ export class OidcOpRoot<Profile extends Identities.ProfileMetadataBase = Identit
       grantedAt: Date.now(),
     })
     return this.mintCodeAndRedirect({
+      auth_time: input.auth_time ?? null,
       client,
       identity: input.identity,
       redirect_uri: input.redirect_uri,
@@ -491,6 +499,7 @@ export class OidcOpRoot<Profile extends Identities.ProfileMetadataBase = Identit
     code_challenge_method?: string
     sid: string
     tenant_id: string | null
+    auth_time: number | null
   }): Promise<OidcOP.AuthorizeResult<Profile>> {
     const code = randomToken(32)
     const now = Date.now()
@@ -507,6 +516,7 @@ export class OidcOpRoot<Profile extends Identities.ProfileMetadataBase = Identit
       code_challenge_method: challengeMethod,
       tenant_id: input.tenant_id,
       sid: input.sid,
+      auth_time: input.auth_time,
       exp: now + this.ttls.code * 1000,
     })
     const url = new URL(input.redirect_uri)
@@ -545,7 +555,12 @@ export class OidcOpRoot<Profile extends Identities.ProfileMetadataBase = Identit
     }
     const now = Date.now()
     const row = await this.deps.codes.consume(req.code, now)
-    if (!row) return { error: 'invalid_grant', error_description: 'code unknown or expired' }
+    if (!row) {
+      // SECURITY: RFC 6749 4.1.2 - a code redeemed twice revokes what the first redemption issued, since
+      // which caller holds the stolen code is not knowable here. An unknown or expired code revokes nothing.
+      await this.revokeGrant(codeFamily(req.code))
+      return { error: 'invalid_grant', error_description: 'code unknown or expired' }
+    }
     if (row.client_id !== client.client_id) return { error: 'invalid_grant', error_description: 'code/client mismatch' }
     if (row.redirect_uri !== req.redirect_uri) {
       return { error: 'invalid_grant', error_description: 'redirect_uri mismatch' }
@@ -566,6 +581,8 @@ export class OidcOpRoot<Profile extends Identities.ProfileMetadataBase = Identit
       scope: row.scope,
       nonce: row.nonce,
       sid: row.sid,
+      auth_time: row.auth_time,
+      family_id: codeFamily(req.code),
     })
   }
 
@@ -583,8 +600,8 @@ export class OidcOpRoot<Profile extends Identities.ProfileMetadataBase = Identit
     const hash = sha256(req.refresh_token)
     const existing = await this.deps.refreshTokens.findByHash(hash, now)
     if (existing && existing.consumedAt !== null) {
-      // Reuse detected: nuke the whole family.
-      await this.deps.refreshTokens.revokeFamily(existing.family_id)
+      // Reuse detected: nuke the whole grant, access tokens included.
+      await this.revokeGrant(existing.family_id)
       return { error: 'invalid_grant', error_description: 'refresh token reuse detected' }
     }
     // Before the consume, or another client spends it and the owner's next refresh reads as reuse.
@@ -594,7 +611,7 @@ export class OidcOpRoot<Profile extends Identities.ProfileMetadataBase = Identit
     if (row.client_id !== client.client_id) return { error: 'invalid_grant' }
     // Each refresh moves the expiry out, so a subject erased or deleted is checked for here or its grant never ends.
     if (!(await this.deps.auth.identities.getById(row.identity_id).orNull())) {
-      await this.deps.refreshTokens.revokeFamily(row.family_id)
+      await this.revokeGrant(row.family_id)
       return { error: 'invalid_grant', error_description: 'subject not found' }
     }
     let scope = row.scope
@@ -612,7 +629,10 @@ export class OidcOpRoot<Profile extends Identities.ProfileMetadataBase = Identit
       tenant_id: row.tenant_id,
       scope,
       nonce: null,
-      sid: '',
+      // OIDC Core 12.2: a refreshed id_token keeps the session and authentication time of the sign-in the
+      // grant descends from, rather than reporting the refresh as a fresh authentication.
+      sid: row.sid,
+      auth_time: row.auth_time,
       family_id: row.family_id,
     })
   }
@@ -624,13 +644,16 @@ export class OidcOpRoot<Profile extends Identities.ProfileMetadataBase = Identit
     scope: string[]
     nonce: string | null
     sid: string
+    auth_time: number | null
     family_id?: string
   }): Promise<OidcOP.TokenResponse> {
     const now = Math.floor(Date.now() / 1000)
     const accessTokenPlain = randomToken(48)
     const refreshTokenPlain = input.scope.includes('offline_access') ? randomToken(48) : null
+    const family = input.family_id ?? randomToken(16)
     await this.deps.accessTokens.insert({
       token_hash: sha256(accessTokenPlain),
+      family_id: family,
       client_id: input.client.client_id,
       identity_id: input.identity_id,
       scope: input.scope,
@@ -639,7 +662,6 @@ export class OidcOpRoot<Profile extends Identities.ProfileMetadataBase = Identit
     })
     let refreshOut: string | undefined
     if (refreshTokenPlain) {
-      const family = input.family_id ?? randomToken(16)
       await this.deps.refreshTokens.insert({
         token_hash: sha256(refreshTokenPlain),
         family_id: family,
@@ -647,6 +669,8 @@ export class OidcOpRoot<Profile extends Identities.ProfileMetadataBase = Identit
         identity_id: input.identity_id,
         scope: input.scope,
         tenant_id: input.tenant_id,
+        sid: input.sid,
+        auth_time: input.auth_time,
         exp: (now + this.ttls.refreshToken) * 1000,
         consumedAt: null,
       })
@@ -660,6 +684,9 @@ export class OidcOpRoot<Profile extends Identities.ProfileMetadataBase = Identit
       exp: now + this.ttls.idToken,
       ...(input.nonce !== null && { nonce: input.nonce }),
       ...(input.sid !== '' && { sid: input.sid }),
+      // OIDC Core 3.1.3.6 requires it of a response to a `max_age` request, and an RP cannot check the
+      // freshness it asked for without it.
+      ...(input.auth_time !== null && { auth_time: Math.floor(input.auth_time / 1000) }),
       ...(input.tenant_id !== null && { tid: input.tenant_id }),
     }
     const idToken = await this.deps.signIdToken(idTokenPayload)
@@ -686,7 +713,7 @@ export class OidcOpRoot<Profile extends Identities.ProfileMetadataBase = Identit
     if (!token) return { error: 'invalid_token' }
     const row = await this.deps.accessTokens.findByHash(sha256(token), Date.now())
     if (!row) return { error: 'invalid_token', error_description: 'token unknown / expired' }
-    if (ctx.tenantId !== undefined && row.tenant_id !== ctx.tenantId) {
+    if (row.tenant_id !== (ctx.tenantId ?? null)) {
       return { error: 'invalid_token', error_description: 'cross-tenant token' }
     }
     const identity = await this.deps.auth.identities.getById(row.identity_id).orNull()
@@ -787,8 +814,15 @@ export class OidcOpRoot<Profile extends Identities.ProfileMetadataBase = Identit
     }
     if (req.token_type_hint !== 'access_token') {
       const rt = await this.deps.refreshTokens.findByHash(hash, now)
-      if (rt?.client_id === client.client_id) await this.deps.refreshTokens.revokeFamily(rt.family_id)
+      // RFC 7009 2.1: revoking a refresh token should take the access tokens of the same grant with it.
+      if (rt?.client_id === client.client_id) await this.revokeGrant(rt.family_id)
     }
+  }
+
+  /** Revokes one grant whole: its refresh family and the access tokens issued under it. */
+  private async revokeGrant(family_id: string): Promise<void> {
+    await this.deps.refreshTokens.revokeFamily(family_id)
+    await this.deps.accessTokens.revokeFamily(family_id)
   }
 
   private async authenticateClient(
@@ -836,7 +870,7 @@ export class OidcOpRoot<Profile extends Identities.ProfileMetadataBase = Identit
   }
 }
 
-/** Convenience factory with sensible memory-store defaults. */
+/** Builds an OP. A store left out is the in-memory one, which production refuses. */
 export function createOidcOP<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>(args: {
   auth: AuthEngine<Profile>
   config: OidcOP.Cfg
@@ -865,16 +899,17 @@ export function createOidcOP<Profile extends Identities.ProfileMetadataBase = Id
   )
 }
 
-function parseIssuer(input: string, allowHttp: boolean): string {
+/** The issuer, canonicalised: HTTPS, or plain http outside production. */
+function parseIssuer(input: string): string {
   let parsed: URL
   try {
     parsed = new URL(input)
   } catch {
     throw new AuthError('AUTH_MISCONFIGURED', { detail: `AuthOidcOP: issuer '${input}' is not a valid URL` })
   }
-  if (parsed.protocol !== 'https:' && !allowHttp) {
+  if (parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && !isProduction())) {
     throw new AuthError('AUTH_MISCONFIGURED', {
-      detail: `AuthOidcOP: issuer must use HTTPS (${parsed.protocol}); pass allowHttp: true for dev only`,
+      detail: `AuthOidcOP: issuer must use HTTPS (${parsed.protocol}); plain http is admitted only outside production`,
     })
   }
   return `${parsed.origin}${parsed.pathname.replace(/\/+$/, '')}`
@@ -947,6 +982,12 @@ function verifyPkceS256(verifier: string, expectedChallenge: string): boolean {
   // RFC 7636: base64url(SHA256(verifier))
   const computed = base64urlSha256(verifier)
   return timingSafeEqual(computed, expectedChallenge)
+}
+
+/** The rotation family a code's tokens belong to, derived so a replayed code reaches every token descended
+ *  from it. Not a secret: whoever presents the code already has it. */
+function codeFamily(code: string): string {
+  return base64urlSha256(`oidc-code:${code}`)
 }
 
 function base64urlSha256(input: string): string {

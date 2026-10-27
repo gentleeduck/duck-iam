@@ -108,7 +108,7 @@ describe('DrizzleSqlite store-contract divergences', () => {
     it('refuses a providerSub already attached to a different identity', async () => {
       const holder = await stores.identities.create(identityInput({ profile: profile('holder') }))
       const attacker = await stores.identities.create(identityInput({ profile: profile('attacker') }))
-      const link = { addedAt: new Date(), providerId: 'oauth:google', providerSub: 'sub-1' }
+      const link = { addedAt: new Date(), providerId: 'oauth:google', providerSub: 'sub-1', tenantId: null }
       await stores.identities.link(holder.id, link)
 
       await expect(stores.identities.link(attacker.id, link)).rejects.toMatchObject({
@@ -116,25 +116,33 @@ describe('DrizzleSqlite store-contract divergences', () => {
       })
       // The takeover attempt left no trace on either row.
       expect((await stores.identities.find({ id: attacker.id }))?.providers).toHaveLength(0)
-      expect((await stores.identities.find({ providerId: 'oauth:google', providerSub: 'sub-1' }))?.id).toBe(holder.id)
+      expect(
+        (await stores.identities.find({ providerId: 'oauth:google', providerSub: 'sub-1', tenantId: null }))?.id,
+      ).toBe(holder.id)
     })
 
     it('still admits the same sub under a different providerId', async () => {
       const holder = await stores.identities.create(identityInput({ profile: profile('gh') }))
       const other = await stores.identities.create(identityInput({ profile: profile('gl') }))
-      await stores.identities.link(holder.id, { addedAt: new Date(), providerId: 'oauth:github', providerSub: '42' })
+      await stores.identities.link(holder.id, {
+        addedAt: new Date(),
+        providerId: 'oauth:github',
+        providerSub: '42',
+        tenantId: null,
+      })
 
       const linked = await stores.identities.link(other.id, {
         addedAt: new Date(),
         providerId: 'oauth:gitlab',
         providerSub: '42',
+        tenantId: null,
       })
       expect(linked?.providers).toHaveLength(1)
     })
 
     it('is idempotent on an exact repeat of (providerId, providerSub)', async () => {
       const i = await stores.identities.create(identityInput({ profile: profile('idem') }))
-      const link = { addedAt: new Date(), providerId: 'oauth:google', providerSub: 'sub-2' }
+      const link = { addedAt: new Date(), providerId: 'oauth:google', providerSub: 'sub-2', tenantId: null }
       await stores.identities.link(i.id, link)
 
       const again = await stores.identities.link(i.id, link)
@@ -143,13 +151,23 @@ describe('DrizzleSqlite store-contract divergences', () => {
 
     it('keeps the sub it holds, and refuses a second one for the same providerId', async () => {
       const i = await stores.identities.create(identityInput({ profile: profile('two') }))
-      await stores.identities.link(i.id, { addedAt: new Date(), providerId: 'oauth:google', providerSub: 'sub-a' })
+      await stores.identities.link(i.id, {
+        addedAt: new Date(),
+        providerId: 'oauth:google',
+        providerSub: 'sub-a',
+        tenantId: null,
+      })
 
-      // `uq_auth_identity_providers_owned` holds one row per provider, and `unlink` takes no sub, so a
+      // `uq_auth_identity_providers_owned` holds one row per provider per tenant, and `unlink` takes no sub, so a
       // second row at the same provider would be one nothing could address. Refused, not kept silently,
       // or the caller reads the second as linked.
       await expect(
-        stores.identities.link(i.id, { addedAt: new Date(), providerId: 'oauth:google', providerSub: 'sub-b' }),
+        stores.identities.link(i.id, {
+          addedAt: new Date(),
+          providerId: 'oauth:google',
+          providerSub: 'sub-b',
+          tenantId: null,
+        }),
       ).rejects.toMatchObject({ code: 'AUTH_PROVIDER_TAKEN' })
       const kept = await stores.identities.find({ id: i.id })
       expect(kept.providers.map((p) => p.providerSub)).toEqual(['sub-a'])
@@ -288,7 +306,7 @@ describe('the exported tables hand back the types they declare', () => {
   it('gives a link addedAt as a Date on a direct select', async () => {
     const { db, stores } = await makeDb()
     const addedAt = new Date('2026-01-02T03:04:05.000Z')
-    await stores.identities.link(OWNER, { addedAt, providerId: 'google', providerSub: 'sub-1' })
+    await stores.identities.link(OWNER, { addedAt, providerId: 'google', providerSub: 'sub-1', tenantId: null })
 
     const [row] = await db.select().from(authIdentityProviders).where(eq(authIdentityProviders.identityId, OWNER))
     expect(row?.addedAt).toBeInstanceOf(Date)

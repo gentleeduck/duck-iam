@@ -1,5 +1,6 @@
 /** OIDC discovery-doc + JWKS helper. For the full OP, see `@gentleduck/auth/oidc/op`. */
 
+import { isProduction } from '../core/env'
 import { AuthError } from '../core/errors'
 
 /** How long the discovery request may take, its body included, unless `timeoutMs` says otherwise. */
@@ -14,8 +15,8 @@ export function authBuildOidcDiscovery(cfg: AuthOidcDiscovery.Cfg): AuthOidcDisc
       detail: 'authBuildOidcDiscovery requires a non-empty issuer',
     })
   }
-  // Reject non-http(s) schemes; normalise so issuer claim matches RP computation
-  // (OIDC core 16.18 requires HTTPS in production).
+  // HTTPS, or plain http outside production (OIDC core 16.18); normalised so the issuer claim matches the
+  // RP's computation.
   let parsed: URL
   try {
     parsed = new URL(cfg.issuer)
@@ -24,9 +25,9 @@ export function authBuildOidcDiscovery(cfg: AuthOidcDiscovery.Cfg): AuthOidcDisc
       detail: `authBuildOidcDiscovery: issuer '${cfg.issuer}' is not a valid URL`,
     })
   }
-  if (parsed.protocol !== 'https:' && !cfg.allowHttp) {
+  if (parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && !isProduction())) {
     throw new AuthError('AUTH_MISCONFIGURED', {
-      detail: `authBuildOidcDiscovery: issuer must use HTTPS (${parsed.protocol}). Pass allowHttp: true for dev only.`,
+      detail: `authBuildOidcDiscovery: issuer must use HTTPS (${parsed.protocol}); plain http is admitted only outside production`,
     })
   }
   const canonicalPath = parsed.pathname.replace(/\/+$/, '')
@@ -45,6 +46,16 @@ export function authBuildOidcDiscovery(cfg: AuthOidcDiscovery.Cfg): AuthOidcDisc
     }
   }
   const algs = cfg.signingAlgs ?? ['HS256']
+  // SECURITY: an RP that picks its algorithm from this list will accept an unsigned id_token when `none` is
+  // in it (OIDC Core 16.18). The union type forbids it; config parsed at runtime does not.
+  for (const alg of algs) {
+    if (alg.toLowerCase() === 'none') {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail:
+          'authBuildOidcDiscovery: signingAlgs must not contain "none"; an RP reading it may accept an unsigned id_token',
+      })
+    }
+  }
   // Spread `extraClaims` first so canonical fields cannot be shadowed.
   const doc: AuthOidcDiscovery.IDocument = {
     ...(cfg.extraClaims ?? {}),
@@ -84,12 +95,11 @@ export function authBuildOidcRoutes(opts: {
   return { discovery, jwks }
 }
 
-/** RP-side OIDC discovery fetcher; in-process LRU (TTL 1h, capacity 32); rejects non-HTTPS unless `allowHttp`. */
+/** RP-side OIDC discovery fetcher; in-process LRU (TTL 1h, capacity 32); rejects plain http in production. */
 export async function authFetchOidcDiscovery(
   issuer: string,
   opts: {
     fetch?: typeof globalThis.fetch
-    allowHttp?: boolean
     ttlMs?: number
     /** Skip the cache lookup; still writes the result. Use for forced refresh. */
     bypassCache?: boolean
@@ -106,10 +116,10 @@ export async function authFetchOidcDiscovery(
       detail: `authFetchOidcDiscovery: issuer ${issuer} is not a valid URL`,
     })
   }
-  if (parsed.protocol !== 'https:' && !opts.allowHttp) {
+  if (parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && !isProduction())) {
     throw new AuthError('AUTH_PROVIDER_FAILED', {
       providerId: 'oidc',
-      detail: `authFetchOidcDiscovery: issuer must use HTTPS (${parsed.protocol}). Pass allowHttp: true for dev only.`,
+      detail: `authFetchOidcDiscovery: issuer must use HTTPS (${parsed.protocol}); plain http is admitted only outside production`,
     })
   }
   const timeoutMs = opts.timeoutMs ?? DISCOVERY_TIMEOUT_DEFAULT_MS
@@ -318,7 +328,7 @@ export function authFlushOidcDiscoveryCache(): void {
 export namespace AuthOidcDiscovery {
   /** What the discovery document advertises. */
   export interface Cfg {
-    /** Required. Public issuer URL (no trailing slash). */
+    /** Required. Public issuer URL (no trailing slash), HTTPS; plain http is admitted only outside production. */
     issuer: string
     /** Mount prefix for the auth routes; default `/auth`. */
     prefix?: string
@@ -345,12 +355,6 @@ export namespace AuthOidcDiscovery {
      * the field entirely.
      */
     registrationEndpoint?: string
-    /**
-     * Permit a non-HTTPS `issuer`. Dev-only. OIDC core section 16.18 requires
-     * HTTPS in production. Default false; explicit opt-in here so the
-     * misconfig is visible in code review.
-     */
-    allowHttp?: boolean
     /**
      * Extra fields merged at the top level (for OIDC profiles or
      * extensions). Spread BEFORE the canonical fields so a misconfigured

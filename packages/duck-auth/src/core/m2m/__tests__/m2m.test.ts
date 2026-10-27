@@ -53,6 +53,7 @@ describe('M2MFacet - client_credentials grant', () => {
     const created = await env.auth.apiKeys.create(ident.id, {
       name: 'ci-runner',
       scopes: ['read:users', 'write:users', 'read:orders'],
+      session: null,
     })
     clientId = created.key.id
     clientSecret = created.plaintext
@@ -72,7 +73,7 @@ describe('M2MFacet - client_credentials grant', () => {
     const owner = await capped.adapter.identities.create(
       identityInput({ profile: { username: 'o@app.test', email: 'o@app.test' }, providers: [] }),
     )
-    const key = await capped.auth.apiKeys.create(owner.id, { name: 'script', scopes: ['read:users'] })
+    const key = await capped.auth.apiKeys.create(owner.id, { name: 'script', scopes: ['read:users'], session: null })
     const browser = await capped.auth.sessions.create({ aal: 1, factors: [], identityId: owner.id, kind: 'user' })
     for (let i = 0; i < 3; i++) await capped.m2m.exchange({ clientId: key.key.id, clientSecret: key.plaintext })
     const live = await capped.auth.sessions.listForIdentity(owner.id)
@@ -149,7 +150,7 @@ describe('M2MFacet - client_credentials grant', () => {
   })
 
   it('mismatched (client_id, secret) pair throws AUTH_APIKEY_INVALID', async () => {
-    const other = await env.auth.apiKeys.create(identityId, { name: 'other', scopes: [] })
+    const other = await env.auth.apiKeys.create(identityId, { name: 'other', scopes: [], session: null })
     await expect(env.m2m.exchange({ clientId: other.key.id, clientSecret })).rejects.toMatchObject({
       code: 'AUTH_APIKEY_INVALID',
     })

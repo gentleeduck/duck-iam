@@ -67,8 +67,9 @@ export class WebhookDeliverer {
           detail: 'AuthWebhookDeliverer endpoint requires both url + secret',
         })
       }
-      // The SSRF guard: non-HTTPS, loopback, private, link-local and metadata hosts are refused.
-      assertSafeOutboundUrl(e.url, { allowInsecure: cfg.allowInsecure ?? false, label: 'webhook url' })
+      // The SSRF guard: non-HTTPS, loopback, private, link-local and metadata hosts are refused; outside
+      // production the first two are admitted.
+      assertSafeOutboundUrl(e.url, { label: 'webhook url' })
       // The name reaches `fetch` as a header key, so a typo carrying a space or a colon throws on
       // every request for every event, forever, and one the request already carries breaks that header.
       // Refused once here instead.
@@ -426,9 +427,6 @@ export namespace WebhookDeliverer {
     fetch?: typeof globalThis.fetch
     /** Where a permanently failed delivery goes. */
     deadLetter?: WebhookDeliverer.IDeadLetterSink
-    /** Accept non-HTTPS endpoint URLs, leaving payloads readable on the wire. Dev-only, default false.
-     *  The SSRF guard still blocks loopback, private, link-local and cloud-metadata hosts regardless. */
-    allowInsecure?: boolean
     /** Resolves an endpoint hostname to its addresses, checked against the same ranges before each
      *  attempt; no address is a refusal. An IPv6 host arrives without its brackets. Without it the guard sees only the host's spelling, so a name
      *  pointing at 127.0.0.1 is accepted. In Node: `(await lookup(hostname, { all: true })).map((a) => a.address)`.

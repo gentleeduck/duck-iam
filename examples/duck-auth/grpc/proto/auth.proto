@@ -4,8 +4,9 @@ package duckauth;
 
 // Password sign-in over a bearer token, the transport a native or service caller holds.
 service Auth {
-  rpc SignIn (SignInRequest) returns (Token);
-  // The second factor, once TOTP is enrolled: swaps the token for one at AAL 2.
+  // A token, or once TOTP is enrolled only the challenge VerifyMfa answers.
+  rpc SignIn (SignInRequest) returns (SignInReply);
+  // The second factor: answers SignIn's challenge, or swaps a token signed in before TOTP for one at AAL 2.
   rpc VerifyMfa (VerifyMfaRequest) returns (Token);
   rpc Me (Empty) returns (Account);
   rpc SignOut (Empty) returns (Empty);
@@ -20,6 +21,14 @@ message SignInRequest {
 
 message VerifyMfaRequest {
   string code = 1;
+  string challenge = 2;
+}
+
+// `token` once signed in, `challenge` while the second factor is owed; `expires_at` is whichever is set.
+message SignInReply {
+  string token = 1;
+  string challenge = 2;
+  string expires_at = 3;
 }
 
 message Token {

@@ -15,7 +15,7 @@ function buildAuth(): { auth: AuthEngine<Profile>; adapter: MemoryAdapter<Profil
   const adapter = new MemoryAdapter<Profile>()
   const auth = new AuthEngine<Profile>({
     baseUrl: 'https://app.example.com',
-    transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
+    transport: new CookieTransport({ name: 'duck-sid' }),
     stores: {
       identities: adapter.identities,
       sessions: adapter.sessions,
@@ -68,9 +68,7 @@ describe('AuthEngine.resolveSession - SEC: cross-tenant access guard', () => {
   })
 
   it('accepts a session without tenantId when the caller does not request one', async () => {
-    // Regression guard: single-tenant deploys (no tenantId at all)
-    // must continue to work - the guard only kicks in when the caller
-    // explicitly asked for a specific tenant.
+    // An app without tenants names none, and its sessions have none.
     const { auth, adapter } = buildAuth()
     const identity = await adapter.identities.create(
       identityInput({ profile: { username: 'c@x.com', email: 'c@x.com' }, providers: [] }),

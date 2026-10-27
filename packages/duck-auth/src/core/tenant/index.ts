@@ -1,2 +1,2 @@
-export { currentTenant, resolveTenant, withTenant } from './tenant'
+export { ALL_TENANTS } from './tenant'
 export type { TenantContext } from './tenant.types'

@@ -13,7 +13,7 @@ function buildAuth(): AuthEngine<MyProfile> {
   const adapter = new MemoryAdapter<MyProfile>()
   return new AuthEngine<MyProfile>({
     baseUrl: 'https://app',
-    transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
+    transport: new CookieTransport({ name: 'duck-sid' }),
     stores: {
       identities: adapter.identities,
       sessions: adapter.sessions,

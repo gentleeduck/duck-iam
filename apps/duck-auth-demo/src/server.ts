@@ -127,7 +127,7 @@ app.post('/auth/signup', async (c) => {
   const body = await readBodyJson(c.req.raw)
   const email = field(body, 'email')
   const identity = await auth.identities.create({ profile: { username: email, email, emailVerified: false } })
-  await auth.passwords.set(identity.id, field(body, 'password'), auth.cfg.stores.credentials)
+  await auth.passwords.set(identity.id, field(body, 'password'), auth.cfg.stores.credentials, null)
   return c.json({ identityId: identity.id, ok: true })
 })
 

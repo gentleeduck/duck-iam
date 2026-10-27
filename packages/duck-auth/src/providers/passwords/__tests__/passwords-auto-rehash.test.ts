@@ -185,13 +185,13 @@ describe('a rehash racing a password change', () => {
     })
     const gated = gatedHasher()
     const facet = passwordsImpl({ hasher: gated.hasher, minLength: 1, rejectCommon: false })
-    await facet.set(id, 'old-password', adapter.credentials)
+    await facet.set(id, 'old-password', adapter.credentials, null)
     gated.upgrade()
     expect(await facet.verify(id, 'old-password', adapter.credentials)).toEqual({ needsRehash: true, ok: true })
 
     const release = gated.hold()
     const rehash = facet.rehash(id, 'old-password', adapter.credentials)
-    await facet.set(id, 'new-password', adapter.credentials)
+    await facet.set(id, 'new-password', adapter.credentials, null)
     release()
     await rehash
 

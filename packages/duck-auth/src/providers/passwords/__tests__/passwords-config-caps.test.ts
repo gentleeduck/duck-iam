@@ -47,7 +47,7 @@ describe('the sign-in cap follows maxLength', () => {
     const identity = await adapter.identities.find({ email: 'alice@x.com' })
     if (!identity) throw new Error('expected the seeded identity')
     const long = 'x'.repeat(1500)
-    await provider.set(identity.id, long, adapter.credentials)
+    await provider.set(identity.id, long, adapter.credentials, null)
 
     await expect(provider.complete(ctx, { email: 'alice@x.com', password: long })).resolves.toMatchObject([
       { identityId: identity.id, type: 'startSession' },
@@ -94,10 +94,10 @@ describe('a length it cannot enforce is refused', () => {
       providers: [],
     })
     const provider = passwordsImpl({ compliance: 'hipaa', hasher: fastHasher, minLength: 8 })
-    await expect(provider.set(identity.id, 'x'.repeat(11), adapter.credentials)).rejects.toMatchObject({
+    await expect(provider.set(identity.id, 'x'.repeat(11), adapter.credentials, null)).rejects.toMatchObject({
       code: 'AUTH_INVALID_CREDENTIALS',
     })
-    await provider.set(identity.id, 'x'.repeat(12), adapter.credentials)
+    await provider.set(identity.id, 'x'.repeat(12), adapter.credentials, null)
     await expect(provider.verify(identity.id, 'x'.repeat(12), adapter.credentials)).resolves.toMatchObject({ ok: true })
   })
 })

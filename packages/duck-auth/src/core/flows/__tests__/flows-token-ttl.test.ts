@@ -18,7 +18,7 @@ async function build() {
     deliver: channel.deliver,
     limiter: new MemoryLimiter({ max: 50, windowMs: 60_000 }),
     stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
-    transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+    transport: new CookieTransport({ name: 'duck-sid' }),
   })
   const identity = await auth.identities.create({ profile: { email: 'a@x.com', username: 'a@x.com' } })
   const tokens = () => adapter.credentials.listByIdentity(identity.id, 'recovery', {})

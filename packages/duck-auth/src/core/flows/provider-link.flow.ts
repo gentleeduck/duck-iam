@@ -1,5 +1,5 @@
 import { orNull } from '~/core/answer'
-import { isStandingFactor } from '~/core/credentials/credentials'
+import { isStandingFactor, refuseWithoutStepUp } from '~/core/credentials/credentials'
 import { AuthError } from '~/core/errors'
 import type { Identities } from '~/core/identities'
 import { echoableProviderId } from '~/core/provider/provider.constants'
@@ -11,14 +11,15 @@ function isProviderIdSafe(providerId: unknown): providerId is string {
   return typeof providerId === 'string' && providerId.length > 0 && providerId.length <= 128
 }
 
-/** What still authenticates this identity if the given provider goes away. */
+/** What still authenticates this identity in `tenant` if its link at the given provider there goes away. */
 async function remainingFactors<Profile extends Identities.ProfileMetadataBase>(
   identity: Identities.Me<Profile>,
   providerId: string,
   ctx: Provider.Context<Profile>,
   tenant: TenantContext,
 ): Promise<number> {
-  const otherLinks = identity.providers.filter((p) => p.providerId !== providerId)
+  const tenantId = tenant.tenantId ?? null
+  const otherLinks = identity.providers.filter((p) => p.tenantId === tenantId && p.providerId !== providerId)
   const credentials = await ctx.stores.credentials.listByIdentity(identity.id, null, tenant)
   return otherLinks.length + credentials.filter(isStandingFactor).length
 }
@@ -48,8 +49,10 @@ export async function linkProvider<Profile extends Identities.ProfileMetadataBas
   }
   // One context, reused: a second would be a fresh object graph over the same stores.
   const ctx = deps.ctxFactory(opts.tenantId)
+  const tenantId = opts.tenantId ?? null
   const identity = await deps.identities.getById(opts.identityId).orNull()
   if (!identity) throw new AuthError('AUTH_UNAUTHENTICATED')
+  await refuseWithoutStepUp(ctx.stores.credentials, opts.identityId, opts.session, ctx.tenant)
 
   // Before the lookup and before the write. `providerSub` is an unverifiable
   // string as far as this library is concerned; this is the host asserting it
@@ -62,7 +65,7 @@ export async function linkProvider<Profile extends Identities.ProfileMetadataBas
   }
 
   const existing = await orNull(
-    ctx.stores.identities.find({ providerId: opts.providerId, providerSub: opts.providerSub }),
+    ctx.stores.identities.find({ providerId: opts.providerId, providerSub: opts.providerSub, tenantId }),
   )
   if (existing && existing.id !== opts.identityId) {
     throw new AuthError('AUTH_PROVIDER_FAILED', {
@@ -72,7 +75,7 @@ export async function linkProvider<Profile extends Identities.ProfileMetadataBas
   }
 
   const alreadyLinked = identity.providers.some(
-    (p) => p.providerId === opts.providerId && p.providerSub === opts.providerSub,
+    (p) => p.providerId === opts.providerId && p.providerSub === opts.providerSub && p.tenantId === tenantId,
   )
   if (alreadyLinked) {
     // Idempotent: nothing to write, and `identity` is already the row a caller
@@ -81,7 +84,11 @@ export async function linkProvider<Profile extends Identities.ProfileMetadataBas
   }
 
   const linked = await orNull(
-    ctx.stores.identities.link(opts.identityId, { providerId: opts.providerId, providerSub: opts.providerSub }),
+    ctx.stores.identities.link(opts.identityId, {
+      providerId: opts.providerId,
+      providerSub: opts.providerSub,
+      tenantId,
+    }),
   )
   // `null` means the row went between the read above and the write, the same condition the read
   // rejected, so it gets the same answer.
@@ -104,11 +111,13 @@ export async function unlinkProvider<Profile extends Identities.ProfileMetadataB
     })
   }
   const tenant: TenantContext = opts.tenantId !== undefined ? { tenantId: opts.tenantId } : {}
+  const tenantId = opts.tenantId ?? null
   const ctx = deps.ctxFactory(opts.tenantId)
   const identity = await deps.identities.getById(opts.identityId).orNull()
   if (!identity) throw new AuthError('AUTH_UNAUTHENTICATED')
+  await refuseWithoutStepUp(ctx.stores.credentials, opts.identityId, opts.session, tenant)
 
-  const linked = identity.providers.filter((p) => p.providerId === opts.providerId)
+  const linked = identity.providers.filter((p) => p.providerId === opts.providerId && p.tenantId === tenantId)
   if (linked.length === 0) {
     return { identity, identityId: opts.identityId, providerId: opts.providerId }
   }
@@ -120,7 +129,7 @@ export async function unlinkProvider<Profile extends Identities.ProfileMetadataB
     })
   }
 
-  const unlinked = await orNull(ctx.stores.identities.unlink(opts.identityId, opts.providerId))
+  const unlinked = await orNull(ctx.stores.identities.unlink(opts.identityId, opts.providerId, tenantId))
   if (!unlinked) throw new AuthError('AUTH_UNAUTHENTICATED')
 
   // WARN: read-then-write, and `Identities.Store.unlink` takes no expected version, so two concurrent

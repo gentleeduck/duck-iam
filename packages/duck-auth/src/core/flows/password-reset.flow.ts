@@ -1,6 +1,6 @@
 /** The password-reset flow: `requestPasswordReset` mints and dispatches a single-use token and is
  *  enumeration-safe, `completePasswordReset` verifies it, swaps the password, sweeps every other
- *  session and enforces a step-up when the identity has TOTP enrolled. */
+ *  session and, beside any factor but the password, asks for a session stepped up with it. */
 
 import { orNull } from '~/core/answer'
 import {
@@ -9,6 +9,7 @@ import {
   getCredentialPurpose,
   isCredentialExpired,
   isRevoked,
+  missingStepUp,
   toCredentialCreate,
 } from '~/core/credentials/credentials'
 import { LATEST_STORABLE_MS, RECOVERY_PURPOSES } from '~/core/credentials/credentials.constants'
@@ -16,32 +17,11 @@ import { AuthError } from '~/core/errors'
 import { refuseRateLimited } from '~/core/events/events.lockout'
 import { canonicalEmail, type Identities } from '~/core/identities'
 import type { Provider } from '~/core/provider/provider.types'
-import type { TenantContext } from '~/core/tenant/tenant.types'
+import { ALL_TENANTS } from '~/core/tenant/tenant'
 import { isSafeCallbackPath } from '~/core/url-validators'
-import type { MfaFacet } from '~/providers/mfa'
 import { NO_IDENTITY_SENTINEL } from '~/providers/passwords/passwords.constants'
 import { deliver } from './flows.delivery'
 import type { Flows } from './flows.types'
-
-/** The second factors the identity has enrolled, none where no MFA facet is registered: a deployment without
- *  it has no second factor to require. Only the resolution is guarded; what the reads raise still travels. */
-async function enrolledMfa<Profile extends Identities.ProfileMetadataBase>(
-  deps: Flows.Deps<Profile>,
-  identityId: string,
-  tenant: TenantContext,
-): Promise<string[]> {
-  let mfa: MfaFacet
-  try {
-    mfa = deps.requireMfa()
-  } catch (err) {
-    if (err instanceof AuthError && err.code === 'AUTH_PROVIDER_NOT_REGISTERED') return []
-    throw err
-  }
-  // Both read every time, so how long this takes does not say which is enrolled.
-  const totp = await mfa.hasTotp(identityId, tenant)
-  const webauthn = await mfa.hasWebauthnMfa(identityId, tenant)
-  return [...(totp ? ['totp'] : []), ...(webauthn ? ['webauthn'] : [])]
-}
 
 export async function requestPasswordReset<Profile extends Identities.ProfileMetadataBase>(
   deps: Flows.Deps<Profile>,
@@ -125,7 +105,7 @@ export async function requestPasswordReset<Profile extends Identities.ProfileMet
   const link = new URL(`${ctx.baseUrl}${callbackPath}`)
   // Set, so a `token` the asker wrote into `callbackPath` cannot be read ahead of this one.
   link.searchParams.set('token', token)
-  const requiresMfa = (await enrolledMfa(deps, subjectId, ctx.tenant)).length > 0
+  const requiresMfa = (await missingStepUp(ctx.stores.credentials, subjectId, null, ctx.tenant)).length > 0
   if (!identityRow) {
     return { ok: true }
   }
@@ -182,20 +162,18 @@ export async function completePasswordReset<Profile extends Identities.ProfileMe
   const currentSession = input.currentSid === undefined ? null : await deps.sessions.getBySid(input.currentSid).orNull()
   const callerSession = currentSession?.identityId === row.identityId ? currentSession : null
 
-  const methods = await enrolledMfa(deps, row.identityId, ctx.tenant)
+  // Beside any factor but the password, as every factor change asks.
+  const methods = await missingStepUp(ctx.stores.credentials, row.identityId, callerSession, ctx.tenant)
   if (methods.length > 0) {
-    // INVARIANT: never gate on `fresh` alone; a restored operator session is `fresh: true` at `aal: 1`.
-    if (!callerSession || callerSession.aal < 2 || !callerSession.fresh) {
-      // Bounded, then burnt. A failed gate cannot consume the token outright, since being refused here,
-      // stepping up and calling again is the documented flow, so the limiter is what tells that caller
-      // from one grinding the gate. When it is spent, so is the token.
-      const attempt = await ctx.limiter.consume(`recovery:password:mfa:${hash}`)
-      if (!attempt.ok) {
-        await ctx.stores.credentials.delete(row.id, ctx.tenant).catch(() => {})
-        await refuseRateLimited(ctx.events, attempt, row.identityId)
-      }
-      throw new AuthError('AUTH_RECOVERY_REQUIRES_MFA', { methods })
+    // Bounded, then burnt. A failed gate cannot consume the token outright, since being refused here,
+    // stepping up and calling again is the documented flow, so the limiter is what tells that caller
+    // from one grinding the gate. When it is spent, so is the token.
+    const attempt = await ctx.limiter.consume(`recovery:password:mfa:${hash}`)
+    if (!attempt.ok) {
+      await ctx.stores.credentials.delete(row.id, ctx.tenant).catch(() => {})
+      await refuseRateLimited(ctx.events, attempt, row.identityId)
     }
+    throw new AuthError('AUTH_RECOVERY_REQUIRES_MFA', { methods })
   }
 
   await burnCredential(ctx, row)
@@ -221,7 +199,7 @@ export async function completePasswordReset<Profile extends Identities.ProfileMe
       fresh: true,
     })
   } else {
-    await deps.sessions.revokeAllForIdentity(row.identityId)
+    await deps.sessions.revokeAllForIdentity(row.identityId, ALL_TENANTS)
   }
   // SECURITY: the link proves the address, as a magic link does. Signed in to the row, the caller already held
   // it; without that, whoever signed the row up may not hold the inbox, and what they linked or enrolled goes
@@ -234,13 +212,16 @@ export async function completePasswordReset<Profile extends Identities.ProfileMe
         : err
     })
   }
-  // With the sessions: a remembered device skips the second factor for whoever holds its token.
+  // With the sessions: a remembered device skips the second factor for whoever holds its token, and a pending
+  // sign-in challenge opens a session for whoever answers it.
   const trustedDevice = RECOVERY_PURPOSES.trustedDevice
   await ctx.stores.credentials.deleteByKindAndPurpose(row.identityId, 'recovery', trustedDevice, ctx.tenant)
+  const challenge = RECOVERY_PURPOSES.mfaChallenge
+  await ctx.stores.credentials.deleteByKindAndPurpose(row.identityId, 'recovery', challenge, ctx.tenant)
 
   // SECURITY: in this reset's tenant, like every other store call above. `set` defaults the context to
   // `{}`, and an undefined tenant is not "this tenant" - `inTenant` emits no filter at all.
-  await passwords.set(row.identityId, newPassword, ctx.stores.credentials, ctx.tenant)
+  await passwords.set(row.identityId, newPassword, ctx.stores.credentials, callerSession, ctx.tenant)
   // Spent, and live until here: it is what keeps `beginSignUp` from reading a swept row as abandoned.
   await orNull(ctx.stores.credentials.revoke(row.id, ctx.tenant))
   await deps.events.emit('recovery.password.completed', { identityId: row.identityId })

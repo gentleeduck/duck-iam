@@ -44,6 +44,7 @@ async function buildAuth(
   userinfo: Record<string, unknown>,
   onFederationConflict?: OAuth.FederationPolicy,
   existingEmailVerified = true,
+  onSignIn?: OAuth.OptionsBase<MyProfile>['onSignIn'],
 ): Promise<{ auth: AuthEngine<MyProfile>; adapter: MemoryAdapter<MyProfile>; existingId: string }> {
   const adapter = new MemoryAdapter<MyProfile>()
   const auth = new AuthEngine<MyProfile>({
@@ -57,11 +58,12 @@ async function buildAuth(
         stateSigningSecret: 'super-secret',
         nonceStore: memoryDPoPNonceStore(),
         ...(onFederationConflict !== undefined && { onFederationConflict }),
+        ...(onSignIn !== undefined && { onSignIn }),
         profileToIdentityProfile: (p) => ({ email: p.email ?? '', username: p.email ?? '' }),
       }),
     ],
     stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
-    transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+    transport: new CookieTransport({ name: 'duck-sid' }),
   })
   const existing = await adapter.identities.create({
     emailVerified: existingEmailVerified,
@@ -72,13 +74,89 @@ async function buildAuth(
 }
 
 /** Round-trip a real `state` and its pre-auth cookie through `begin`, the way a browser does. */
-async function signInThroughGoogle(auth: AuthEngine<MyProfile>) {
-  const { state, cookieHeader } = afterOAuthBegin(await auth.flows.beginProvider('oauth:google', {}))
-  return auth.flows.signIn({ input: { code: 'authcode', state, cookieHeader }, providerId: 'oauth:google' })
+async function signInThroughGoogle(auth: AuthEngine<MyProfile>, tenantId?: string) {
+  const opts = tenantId === undefined ? {} : { tenantId }
+  const { state, cookieHeader } = afterOAuthBegin(await auth.flows.beginProvider('oauth:google', {}, opts))
+  return auth.flows.signIn({ input: { code: 'authcode', state, cookieHeader }, providerId: 'oauth:google', ...opts })
 }
 
 const VERIFIED = { email: EMAIL, email_verified: true, sub: 'g-1' }
 const UNVERIFIED = { email: EMAIL, email_verified: false, sub: 'g-1' }
+
+/** An `onSignIn` that finds by sub, then links by email, then creates, recording which one answered. */
+function resolver(answered: string[]): OAuth.OptionsBase<MyProfile>['onSignIn'] {
+  return async ({ createIdentity, findByEmail, findByProviderSub, linkProvider, profile }) => {
+    const bySub = await findByProviderSub(profile.sub)
+    if (bySub) {
+      answered.push('sub')
+      return { identityId: bySub.id }
+    }
+    const byEmail = profile.email === undefined ? null : await findByEmail(profile.email)
+    if (byEmail) {
+      answered.push('email')
+      await linkProvider(byEmail.id, profile.sub)
+      return { identityId: byEmail.id }
+    }
+    answered.push('created')
+    return { identityId: (await createIdentity({ email: profile.email ?? '', username: profile.email ?? '' })).id }
+  }
+}
+
+describe('a provider link opens only the tenant it was made in', () => {
+  it('signs in to its own tenant, and meets the conflict policy in another or with no tenant', async () => {
+    const { auth, adapter, existingId } = await buildAuth(VERIFIED)
+    await adapter.identities.link(existingId, { providerId: 'oauth:google', providerSub: 'g-1', tenantId: 'tenant-a' })
+    const conflict = { code: 'AUTH_PROVIDER_FAILED', meta: { detail: expect.stringContaining('federation-conflict') } }
+
+    await expect(signInThroughGoogle(auth, 'tenant-b')).rejects.toMatchObject(conflict)
+    await expect(signInThroughGoogle(auth)).rejects.toMatchObject(conflict)
+    expect((await signInThroughGoogle(auth, 'tenant-a')).session?.identityId).toBe(existingId)
+  })
+
+  it('creates a new account in its own tenant', async () => {
+    const { auth, adapter } = await buildAuth({ email: 'new@x.com', email_verified: true, sub: 'g-new' })
+
+    const signedIn = await signInThroughGoogle(auth, 'tenant-a')
+
+    const created = await adapter.identities.find({
+      providerId: 'oauth:google',
+      providerSub: 'g-new',
+      tenantId: 'tenant-a',
+    })
+    expect(created.id).toBe(signedIn.session?.identityId)
+  })
+
+  it('links under the conflict policy in the tenant it signed in to', async () => {
+    const { auth, adapter, existingId } = await buildAuth(VERIFIED, 'link-if-verified')
+
+    await signInThroughGoogle(auth, 'tenant-a')
+
+    const row = await adapter.identities.find({ id: existingId })
+    expect(row.providers).toEqual([expect.objectContaining({ providerSub: 'g-1', tenantId: 'tenant-a' })])
+  })
+
+  it('finds and links through onSignIn in its own tenant', async () => {
+    const answered: string[] = []
+    const { auth } = await buildAuth(VERIFIED, undefined, true, resolver(answered))
+
+    await signInThroughGoogle(auth, 'tenant-a')
+    await signInThroughGoogle(auth, 'tenant-a')
+    await signInThroughGoogle(auth)
+
+    expect(answered).toEqual(['email', 'sub', 'email'])
+  })
+
+  it('creates through onSignIn in its own tenant', async () => {
+    const answered: string[] = []
+    const userinfo = { email: 'new@x.com', email_verified: true, sub: 'g-new' }
+    const { auth } = await buildAuth(userinfo, undefined, true, resolver(answered))
+
+    await signInThroughGoogle(auth, 'tenant-a')
+    await signInThroughGoogle(auth, 'tenant-a')
+
+    expect(answered).toEqual(['created', 'sub'])
+  })
+})
 
 /**
  * `onFederationConflict` lived on `OAuth.Options` but not on `OptionsBase`, so
@@ -106,7 +184,7 @@ describe('federation conflict policy, through a shipped provider', () => {
     // Signed in before, unlinked: the store kept the first account, so the second never showed among the
     // identity's links.
     const { auth, adapter, existingId } = await buildAuth({ ...VERIFIED, sub: 'g-2' }, 'link-if-verified')
-    await adapter.identities.link(existingId, { providerId: 'oauth:google', providerSub: 'g-1' })
+    await adapter.identities.link(existingId, { providerId: 'oauth:google', providerSub: 'g-1', tenantId: null })
 
     await expect(signInThroughGoogle(auth)).rejects.toMatchObject({ code: 'AUTH_PROVIDER_TAKEN' })
     const row = await adapter.identities.find({ id: existingId })
@@ -203,7 +281,7 @@ async function buildMicrosoftAuth(
       }),
     ],
     stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
-    transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+    transport: new CookieTransport({ name: 'duck-sid' }),
   })
   const existing = await adapter.identities.create({
     emailVerified: true,
@@ -284,7 +362,7 @@ async function buildAppleAuth(
       }),
     ],
     stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
-    transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+    transport: new CookieTransport({ name: 'duck-sid' }),
   })
   const existing = await adapter.identities.create({
     emailVerified: true,

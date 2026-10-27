@@ -1,4 +1,3 @@
-import { env } from 'node:process'
 import { AuthError } from '../errors'
 import type { AuthDefine } from './config.types'
 
@@ -23,9 +22,8 @@ const CREATE_AUTH_KEYS: Record<keyof AuthDefine.Cfg, true> = {
   stores: true,
   strict: true,
   transport: true,
+  webhooks: true,
 }
-
-const STRICT_ENVS = ['development', 'production', 'test'] as const
 
 /** JSON-quoted, so a value carrying a quote or a control character cannot end the sentence reporting it. */
 function describe(value: unknown): string {
@@ -44,17 +42,12 @@ export function assertKnownKeys(config: object): void {
   })
 }
 
-/** Which environment's checks to run: what the caller named, else what the process is running as. */
-export function resolveStrictEnv(strict: AuthDefine.Cfg['strict']): (typeof STRICT_ENVS)[number] | null {
-  if (strict === false) return null
-  if (strict === undefined) return STRICT_ENVS.find((name) => name === env.NODE_ENV) ?? 'development'
-  const named = STRICT_ENVS.find((name) => name === strict)
-  if (!named) {
-    throw new AuthError('AUTH_MISCONFIGURED', {
-      detail: `strict must be one of ${STRICT_ENVS.join(', ')}, or false to opt out; got ${describe(strict)}`,
-    })
-  }
-  return named
+/** Refuse a `strict` other than `false`: the environment comes from `NODE_ENV`, so no other value means anything. */
+export function assertStrictOption(strict: unknown): void {
+  if (strict === undefined || strict === false) return
+  throw new AuthError('AUTH_MISCONFIGURED', {
+    detail: `strict takes only false, to defer the checks to auth.strict(); got ${describe(strict)}`,
+  })
 }
 
 /**

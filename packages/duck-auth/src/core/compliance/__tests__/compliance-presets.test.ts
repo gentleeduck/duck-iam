@@ -4,7 +4,7 @@
  * that it is silent when it is not kept, so these cases ask, for each field a
  * preset resolves, whether anything in the library actually reads it.
  */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { AuthEngine } from '~/core/engine'
 import type { Engine } from '~/core/engine/engine.types'
@@ -15,6 +15,7 @@ import { MemoryLimiter } from '~/limiters/memory'
 import { NoopLimiter } from '~/limiters/mock'
 import { mfaProvider } from '~/providers/mfa'
 import { passkey } from '~/providers/passkey'
+import { authTestDataAtRest } from '~/test'
 import { applyCompliancePreset, assertComplianceStrict, readCompliancePreset, resolveCompliance } from '../compliance'
 import type { Compliance } from '../compliance.types'
 
@@ -27,7 +28,7 @@ const baseCfg = (): { adapter: MemoryAdapter; cfg: Engine.Cfg } => {
       limiter: new MemoryLimiter({ max: 20, windowMs: 60_000 }),
       providers: [],
       stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
-      transport: new CookieTransport({ name: 'sid', secure: true }),
+      transport: new CookieTransport({ name: 'sid' }),
     },
   }
 }
@@ -64,7 +65,7 @@ describe('what a preset declares against what is enforced', () => {
     // Asserted in every environment, not only production: the preset is the operator declaring what
     // this deployment claims, unlike the production footguns `strict()` otherwise checks.
     const engine = new AuthEngine(branded)
-    const detail = refusalDetail(() => engine.strict({ env: 'test' }))
+    const detail = refusalDetail(() => engine.strict())
     expect(detail).toContain('dataAtRest')
   })
 
@@ -75,7 +76,6 @@ describe('what a preset declares against what is enforced', () => {
     expect(() =>
       engine.strict({
         compliance: { dataAtRest: true, exportAvailable: true, mailerChannel: true, softDeleteEnabled: true },
-        env: 'test',
       }),
     ).not.toThrow()
   })
@@ -89,7 +89,8 @@ describe('what a preset declares against what is enforced', () => {
 
     const { cfg } = baseCfg()
     const engine = new AuthEngine(applyCompliancePreset(cfg, 'hipaa'))
-    const detail = refusalDetail(() => engine.strict({ env: 'production' }))
+    vi.stubEnv('NODE_ENV', 'production')
+    const detail = refusalDetail(() => engine.strict())
     expect(detail).toContain('minAal above 1 requires a registered mfa provider')
   })
 
@@ -339,7 +340,7 @@ describe('webauthnAttestationDirect, against the provider that has to satisfy it
     // The load-bearing case. Evidence is spread after the operator's attestation, so a claim cannot
     // overrule something the process just read off the provider it is holding.
     const engine = fipsEngine()
-    expect(refusalDetail(() => engine.strict({ compliance: satisfying('fips'), env: 'test' }))).toContain(
+    expect(refusalDetail(() => engine.strict({ compliance: satisfying('fips') }))).toContain(
       'webauthnAttestationDirect',
     )
   })
@@ -347,7 +348,7 @@ describe('webauthnAttestationDirect, against the provider that has to satisfy it
   it('passes on the provider being configured for it, with no attestation from the operator', () => {
     const engine = fipsEngine('direct')
     const wired = { ...satisfying('fips'), webauthnAttestationDirect: false }
-    expect(refusalDetail(() => engine.strict({ compliance: wired, env: 'test' }))).toBeNull()
+    expect(refusalDetail(() => engine.strict({ compliance: wired }))).toBeNull()
   })
 
   it('will not let a claimed limiter stand over the Noop one the engine can see', () => {
@@ -356,9 +357,7 @@ describe('webauthnAttestationDirect, against the provider that has to satisfy it
     const { cfg } = baseCfg()
     const engine = new AuthEngine(applyCompliancePreset({ ...cfg, limiter: new NoopLimiter() }, 'soc2'))
     engine.events.on('lockout', () => {})
-    expect(refusalDetail(() => engine.strict({ compliance: satisfying('soc2'), env: 'test' }))).toContain(
-      'limiterRequired',
-    )
+    expect(refusalDetail(() => engine.strict({ compliance: satisfying('soc2') }))).toContain('limiterRequired')
   })
 
   it('will not let a claimed limiter stand over the in-process one either', () => {
@@ -368,7 +367,7 @@ describe('webauthnAttestationDirect, against the provider that has to satisfy it
     const { cfg } = baseCfg()
     const engine = new AuthEngine(applyCompliancePreset({ ...cfg, limiter: new MemoryLimiter() }, 'soc2'))
     engine.events.on('lockout', () => {})
-    expect(refusalDetail(() => engine.strict({ compliance: satisfying('soc2'), env: 'test' }))).toContain(
+    expect(refusalDetail(() => engine.strict({ compliance: satisfying('soc2') }))).toContain(
       'limiterRequired - a limiter shared across instances must be wired (NoopLimiter and MemoryLimiter do not count)',
     )
   })
@@ -379,26 +378,26 @@ describe('webauthnAttestationDirect, against the provider that has to satisfy it
       reset: async () => {},
     }
     const engine = new AuthEngine(applyCompliancePreset({ ...baseCfg().cfg, limiter }, 'soc2'))
-    expect(refusalDetail(() => engine.strict({ compliance: satisfying('soc2'), env: 'test' }))).toContain(
-      'lockoutListener',
-    )
+    expect(refusalDetail(() => engine.strict({ compliance: satisfying('soc2') }))).toContain('lockoutListener')
     engine.events.on('lockout', () => {})
     const denied = { ...satisfying('soc2'), lockoutListener: false }
-    expect(refusalDetail(() => engine.strict({ compliance: denied, env: 'test' }))).toBeNull()
+    expect(refusalDetail(() => engine.strict({ compliance: denied }))).toBeNull()
   })
 })
 
 describe('the mfa provider the AAL floor asks for', () => {
   const withMfa = (preset: Compliance.Preset) => {
     const { cfg } = baseCfg()
-    return new AuthEngine(applyCompliancePreset({ ...cfg, providers: [mfaProvider()] }, preset))
+    return new AuthEngine(
+      applyCompliancePreset({ ...cfg, providers: [mfaProvider({ dataAtRest: authTestDataAtRest() })] }, preset),
+    )
   }
 
   // Both presets that set a floor above AAL 1, and the gate is the same one for each.
   it.each(['hipaa', 'fips'] as const)('%s boots once an mfa provider is registered', (preset) => {
     const auth = withMfa(preset)
     expect(auth.providers.has('mfa')).toBe(true)
-    expect(() => auth.strict({ compliance: satisfying(preset), env: 'test' })).not.toThrow()
+    expect(() => auth.strict({ compliance: satisfying(preset) })).not.toThrow()
   })
 
   it('asks the registry what is registered, not what can complete a sign-in', () => {
@@ -413,7 +412,7 @@ describe('the mfa provider the AAL floor asks for', () => {
     const { cfg } = baseCfg()
     const auth = new AuthEngine(applyCompliancePreset(cfg, 'hipaa'))
     expect(auth.providers.has('mfa')).toBe(false)
-    expect(() => auth.strict({ compliance: satisfying('hipaa'), env: 'test' })).toThrow(
+    expect(() => auth.strict({ compliance: satisfying('hipaa') })).toThrow(
       expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
     )
   })

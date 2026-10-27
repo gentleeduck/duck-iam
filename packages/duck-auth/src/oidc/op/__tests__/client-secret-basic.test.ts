@@ -42,7 +42,7 @@ function build() {
   })
   const op = createOidcOP<Identities.ProfileMetadataBase>({
     auth,
-    config: { allowHttp: true, issuer: 'http://localhost:8787/auth', supportedScopes: ['openid'] },
+    config: { issuer: 'http://localhost:8787/auth', supportedScopes: ['openid'] },
     signIdToken: (payload) => {
       const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url')
       const body = Buffer.from(JSON.stringify(payload)).toString('base64url')

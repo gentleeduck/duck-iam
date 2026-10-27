@@ -6,6 +6,7 @@ import { refuseRateLimited } from '~/core/events/events.lockout'
 import { deliver } from '~/core/flows/flows.delivery'
 import { canonicalEmail, type Identities } from '~/core/identities'
 import type { Provider } from '~/core/provider/provider.types'
+import { ALL_TENANTS } from '~/core/tenant/tenant'
 import { isSafeCallbackPath } from '~/core/url-validators'
 import { NO_IDENTITY_SENTINEL } from '~/providers/passwords/passwords.constants'
 import { DEFAULT_MAGIC_LINK_CONFIG } from './magic-link.constants'
@@ -163,8 +164,8 @@ export class MagicLinkImpl<Profile extends Identities.ProfileMetadataBase = Iden
     // marked proven, so a sweep stopped part-way runs again on the next link.
     const unproven = identity !== null && !identity.emailVerified
     if (unproven) {
-      const squatted = await ctx.stores.sessions.listByIdentity(identity.id)
-      await ctx.stores.sessions.deleteAllForIdentity(identity.id)
+      const squatted = await ctx.stores.sessions.listByIdentity(identity.id, ALL_TENANTS)
+      await ctx.stores.sessions.deleteAllForIdentity(identity.id, ALL_TENANTS)
       for (const s of squatted) await ctx.events.emit('session.revoked', { sessionId: s.id, identityId: identity.id })
       await evictUnproven(ctx.stores, identity.id, row.id)
       const swept = await ctx.stores.identities.find({ id: identity.id })

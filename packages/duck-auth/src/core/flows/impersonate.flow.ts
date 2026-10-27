@@ -30,9 +30,9 @@ export async function impersonate<Profile extends Identities.ProfileMetadataBase
   if (!real?.identityId) {
     throw new AuthError('AUTH_UNAUTHENTICATED')
   }
-  // SECURITY: the operator's own tenant, not one the caller names: a session elsewhere is no session here, as
-  // `resolveSession` reads it, or an operator could act in another tenant and be released into it as themselves.
-  if (opts.tenantId !== undefined && opts.tenantId !== real.tenantId) {
+  // SECURITY: the tenant the caller names, or none: a session elsewhere is no session here, as `resolveSession`
+  // reads it, or an operator could act in another tenant and be released into it as themselves.
+  if ((opts.tenantId ?? null) !== real.tenantId) {
     throw new AuthError('AUTH_UNAUTHENTICATED')
   }
   // SECURITY: nesting would name the previous target as the accountable human, and releasing it would

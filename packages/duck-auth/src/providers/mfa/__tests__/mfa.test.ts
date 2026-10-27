@@ -4,9 +4,11 @@ import { MemoryAdapter } from '~/adapters/memory'
 import { sha256 } from '~/core/crypto'
 import { AuthError } from '~/core/errors'
 import { InMemoryEvents } from '~/core/events'
+import type { Sessions } from '~/core/sessions/sessions.types'
 import type { Passkey } from '~/providers/passkey/passkey.types'
+import { authTestDataAtRest } from '~/test'
 import { type SoftAuthenticator, softAuthenticator } from '~/test/soft-authenticator'
-import { credentialInput } from '~/test/store-inputs'
+import { credentialInput, makeSession, sessionInput } from '~/test/store-inputs'
 import { totpAt } from '../internal/totp'
 import { MfaImpl } from '../mfa'
 import { DEFAULT_MFA_CONFIG } from '../mfa.constants'
@@ -19,12 +21,12 @@ describe('MfaFacet - TOTP', () => {
   beforeEach(() => {
     adapter = new MemoryAdapter()
     events = new InMemoryEvents()
-    facet = new MfaImpl(adapter.credentials, events, DEFAULT_MFA_CONFIG)
+    facet = new MfaImpl(adapter.credentials, events, { ...DEFAULT_MFA_CONFIG, dataAtRest: authTestDataAtRest() })
   })
 
   describe('enrollment', () => {
     it('beginTotpEnrollment persists an unconfirmed credential + returns secret+uri', async () => {
-      const challenge = await facet.beginTotpEnrollment('user-1', 'alice@x.com')
+      const challenge = await facet.beginTotpEnrollment('user-1', 'alice@x.com', null)
       expect(challenge.secret).toMatch(/^[A-Z2-7]{32}$/)
       expect(challenge.uri).toMatch(/^otpauth:\/\/totp\/.*alice%40x\.com/)
       const rows = await adapter.credentials.listByIdentity('user-1', 'totp', {})
@@ -33,17 +35,17 @@ describe('MfaFacet - TOTP', () => {
     })
 
     it('hasTotp returns false for unconfirmed enrollment', async () => {
-      await facet.beginTotpEnrollment('user-1', 'alice@x.com')
+      await facet.beginTotpEnrollment('user-1', 'alice@x.com', null)
       expect(await facet.hasTotp('user-1')).toBe(false)
     })
 
     it('confirmTotpEnrollment with right code flips confirmed=true, emits mfa.enrolled, returns backup codes', async () => {
-      const challenge = await facet.beginTotpEnrollment('user-1', 'alice@x.com')
+      const challenge = await facet.beginTotpEnrollment('user-1', 'alice@x.com', null)
       const code = totpAt(challenge.secret, Math.floor(Date.now() / 1000 / 30))
       const handler = vi.fn()
       events.on('mfa.enrolled', handler)
 
-      const result = await facet.confirmTotpEnrollment('user-1', code)
+      const result = await facet.confirmTotpEnrollment('user-1', code, null)
       expect(result.ok).toBe(true)
       if (result.ok) {
         expect(result.backupCodes).toHaveLength(DEFAULT_MFA_CONFIG.backupCodeCount)
@@ -54,14 +56,14 @@ describe('MfaFacet - TOTP', () => {
     })
 
     it('two confirms racing on one code enroll once and mint one set of backup codes', async () => {
-      const challenge = await facet.beginTotpEnrollment('user-1', 'alice@x.com')
+      const challenge = await facet.beginTotpEnrollment('user-1', 'alice@x.com', null)
       const code = totpAt(challenge.secret, Math.floor(Date.now() / 1000 / 30))
       const handler = vi.fn()
       events.on('mfa.enrolled', handler)
 
       const results = await Promise.all([
-        facet.confirmTotpEnrollment('user-1', code),
-        facet.confirmTotpEnrollment('user-1', code),
+        facet.confirmTotpEnrollment('user-1', code, null),
+        facet.confirmTotpEnrollment('user-1', code, null),
       ])
       expect(results.filter((r) => r.ok)).toHaveLength(1)
       expect(await adapter.credentials.listByIdentity('user-1', 'recovery', {})).toHaveLength(
@@ -71,30 +73,32 @@ describe('MfaFacet - TOTP', () => {
     })
 
     it('confirmTotpEnrollment refuses an enrollment revoked before it was confirmed, and mints no codes', async () => {
-      const challenge = await facet.beginTotpEnrollment('user-1', 'alice@x.com')
+      const challenge = await facet.beginTotpEnrollment('user-1', 'alice@x.com', null)
       await adapter.credentials.revokeByKind('user-1', 'totp', {})
       const code = totpAt(challenge.secret, Math.floor(Date.now() / 1000 / 30))
 
-      await expect(facet.confirmTotpEnrollment('user-1', code)).rejects.toMatchObject({ code: 'AUTH_MFA_REQUIRED' })
+      await expect(facet.confirmTotpEnrollment('user-1', code, null)).rejects.toMatchObject({
+        code: 'AUTH_MFA_REQUIRED',
+      })
       expect(await adapter.credentials.listByIdentity('user-1', 'recovery', {})).toEqual([])
       expect(await facet.hasTotp('user-1')).toBe(false)
     })
 
     it('confirmTotpEnrollment with wrong code returns ok:false', async () => {
-      await facet.beginTotpEnrollment('user-1', 'alice@x.com')
-      const result = await facet.confirmTotpEnrollment('user-1', '000000')
+      await facet.beginTotpEnrollment('user-1', 'alice@x.com', null)
+      const result = await facet.confirmTotpEnrollment('user-1', '000000', null)
       expect(result.ok).toBe(false)
       expect(await facet.hasTotp('user-1')).toBe(false)
     })
 
     it('confirmTotpEnrollment without prior begin throws AUTH_MFA_REQUIRED', async () => {
-      await expect(facet.confirmTotpEnrollment('user-1', '123456')).rejects.toMatchObject({
+      await expect(facet.confirmTotpEnrollment('user-1', '123456', null)).rejects.toMatchObject({
         code: 'AUTH_MFA_REQUIRED',
       })
     })
 
     it('confirmTotpEnrollment answers ok:false for a code that is not a string, and the enrollment stays pending', async () => {
-      const challenge = await facet.beginTotpEnrollment('user-1', 'alice@x.com')
+      const challenge = await facet.beginTotpEnrollment('user-1', 'alice@x.com', null)
 
       for (const code of [undefined, null, 123456, {}]) {
         await expect(Reflect.apply(facet.confirmTotpEnrollment, facet, ['user-1', code])).resolves.toEqual({
@@ -102,7 +106,7 @@ describe('MfaFacet - TOTP', () => {
         })
       }
       const code = totpAt(challenge.secret, Math.floor(Date.now() / 1000 / 30))
-      await expect(facet.confirmTotpEnrollment('user-1', code)).resolves.toMatchObject({ ok: true })
+      await expect(facet.confirmTotpEnrollment('user-1', code, null)).resolves.toMatchObject({ ok: true })
     })
 
     describe('beside a WebAuthn factor', () => {
@@ -121,17 +125,19 @@ describe('MfaFacet - TOTP', () => {
 
       it('refuses to begin one', async () => {
         await addKey()
-        await expect(facet.beginTotpEnrollment('user-1', 'alice@x.com')).rejects.toMatchObject({
+        await expect(facet.beginTotpEnrollment('user-1', 'alice@x.com', null)).rejects.toMatchObject({
           code: 'AUTH_MFA_REQUIRED',
           meta: { methods: ['webauthn'] },
         })
       })
 
       it('refuses to confirm one begun before the key was added, and mints no backup codes', async () => {
-        const planted = await facet.beginTotpEnrollment('user-1', 'alice@x.com')
+        const planted = await facet.beginTotpEnrollment('user-1', 'alice@x.com', null)
         await addKey()
 
-        await expect(facet.confirmTotpEnrollment('user-1', totpAt(planted.secret, nowStep()))).rejects.toMatchObject({
+        await expect(
+          facet.confirmTotpEnrollment('user-1', totpAt(planted.secret, nowStep()), null),
+        ).rejects.toMatchObject({
           code: 'AUTH_MFA_REQUIRED',
           meta: { methods: ['webauthn'] },
         })
@@ -141,8 +147,10 @@ describe('MfaFacet - TOTP', () => {
       })
 
       it('confirms the same enrollment when no key was added', async () => {
-        const pending = await facet.beginTotpEnrollment('user-1', 'alice@x.com')
-        await expect(facet.confirmTotpEnrollment('user-1', totpAt(pending.secret, nowStep()))).resolves.toMatchObject({
+        const pending = await facet.beginTotpEnrollment('user-1', 'alice@x.com', null)
+        await expect(
+          facet.confirmTotpEnrollment('user-1', totpAt(pending.secret, nowStep()), null),
+        ).resolves.toMatchObject({
           ok: true,
         })
       })
@@ -151,9 +159,9 @@ describe('MfaFacet - TOTP', () => {
 
   describe('verifyTotp', () => {
     it('verifies the current code against a confirmed enrollment', async () => {
-      const challenge = await facet.beginTotpEnrollment('user-1', 'alice@x.com')
+      const challenge = await facet.beginTotpEnrollment('user-1', 'alice@x.com', null)
       const step = Math.floor(Date.now() / 1000 / 30)
-      await facet.confirmTotpEnrollment('user-1', totpAt(challenge.secret, step))
+      await facet.confirmTotpEnrollment('user-1', totpAt(challenge.secret, step), null)
       // A later step, because confirming spends the code it was given. This test
       // used to re-present the confirming code, which is the replay now refused.
       expect(await facet.verifyTotp('user-1', totpAt(challenge.secret, step + 1))).toBe(true)
@@ -163,9 +171,9 @@ describe('MfaFacet - TOTP', () => {
       // NIST SP 800-63B: a verifier accepts a given time-based OTP only once in
       // its validity period. The drift window is three steps wide, so a captured
       // code would otherwise stay usable for about ninety seconds.
-      const challenge = await facet.beginTotpEnrollment('user-1', 'alice@x.com')
+      const challenge = await facet.beginTotpEnrollment('user-1', 'alice@x.com', null)
       const step = Math.floor(Date.now() / 1000 / 30)
-      await facet.confirmTotpEnrollment('user-1', totpAt(challenge.secret, step))
+      await facet.confirmTotpEnrollment('user-1', totpAt(challenge.secret, step), null)
       const code = totpAt(challenge.secret, step + 1)
 
       expect(await facet.verifyTotp('user-1', code)).toBe(true)
@@ -196,11 +204,11 @@ describe('MfaFacet - TOTP', () => {
           },
         },
         new InMemoryEvents(),
-        DEFAULT_MFA_CONFIG,
+        { ...DEFAULT_MFA_CONFIG, dataAtRest: authTestDataAtRest() },
       )
-      const challenge = await raced.beginTotpEnrollment('user-1', 'alice@x.com')
+      const challenge = await raced.beginTotpEnrollment('user-1', 'alice@x.com', null)
       const step = Math.floor(Date.now() / 1000 / 30)
-      await raced.confirmTotpEnrollment('user-1', totpAt(challenge.secret, step))
+      await raced.confirmTotpEnrollment('user-1', totpAt(challenge.secret, step), null)
       gated = true
       const code = totpAt(challenge.secret, step + 1)
 
@@ -219,19 +227,19 @@ describe('MfaFacet - TOTP', () => {
 
     it('refuses an older code once a newer step has been spent', async () => {
       // Rewinding inside the drift window is the same replay by another route.
-      const challenge = await facet.beginTotpEnrollment('user-1', 'alice@x.com')
+      const challenge = await facet.beginTotpEnrollment('user-1', 'alice@x.com', null)
       const step = Math.floor(Date.now() / 1000 / 30)
-      await facet.confirmTotpEnrollment('user-1', totpAt(challenge.secret, step - 1))
+      await facet.confirmTotpEnrollment('user-1', totpAt(challenge.secret, step - 1), null)
 
       expect(await facet.verifyTotp('user-1', totpAt(challenge.secret, step + 1))).toBe(true)
       expect(await facet.verifyTotp('user-1', totpAt(challenge.secret, step))).toBe(false)
     })
 
     it('confirming spends its own code, so it cannot be replayed into a step-up', async () => {
-      const challenge = await facet.beginTotpEnrollment('user-1', 'alice@x.com')
+      const challenge = await facet.beginTotpEnrollment('user-1', 'alice@x.com', null)
       const step = Math.floor(Date.now() / 1000 / 30)
       const code = totpAt(challenge.secret, step)
-      await facet.confirmTotpEnrollment('user-1', code)
+      await facet.confirmTotpEnrollment('user-1', code, null)
       expect(await facet.verifyTotp('user-1', code)).toBe(false)
     })
 
@@ -240,17 +248,17 @@ describe('MfaFacet - TOTP', () => {
     })
 
     it('returns false for the wrong code on a confirmed enrollment', async () => {
-      const challenge = await facet.beginTotpEnrollment('user-1', 'alice@x.com')
+      const challenge = await facet.beginTotpEnrollment('user-1', 'alice@x.com', null)
       const code = totpAt(challenge.secret, Math.floor(Date.now() / 1000 / 30))
-      await facet.confirmTotpEnrollment('user-1', code)
+      await facet.confirmTotpEnrollment('user-1', code, null)
       expect(await facet.verifyTotp('user-1', '000000')).toBe(false)
     })
 
     describe('revoked credential gating', () => {
       it('verifyTotp ignores a TOTP enrollment with revokedAt === 0 (legitimate epoch number, previously slipped past `!r.revokedAt`)', async () => {
-        const challenge = await facet.beginTotpEnrollment('user-1', 'alice@x.com')
+        const challenge = await facet.beginTotpEnrollment('user-1', 'alice@x.com', null)
         const code = totpAt(challenge.secret, Math.floor(Date.now() / 1000 / 30))
-        await facet.confirmTotpEnrollment('user-1', code)
+        await facet.confirmTotpEnrollment('user-1', code, null)
         // Directly tag the underlying credential row with revokedAt:0
         // (an adapter could legitimately write this; the AAL-2 gate must
         // still treat it as revoked).
@@ -264,9 +272,9 @@ describe('MfaFacet - TOTP', () => {
       })
 
       it('verifyTotp ignores a TOTP enrollment with non-numeric revokedAt', async () => {
-        const challenge = await facet.beginTotpEnrollment('user-1', 'alice@x.com')
+        const challenge = await facet.beginTotpEnrollment('user-1', 'alice@x.com', null)
         const code = totpAt(challenge.secret, Math.floor(Date.now() / 1000 / 30))
-        await facet.confirmTotpEnrollment('user-1', code)
+        await facet.confirmTotpEnrollment('user-1', code, null)
         const rows = await adapter.credentials.listByIdentity('user-1', 'totp', {})
         const row = rows[0]
         if (!row) throw new Error('row missing')
@@ -280,12 +288,12 @@ describe('MfaFacet - TOTP', () => {
 
   describe('removeTotp', () => {
     it('drops the credential and emits mfa.removed', async () => {
-      const challenge = await facet.beginTotpEnrollment('user-1', 'alice@x.com')
+      const challenge = await facet.beginTotpEnrollment('user-1', 'alice@x.com', null)
       const code = totpAt(challenge.secret, Math.floor(Date.now() / 1000 / 30))
-      await facet.confirmTotpEnrollment('user-1', code)
+      await facet.confirmTotpEnrollment('user-1', code, null)
       const handler = vi.fn()
       events.on('mfa.removed', handler)
-      const gone = await facet.removeTotp('user-1')
+      const gone = await facet.removeTotp('user-1', makeSession({ aal: 2, identityId: 'user-1' }))
       // How many factors went. `0` is the difference between "MFA turned off"
       // and "there was nothing to turn off" - the rows themselves stay put,
       // they carry the shared secret.
@@ -295,9 +303,11 @@ describe('MfaFacet - TOTP', () => {
     })
 
     it('answers removed:0 for an identity that had no totp, and for a rejected id', async () => {
-      expect(await facet.removeTotp('never-enrolled')).toEqual({ removed: 0 })
-      expect(await facet.removeTotp('')).toEqual({ removed: 0 })
-      expect(await facet.removeTotp('x'.repeat(300))).toEqual({ removed: 0 })
+      expect(await facet.removeTotp('never-enrolled', makeSession({ aal: 2, identityId: 'never-enrolled' }))).toEqual({
+        removed: 0,
+      })
+      expect(await facet.removeTotp('', makeSession({ aal: 2, identityId: '' }))).toEqual({ removed: 0 })
+      expect(await facet.removeTotp('x'.repeat(300), null)).toEqual({ removed: 0 })
     })
   })
 })
@@ -310,11 +320,11 @@ describe('MfaFacet - backup codes', () => {
   beforeEach(() => {
     adapter = new MemoryAdapter()
     events = new InMemoryEvents()
-    facet = new MfaImpl(adapter.credentials, events, DEFAULT_MFA_CONFIG)
+    facet = new MfaImpl(adapter.credentials, events, { ...DEFAULT_MFA_CONFIG, dataAtRest: authTestDataAtRest() })
   })
 
   it('regenerated backup codes are single-use and case-insensitive on verify', async () => {
-    const codes = await facet.regenerateBackupCodes('user-1')
+    const codes = await facet.regenerateBackupCodes('user-1', makeSession({ aal: 2, identityId: 'user-1' }))
     const code = codes[0]
     if (!code) throw new Error('no codes')
     expect(await facet.verifyBackupCode('user-1', code.toUpperCase())).toBe(true)
@@ -323,12 +333,12 @@ describe('MfaFacet - backup codes', () => {
   })
 
   it('wrong backup code returns false (no enumeration)', async () => {
-    await facet.regenerateBackupCodes('user-1')
+    await facet.regenerateBackupCodes('user-1', makeSession({ aal: 2, identityId: 'user-1' }))
     expect(await facet.verifyBackupCode('user-1', 'wrong-xxxx-yy')).toBe(false)
   })
 
   it('verifyBackupCode rejects a code whose row has revokedAt === 0 (would otherwise allow consumed-code replay)', async () => {
-    const codes = await facet.regenerateBackupCodes('user-1')
+    const codes = await facet.regenerateBackupCodes('user-1', makeSession({ aal: 2, identityId: 'user-1' }))
     const code = codes[0]
     if (!code) throw new Error('no codes')
     const codeHash = sha256(code.trim().toLowerCase())
@@ -340,10 +350,10 @@ describe('MfaFacet - backup codes', () => {
   })
 
   it('regenerate revokes all previous codes', async () => {
-    const old = await facet.regenerateBackupCodes('user-1')
+    const old = await facet.regenerateBackupCodes('user-1', makeSession({ aal: 2, identityId: 'user-1' }))
     const oldFirst = old[0]
     if (!oldFirst) throw new Error('no codes')
-    await facet.regenerateBackupCodes('user-1')
+    await facet.regenerateBackupCodes('user-1', makeSession({ aal: 2, identityId: 'user-1' }))
     expect(await facet.verifyBackupCode('user-1', oldFirst)).toBe(false)
   })
 })
@@ -398,13 +408,14 @@ describe('MfaFacet - WebAuthn-MFA', () => {
   beforeEach(() => {
     adapter = new MemoryAdapter()
     events = new InMemoryEvents()
-    facet = new MfaImpl(adapter.credentials, events, DEFAULT_MFA_CONFIG)
+    facet = new MfaImpl(adapter.credentials, events, { ...DEFAULT_MFA_CONFIG, dataAtRest: authTestDataAtRest() })
     identityId = 'user-wa-mfa-1'
   })
 
   const enroll = async (webauthn: Passkey.SimpleWebAuthnServerModule): Promise<Passkey.ChallengeStore> => {
     const challengeStore = makeStore()
     await facet.beginWebauthnMfaEnrollment(identityId, {
+      session: null,
       challengeKey: 'enroll',
       challengeStore,
       expectedOrigins: 'https://app.test',
@@ -414,6 +425,7 @@ describe('MfaFacet - WebAuthn-MFA', () => {
       webauthnModule: webauthn,
     })
     await facet.confirmWebauthnMfaEnrollment(identityId, {
+      session: null,
       challengeKey: 'enroll',
       challengeStore,
       expectedOrigins: 'https://app.test',
@@ -449,6 +461,7 @@ describe('MfaFacet - WebAuthn-MFA', () => {
     const challengeStore = makeStore()
     const webauthn = makeMockWebauthn()
     await facet.beginWebauthnMfaEnrollment(identityId, {
+      session: null,
       rpID: 'app.test',
       rpName: 'app',
       userName: 'a@x.com',
@@ -458,6 +471,7 @@ describe('MfaFacet - WebAuthn-MFA', () => {
       webauthnModule: webauthn,
     })
     const r = await facet.confirmWebauthnMfaEnrollment(identityId, {
+      session: null,
       rpID: 'app.test',
       expectedOrigins: 'https://app.test',
       challengeStore,
@@ -629,7 +643,7 @@ describe('MfaFacet - WebAuthn-MFA', () => {
         },
       },
       events,
-      DEFAULT_MFA_CONFIG,
+      { ...DEFAULT_MFA_CONFIG, dataAtRest: authTestDataAtRest() },
     )
 
     const held = assertOnce(webauthn, challengeStore, raced)
@@ -648,9 +662,13 @@ describe('MfaFacet - WebAuthn-MFA', () => {
   it('removeWebauthnMfa wipes the credential', async () => {
     await enroll(makeMockWebauthn())
     expect(await facet.hasWebauthnMfa(identityId)).toBe(true)
-    expect(await facet.removeWebauthnMfa(identityId)).toEqual({ removed: 1 })
+    expect(await facet.removeWebauthnMfa(identityId, makeSession({ aal: 2, identityId: identityId }))).toEqual({
+      removed: 1,
+    })
     expect(await facet.hasWebauthnMfa(identityId)).toBe(false)
-    expect(await facet.removeWebauthnMfa(identityId)).toEqual({ removed: 0 })
+    expect(await facet.removeWebauthnMfa(identityId, makeSession({ aal: 2, identityId: identityId }))).toEqual({
+      removed: 0,
+    })
   })
 
   describe('with the real verifier', () => {
@@ -658,13 +676,18 @@ describe('MfaFacet - WebAuthn-MFA', () => {
     let challengeStore: Passkey.ChallengeStore
     let seen: unknown[]
 
-    const beginEnrollment = (who: string, supportedAlgorithmIDs?: number[]): Promise<Passkey.RegistrationOptions> =>
+    const beginEnrollment = (
+      who: string,
+      supportedAlgorithmIDs?: number[],
+      session: Sessions.Me | null = null,
+    ): Promise<Passkey.RegistrationOptions> =>
       facet.beginWebauthnMfaEnrollment(who, {
         challengeKey: who,
         challengeStore,
         expectedOrigins: 'https://app.test',
         rpID: 'app.test',
         rpName: 'app',
+        session,
         supportedAlgorithmIDs,
         userName: who,
       })
@@ -675,6 +698,7 @@ describe('MfaFacet - WebAuthn-MFA', () => {
     ): Promise<{ credentialId: string }> => {
       const options = await beginEnrollment(who, supportedAlgorithmIDs)
       return facet.confirmWebauthnMfaEnrollment(who, {
+        session: null,
         challengeKey: who,
         challengeStore,
         expectedOrigins: 'https://app.test',
@@ -757,7 +781,21 @@ describe('MfaFacet - WebAuthn-MFA', () => {
     })
 
     it('asks the browser not to enroll the same authenticator twice', async () => {
-      expect((await beginEnrollment(identityId)).excludeCredentials).toEqual([
+      const now = Date.now()
+      // A second key needs a session stepped up with the first.
+      const steppedUp = sessionInput({
+        absoluteExpiresAt: new Date(now + 60_000),
+        aal: 2,
+        createdAt: new Date(now),
+        expiresAt: new Date(now + 60_000),
+        factors: [{ completedAt: new Date(now), method: 'webauthn' }],
+        fresh: true,
+        id: 'sid-hash',
+        identityId,
+        kind: 'user',
+        rotatedAt: new Date(now),
+      })
+      expect((await beginEnrollment(identityId, undefined, steppedUp)).excludeCredentials).toEqual([
         expect.objectContaining({ id: authenticator.id, type: 'public-key' }),
       ])
       expect((await beginEnrollment('someone-else')).excludeCredentials).toEqual([])
@@ -797,6 +835,7 @@ describe('MfaFacet - WebAuthn-MFA', () => {
 
     const enroll = (challengeStore: Passkey.ChallengeStore, challengeTtlMs: number) =>
       facet.beginWebauthnMfaEnrollment(identityId, {
+        session: null,
         challengeKey: 's1',
         challengeStore,
         challengeTtlMs,
@@ -857,7 +896,7 @@ describe('MfaFacet - WebAuthn-MFA', () => {
     beforeEach(() => challenges.clear())
 
     it('refuses to begin an enrollment, and stores no challenge', async () => {
-      const enrollment = { ...rp('https://app.test/'), rpName: 'app', userName: 'a@x.com' }
+      const enrollment = { ...rp('https://app.test/'), rpName: 'app', session: null, userName: 'a@x.com' }
       await expect(facet.beginWebauthnMfaEnrollment(identityId, enrollment)).rejects.toMatchObject({
         code: 'AUTH_MISCONFIGURED',
       })

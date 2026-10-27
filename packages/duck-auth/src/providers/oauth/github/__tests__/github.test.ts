@@ -90,7 +90,7 @@ function build(
       }),
     ],
     stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
-    transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+    transport: new CookieTransport({ name: 'duck-sid' }),
   })
   return { adapter, auth, seen }
 }
@@ -113,7 +113,9 @@ describe('github provider - its token endpoint and API as GitHub answers them', 
       token: { error: 'bad_verification_code', error_description: 'The code passed is incorrect or expired.' },
     })
     await expect(signIn(auth)).rejects.toMatchObject({ code: 'AUTH_PROVIDER_FAILED' })
-    await expect(adapter.identities.find({ providerId: 'oauth:github', providerSub: '42' })).rejects.toMatchObject({
+    await expect(
+      adapter.identities.find({ providerId: 'oauth:github', providerSub: '42', tenantId: null }),
+    ).rejects.toMatchObject({
       code: 'AUTH_IDENTITY_NOT_FOUND',
     })
   })
@@ -182,7 +184,9 @@ describe('github provider - profile resolution', () => {
   it('refuses a first sign-in the projection answers null for, and creates nobody', async () => {
     const { auth, adapter } = build({ id: 42, login: 'octocat', email: null }, [], { refuseProfile: true })
     await expect(signIn(auth)).rejects.toThrow(/PROVIDER_FAILED/)
-    await expect(adapter.identities.find({ providerId: 'oauth:github', providerSub: '42' })).rejects.toMatchObject({
+    await expect(
+      adapter.identities.find({ providerId: 'oauth:github', providerSub: '42', tenantId: null }),
+    ).rejects.toMatchObject({
       code: 'AUTH_IDENTITY_NOT_FOUND',
     })
   })

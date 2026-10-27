@@ -44,7 +44,8 @@ Sign in as `ada@duck.test` / `duck-auth-examples`.
   - `db`: a `pg.Pool` + drizzle factory.
   - `body`: JSON body narrowing.
   - `session`: `signedIn()`, which refuses a guest, and a one-factor session once TOTP is on;
-    `stepUp()`, the second step of a sign-in.
+    `holdChallenge()`, the cookie a sign-in owed its second factor waits in; `stepUp()`, which
+    answers it.
   - `routes`: the framework-free part of sign-in, sign-out, the session and the provider begin and
     callback routes, over `auth.flows.*`.
   - `signup`: `signUp()`, a password account, unverified until its emailed link is opened.
@@ -131,6 +132,7 @@ it and the IdP verified the address (`onFederationConflict: 'link-if-verified'`)
 ## Development only
 
 These examples use the in-memory rate limiter and DPoP nonce store. duck-auth refuses both
-under `NODE_ENV=production`, which is why the Next.js example has no `build` script.
+in production, and reads an unset `NODE_ENV` as production, so every script that builds the engine
+sets `NODE_ENV=development`. It is also why the Next.js example has no `build` script.
 
 See `TODO.md` for the build and verification checklist.

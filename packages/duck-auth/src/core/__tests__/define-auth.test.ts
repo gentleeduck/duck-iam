@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { memoryAdapter } from '~/adapters/memory'
 import { apiKeyProvider } from '~/providers/api-key'
 import { magicLink } from '~/providers/magic-link'
@@ -7,6 +7,7 @@ import { github } from '~/providers/oauth/github'
 import { google } from '~/providers/oauth/google'
 import { passkey } from '~/providers/passkey'
 import { Argon2idHasher, passwords, ScryptHasher } from '~/providers/passwords'
+import { authTestDataAtRest } from '~/test'
 import { createAuth } from '../config'
 import { AuthEngine } from '../engine'
 import type { Identities } from '../identities/identities.types'
@@ -22,13 +23,6 @@ describe('createAuth', () => {
     expect(auth.cfg.stores.identities).toBe(storage.identities)
     expect(auth.cfg.stores.sessions).toBe(storage.sessions)
     expect(auth.cfg.stores.credentials).toBe(storage.credentials)
-  })
-
-  it('defaults transport to AuthCookieTransport with name "duck-sid"', () => {
-    const auth = createAuth({ baseUrl: 'http://x', stores: memoryAdapter<Profile>() })
-    expect(auth.transport).toBeDefined()
-    // AuthCookieTransport sets a private _name; we observe via issue() output shape.
-    expect(typeof auth.transport.extract).toBe('function')
   })
 
   it('respects explicit transport', () => {
@@ -119,14 +113,12 @@ describe('createAuth', () => {
           clientSecret: 'google-secret',
           redirectUri: 'http://x/AUTH/providers/google/callback',
           stateSigningSecret: 'state-secret',
-          allowStateReplay: true,
         }),
         github({
           clientId: 'github-client',
           clientSecret: 'github-secret',
           redirectUri: 'http://x/AUTH/providers/github/callback',
           stateSigningSecret: 'state-secret',
-          allowStateReplay: true,
         }),
         passkey({
           expectedOrigins: 'http://localhost',
@@ -152,24 +144,16 @@ describe('createAuth', () => {
     expect(auth.providers.list()).toEqual([])
   })
 
-  it('strict("production") rejects a config without a limiter', () => {
-    expect(() =>
-      createAuth({
-        baseUrl: 'http://x',
-        stores: memoryAdapter<Profile>(),
-        strict: 'production',
-      }),
-    ).toThrow()
+  it('rejects a config without a limiter when NODE_ENV is production', () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    expect(() => createAuth({ baseUrl: 'http://x', stores: memoryAdapter<Profile>() })).toThrow(
+      expect.objectContaining({ meta: { detail: expect.stringContaining('Limiter adapter required') } }),
+    )
   })
 
-  it('strict("development") tolerates an under-configured setup', () => {
-    expect(() =>
-      createAuth({
-        baseUrl: 'http://x',
-        stores: memoryAdapter<Profile>(),
-        strict: 'development',
-      }),
-    ).not.toThrow()
+  it('tolerates an under-configured setup when NODE_ENV is development', () => {
+    vi.stubEnv('NODE_ENV', 'development')
+    expect(() => createAuth({ baseUrl: 'http://x', stores: memoryAdapter<Profile>() })).not.toThrow()
   })
 
   it('passes through session / hijack knobs', () => {
@@ -187,7 +171,7 @@ describe('createAuth', () => {
       providers: [apiKeyProvider({ prefix: 'demo_' })],
       stores: memoryAdapter<Profile>(),
     })
-    const created = await auth.apiKeys.create('user-1', { name: 'ci', scopes: [] })
+    const created = await auth.apiKeys.create('user-1', { name: 'ci', scopes: [], session: null })
     expect(created.plaintext.startsWith('demo_')).toBe(true)
   })
 
@@ -199,10 +183,10 @@ describe('createAuth', () => {
   it('mfaProvider mounts auth.mfa; issuer flows into TOTP enrollment', async () => {
     const auth = createAuth({
       baseUrl: 'http://x',
-      providers: [mfaProvider({ issuer: 'duck-demo' })],
+      providers: [mfaProvider({ issuer: 'duck-demo', dataAtRest: authTestDataAtRest() })],
       stores: memoryAdapter<Profile>(),
     })
-    const challenge = await auth.mfa.beginTotpEnrollment('user-1', 'a@x.com')
+    const challenge = await auth.mfa.beginTotpEnrollment('user-1', 'a@x.com', null)
     expect(challenge.uri).toContain('issuer=duck-demo')
   })
 

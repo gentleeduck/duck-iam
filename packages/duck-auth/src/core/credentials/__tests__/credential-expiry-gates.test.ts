@@ -24,6 +24,7 @@ import { passkey } from '~/providers/passkey'
 import type { Passkey } from '~/providers/passkey/passkey.types'
 import type { Hasher } from '~/providers/passwords/hashers/hashers.types'
 import { passwordsImpl } from '~/providers/passwords/passwords'
+import { authTestDataAtRest } from '~/test'
 import { identityInput } from '~/test/store-inputs'
 import { isStandingFactor } from '../credentials'
 import type { Credential } from '../credentials.types'
@@ -232,7 +233,7 @@ describe('a passkey past its expiresAt', () => {
 describe('a backup code past its expiresAt', () => {
   it('is neither counted nor spent', async () => {
     const adapter = new MemoryAdapter<ProfileShape>()
-    const mfa = new MfaImpl(adapter.credentials, new InMemoryEvents(), {})
+    const mfa = new MfaImpl(adapter.credentials, new InMemoryEvents(), { dataAtRest: authTestDataAtRest() })
     const code = 'abcde-fghjk'
     const id = await identity(adapter)
     await lapsed(adapter.credentials, {

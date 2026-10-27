@@ -21,7 +21,7 @@ function build(opts: { credentials?: (base: Credential.Store) => Credential.Stor
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app',
     deliver: channel.deliver,
-    transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
+    transport: new CookieTransport({ name: 'duck-sid' }),
     stores: {
       identities: adapter.identities,
       sessions: adapter.sessions,

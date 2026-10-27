@@ -5,17 +5,20 @@ import {
   getCredentialPurpose,
   isCredentialExpired,
   isRevoked,
+  refuseWithoutStepUp,
   toCredentialCreate,
 } from '~/core/credentials/credentials'
 import { RECOVERY_PURPOSES } from '~/core/credentials/credentials.constants'
 import type { Credential } from '~/core/credentials/credentials.types'
 import { randomToken, sha256, timingSafeEqual } from '~/core/crypto'
+import type { DataAtRest } from '~/core/dataAtRest'
 import type { AuthEngine } from '~/core/engine'
 import { AuthError } from '~/core/errors'
 import type { Events } from '~/core/events/events.types'
 import type { Identities } from '~/core/identities'
 import { getProfileNumber, isProfileBooleanFalse, isProfileBooleanTrue, isRecord } from '~/core/predicates/predicates'
 import type { Provider } from '~/core/provider/provider.types'
+import type { Sessions } from '~/core/sessions/sessions.types'
 import type { TenantContext } from '~/core/tenant/tenant.types'
 import {
   knownTransports,
@@ -29,9 +32,25 @@ import { buildOtpAuthUri, generateSecret, matchTotpStep } from './internal/totp'
 import { DEFAULT_MFA_CONFIG } from './mfa.constants'
 import type { Mfa } from './mfa.types'
 
+/** A live, confirmed TOTP, the one `verifyTotp` checks against. */
+function isConfirmedTotp(r: Credential.Me): boolean {
+  return !isRevoked(r) && !isCredentialExpired(r) && isProfileBooleanTrue(r.metadata, 'confirmed')
+}
+
+/** Checked at runtime too, since a key read from config can be anything. */
+function isDataAtRestAdapter(value: unknown): value is DataAtRest.Adapter {
+  return (
+    isRecord(value) &&
+    typeof value.id === 'string' &&
+    typeof value.encrypt === 'function' &&
+    typeof value.decrypt === 'function' &&
+    typeof value.needsReEncrypt === 'function'
+  )
+}
+
 /**
- * TOTP and backup codes. TOTP secrets live in the credentials store as `kind: 'totp'`, base32
- * plaintext; backup codes are hashed under `kind: 'recovery'` with
+ * TOTP and backup codes. TOTP secrets live in the credentials store as `kind: 'totp'`, encrypted under
+ * `dataAtRest` and bound to their identity; backup codes are hashed under `kind: 'recovery'` with
  * `metadata.purpose: 'mfa-backup-code'`, single-use.
  *
  * WARN: that purpose is load-bearing. `recovery` is shared by six token families
@@ -46,13 +65,21 @@ export class MfaImpl {
   constructor(
     readonly _credentials: Credential.Store,
     readonly _events: Events.IBus,
-    readonly cfg?: Partial<Mfa.Cfg>,
+    readonly cfg: Mfa.CfgInput,
   ) {
-    const floor = cfg?.compliance ? resolveCompliance(cfg.compliance).mfa.backupCodeCount : 0
+    // SECURITY: no key, no TOTP. A secret stored in plaintext is the factor itself to whoever reads the row.
+    const dataAtRest = cfg?.dataAtRest
+    if (!isDataAtRestAdapter(dataAtRest)) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: 'mfa: dataAtRest is required; TOTP secrets are stored encrypted under it',
+      })
+    }
+    const floor = cfg.compliance ? resolveCompliance(cfg.compliance).mfa.backupCodeCount : 0
     this._cfg = {
-      issuer: cfg?.issuer ?? DEFAULT_MFA_CONFIG.issuer,
-      backupCodeCount: Math.max(cfg?.backupCodeCount ?? DEFAULT_MFA_CONFIG.backupCodeCount, floor),
-      backupCodeLen: cfg?.backupCodeLen ?? DEFAULT_MFA_CONFIG.backupCodeLen,
+      issuer: cfg.issuer ?? DEFAULT_MFA_CONFIG.issuer,
+      backupCodeCount: Math.max(cfg.backupCodeCount ?? DEFAULT_MFA_CONFIG.backupCodeCount, floor),
+      backupCodeLen: cfg.backupCodeLen ?? DEFAULT_MFA_CONFIG.backupCodeLen,
+      dataAtRest,
     }
     // SECURITY: a short code is guessable, and a count under one deletes the codes and mints none.
     if (
@@ -78,10 +105,12 @@ export class MfaImpl {
   }
 
   /** Answers the `otpauth://` URI to render as a QR code. The secret is persisted at once under
-   *  `metadata.confirmed = false`, which `confirmTotpEnrollment` flips. */
+   *  `metadata.confirmed = false`, which `confirmTotpEnrollment` flips; a TOTP already confirmed stays until then.
+   *  Beside any other factor, `session` has to be stepped up, as `refuseWithoutStepUp` asks. */
   async beginTotpEnrollment(
     identityId: string,
     accountName: string,
+    session: Sessions.Me | null,
     ctx: TenantContext = {},
   ): Promise<Mfa.TotpEnrollChallenge> {
     // Capped, so a multi-MB accountName cannot bloat the otpauth URI, and with it the QR-code SVG the
@@ -89,26 +118,18 @@ export class MfaImpl {
     if (typeof accountName !== 'string' || accountName.length === 0 || accountName.length > 256) {
       throw new AuthError('AUTH_INVALID_CREDENTIALS')
     }
-    // SECURITY: refused, not replaced: starting an enrollment must not delete a confirmed factor without the
-    // step-up `removeTotp` demands. The predicate is `hasTotp`'s.
-    const existing = await this._credentials.listByIdentity(identityId, 'totp', ctx)
-    if (
-      existing.some((r) => !isRevoked(r) && !isCredentialExpired(r) && isProfileBooleanTrue(r.metadata, 'confirmed'))
-    ) {
-      throw new AuthError('AUTH_MFA_REQUIRED', { methods: ['totp'] })
-    }
-    // SECURITY: any second factor blocks this, not only TOTP, or a password alone enrolls a TOTP beside a
-    // WebAuthn factor and steps up with its backup codes.
-    if (await this.hasWebauthnMfa(identityId, ctx)) {
-      throw new AuthError('AUTH_MFA_REQUIRED', { methods: ['webauthn'] })
-    }
+    await refuseWithoutStepUp(this._credentials, identityId, session, ctx)
     const secret = generateSecret()
-    await this._credentials.deleteByKind(identityId, 'totp', ctx)
+    const sealed = await this._cfg.dataAtRest.encrypt(secret, { field: 'totp', identityId })
+    // Every row but a confirmed one, which an unconfirmed replacement must not take down with it.
+    for (const r of await this._credentials.listByIdentity(identityId, 'totp', ctx)) {
+      if (!isConfirmedTotp(r)) await orNull(this._credentials.delete(r.id, ctx))
+    }
     await this._credentials.create(
       toCredentialCreate({
         identityId,
         kind: 'totp',
-        secret,
+        secret: sealed,
         metadata: { confirmed: false },
       }),
       ctx,
@@ -119,24 +140,21 @@ export class MfaImpl {
     }
   }
 
-  /** Confirm enrollment against the first code, which is what makes TOTP count as an enrolled factor.
-   *  Emits `mfa.enrolled`. */
+  /** Confirm enrollment against the first code, which is what makes TOTP count as an enrolled factor, and
+   *  retires the TOTP it replaces. Asks `session` again, as `beginTotpEnrollment` did. Emits `mfa.enrolled`. */
   async confirmTotpEnrollment(
     identityId: string,
     code: string,
+    session: Sessions.Me | null,
     ctx: TenantContext = {},
   ): Promise<{ ok: true; backupCodes: string[] } | { ok: false }> {
+    await refuseWithoutStepUp(this._credentials, identityId, session, ctx)
     const rows = await this._credentials.listByIdentity(identityId, 'totp', ctx)
     const row = rows.find(
       (r) => !isRevoked(r) && !isCredentialExpired(r) && isProfileBooleanFalse(r.metadata, 'confirmed'),
     )
     if (!row) throw new AuthError('AUTH_MFA_REQUIRED', { methods: ['totp'] })
-    // SECURITY: `beginTotpEnrollment`'s guard again, since an enrollment begun before a WebAuthn factor was added
-    // would otherwise confirm beside it.
-    if (await this.hasWebauthnMfa(identityId, ctx)) {
-      throw new AuthError('AUTH_MFA_REQUIRED', { methods: ['webauthn'] })
-    }
-    const step = matchTotpStep(row.secret, code)
+    const step = matchTotpStep(await this._cfg.dataAtRest.decrypt(row.secret, { field: 'totp', identityId }), code)
     if (step === null) return { ok: false }
 
     // The confirming code is spent too, so it cannot be replayed into a step-up on the enrollment it
@@ -148,8 +166,9 @@ export class MfaImpl {
       throw err
     }
 
-    // Minted on first enrollment; the plaintext is shown once.
-    const backupCodes = await this.regenerateBackupCodes(identityId, ctx)
+    for (const r of rows) if (r.id !== row.id) await orNull(this._credentials.delete(r.id, ctx))
+    // Minted on every enrollment; the plaintext is shown once.
+    const backupCodes = await this._mintBackupCodes(identityId, ctx)
     await this._events.emit('mfa.enrolled', { identityId, method: 'totp' })
     return { ok: true, backupCodes }
   }
@@ -163,13 +182,13 @@ export class MfaImpl {
     // SECURITY: `isCredentialExpired` beside `isRevoked`. Six readers on this class paired only the
     // second, so an `expiresAt` on a `totp` or `webauthn-mfa` row was written and honoured by nothing,
     // while `isStandingFactor` had always read an elapsed expiry as revocation.
-    const row = rows.find(
-      (r) => !isRevoked(r) && !isCredentialExpired(r) && isProfileBooleanTrue(r.metadata, 'confirmed'),
-    )
+    const row = rows.find(isConfirmedTotp)
     if (!row) return false
     if (typeof row.secret !== 'string') return false
 
-    const step = matchTotpStep(row.secret, code)
+    const { dataAtRest } = this._cfg
+    const secret = await dataAtRest.decrypt(row.secret, { field: 'totp', identityId })
+    const step = matchTotpStep(secret, code)
     if (step === null) return false
 
     const lastStep = getProfileNumber(row.metadata, 'lastTotpStep')
@@ -179,7 +198,13 @@ export class MfaImpl {
     // and two verifications that both read before either wrote both pass it. Conditional, the loser's
     // write matches no row, and anyone reading afterwards reads the step it recorded.
     try {
-      await this._credentials.patchMetadata(row.id, { lastTotpStep: step }, ctx, row.version)
+      let version = row.version
+      // Under an older key, the secret moves to the current one and the compare-and-set carries on from it.
+      if (dataAtRest.needsReEncrypt(row.secret)) {
+        const sealed = await dataAtRest.encrypt(secret, { field: 'totp', identityId })
+        version = (await this._credentials.rotate(row.id, sealed, row.version, ctx)).version
+      }
+      await this._credentials.patchMetadata(row.id, { lastTotpStep: step }, ctx, version)
     } catch (err) {
       if (err instanceof AuthError && err.code === 'AUTH_STALE_WRITE') return false
       throw err
@@ -190,17 +215,21 @@ export class MfaImpl {
   /** Confirmed enrollments only. */
   async hasTotp(identityId: string, ctx: TenantContext = {}): Promise<boolean> {
     const rows = await this._credentials.listByIdentity(identityId, 'totp', ctx)
-    // A strict boolean read, as in `verifyTotp`.
-    return rows.some((r) => !isRevoked(r) && !isCredentialExpired(r) && isProfileBooleanTrue(r.metadata, 'confirmed'))
+    return rows.some(isConfirmedTotp)
   }
 
   /** Removes every TOTP credential for the identity, and every remembered device, and emits `mfa.removed`.
    *  Answers how many TOTP rows went, so `0` tells "turned off" from "nothing to turn off"; the rows carry
-   *  the shared secret and are not returned. */
-  async removeTotp(identityId: string, ctx: TenantContext = {}): Promise<{ removed: number }> {
+   *  the shared secret and are not returned. `session` has to be stepped up, as `refuseWithoutStepUp` asks. */
+  async removeTotp(
+    identityId: string,
+    session: Sessions.Me | null,
+    ctx: TenantContext = {},
+  ): Promise<{ removed: number }> {
     if (typeof identityId !== 'string' || identityId.length === 0 || identityId.length > 256) {
       return { removed: 0 }
     }
+    await refuseWithoutStepUp(this._credentials, identityId, session, ctx)
     const gone = await this._credentials.deleteByKind(identityId, 'totp', ctx)
     // A remembered device was trusted to skip the factor that just went.
     await this._credentials.deleteByKindAndPurpose(identityId, 'recovery', RECOVERY_PURPOSES.trustedDevice, ctx)
@@ -246,8 +275,18 @@ export class MfaImpl {
     return true
   }
 
-  /** Revokes the previous codes; the plaintext comes back once. */
-  async regenerateBackupCodes(identityId: string, ctx: TenantContext = {}): Promise<string[]> {
+  /** Revokes the previous codes; the plaintext comes back once. `session` has to be stepped up, as
+   *  `refuseWithoutStepUp` asks. */
+  async regenerateBackupCodes(
+    identityId: string,
+    session: Sessions.Me | null,
+    ctx: TenantContext = {},
+  ): Promise<string[]> {
+    await refuseWithoutStepUp(this._credentials, identityId, session, ctx)
+    return this._mintBackupCodes(identityId, ctx)
+  }
+
+  private async _mintBackupCodes(identityId: string, ctx: TenantContext): Promise<string[]> {
     // A base32-ish alphabet, with the ambiguous 0, o, 1, i and l left out.
     const ALPHABET = 'abcdefghjkmnpqrstuvwxyz23456789'
     // By purpose, not by kind: regenerating codes replaces the codes and leaves the identity's reset,
@@ -283,7 +322,12 @@ export class MfaImpl {
   }
 
   /** Removes every backup code for the identity and emits `mfa.removed`. See {@link MfaImpl.removeTotp}. */
-  async removeBackupCodes(identityId: string, ctx: TenantContext = {}): Promise<{ removed: number }> {
+  async removeBackupCodes(
+    identityId: string,
+    session: Sessions.Me | null,
+    ctx: TenantContext = {},
+  ): Promise<{ removed: number }> {
+    await refuseWithoutStepUp(this._credentials, identityId, session, ctx)
     const purpose = RECOVERY_PURPOSES.mfaBackupCode
     const gone = await this._credentials.deleteByKindAndPurpose(identityId, 'recovery', purpose, ctx)
     await this._events.emit('mfa.removed', { identityId, method: 'backup-code' })
@@ -306,6 +350,7 @@ export class MfaImpl {
       })
     }
     refuseUnusableRelyingParty(opts.rpID, opts.expectedOrigins)
+    await refuseWithoutStepUp(this._credentials, identityId, opts.session, ctx)
     const webauthn = await loadWebAuthn(opts.webauthnModule)
     const existing = await this._credentials.listByIdentity(identityId, 'webauthn-mfa', ctx)
     const options = await webauthn.generateRegistrationOptions({
@@ -335,6 +380,8 @@ export class MfaImpl {
     opts: Mfa.WebauthnMfaConfirmOpts,
     ctx: TenantContext = {},
   ): Promise<{ credentialId: string }> {
+    // Again, so a ceremony begun from a stepped-up session cannot be finished from another.
+    await refuseWithoutStepUp(this._credentials, identityId, opts.session, ctx)
     const challenge = await orNull(opts.challengeStore.take(`mfa-reg:${opts.challengeKey}`))
     if (!challenge) throw new AuthError('AUTH_PASSKEY_MISMATCH')
     const webauthn = await loadWebAuthn(opts.webauthnModule)
@@ -494,7 +541,12 @@ export class MfaImpl {
 
   /** Remove every WebAuthn-MFA credential for the identity, and every remembered device. See
    *  {@link MfaImpl.removeTotp}. */
-  async removeWebauthnMfa(identityId: string, ctx: TenantContext = {}): Promise<{ removed: number }> {
+  async removeWebauthnMfa(
+    identityId: string,
+    session: Sessions.Me | null,
+    ctx: TenantContext = {},
+  ): Promise<{ removed: number }> {
+    await refuseWithoutStepUp(this._credentials, identityId, session, ctx)
     const gone = await this._credentials.deleteByKind(identityId, 'webauthn-mfa', ctx)
     await this._credentials.deleteByKindAndPurpose(identityId, 'recovery', RECOVERY_PURPOSES.trustedDevice, ctx)
     await this._events.emit('mfa.removed', { identityId, method: 'webauthn' })
@@ -507,6 +559,6 @@ export function mfa<
   Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
   Tenant = string,
   OrgMeta = unknown,
->(cfg?: Mfa.CfgInput): (auth: AuthEngine<Profile, Tenant, OrgMeta>) => MfaImpl {
+>(cfg: Mfa.CfgInput): (auth: AuthEngine<Profile, Tenant, OrgMeta>) => MfaImpl {
   return (auth) => new MfaImpl(auth.cfg.stores.credentials, auth.events, cfg)
 }

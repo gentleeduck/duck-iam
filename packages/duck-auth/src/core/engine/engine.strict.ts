@@ -1,5 +1,6 @@
 import { assertComplianceStrict, readCompliancePreset, resolveCompliance } from '../compliance'
 import type { Compliance } from '../compliance/compliance.types'
+import { isProduction } from '../env'
 import { AuthError } from '../errors'
 import type { Identities } from '../identities'
 import type { AuthEngine } from './engine'
@@ -9,16 +10,13 @@ export function assertStrict<
   Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
   Tenant = string,
   OrgMeta = unknown,
->(
-  engine: AuthEngine<Profile, Tenant, OrgMeta>,
-  opts: { env: 'development' | 'production' | 'test'; compliance?: Partial<Compliance.Wired> },
-): void {
+>(engine: AuthEngine<Profile, Tenant, OrgMeta>, opts: { compliance?: Partial<Compliance.Wired> }): void {
   // A branded preset is the operator saying what this deployment claims, so it is asserted in every
   // environment. The checks below it are production footguns and stay gated on production, which is
   // also why the preset cannot be folded into them: skipping it outside production would put back
   // the silence this was written to remove.
   assertCompliance(engine, opts.compliance)
-  if (opts.env !== 'production') return
+  if (!isProduction()) return
 
   const errors: string[] = []
 
@@ -57,29 +55,11 @@ export function assertStrict<
     }
   }
 
-  // Always-pass, so it is the one verifier that cannot fail: every path it fronts is unprotected and says
-  // nothing about it. Refused here for the same reason, and on the same NODE_ENV-unset deploy.
-  if (Reflect.get(engine.captcha, '__isNullCaptcha') === true) {
-    errors.push('AuthNullCaptchaVerifier passes every challenge and is rejected in production')
-  }
-
-  // `allowInsecureEndpoint` cannot reach loopback - the SSRF guard refuses that whatever the flag says -
-  // so the only thing it permits is cleartext to a public host, and anyone on that path reads the secret
-  // and can mint solves with it from then on.
-  if (Reflect.get(engine.captcha, '__insecureCaptchaEndpoint') === true) {
-    errors.push('captcha siteverify endpoint is plaintext http, so the provider secret is posted in the clear')
-  }
-
   // A composite's parts, nested ones too, are checked as if each were configured alone.
   const transports: object[] = [engine.cfg.transport]
   for (const t of transports) {
     const parts = Reflect.get(t, 'transports')
     if (Array.isArray(parts)) transports.push(...parts)
-  }
-
-  // Through the public `secure` getter, never by reaching into private state.
-  if (transports.some((t) => Reflect.get(t, 'secure') === false)) {
-    errors.push('AuthCookieTransport secure=false rejected in production')
   }
 
   // A forgeable signature is a forgeable session, so this is checked here rather than at construction,
@@ -96,13 +76,6 @@ export function assertStrict<
   for (const { id } of engine.providers.list()) {
     if (Reflect.get(engine.providers.get(id), '__weakStateSecret') === true) {
       errors.push(`oauth provider '${id}' has a stateSigningSecret under 32 bytes`)
-    }
-    // Development is where `allowStateReplay` earns its keep, production is where a state that nothing
-    // burns is a callback URL that keeps working for ten minutes.
-    if (Reflect.get(engine.providers.get(id), '__stateReplayAllowed') === true) {
-      errors.push(
-        `oauth provider '${id}' was built with \`allowStateReplay: true\`, rejected in production; pass \`nonceStore: redisDPoPNonceStore({ redis, prefix: 'auth:oauth:nonce' })\``,
-      )
     }
     // The challenge is the whole of a WebAuthn ceremony's binding, and `take` consuming it in one
     // process leaves it live in every other: the assertion a pod just spent replays on its neighbours

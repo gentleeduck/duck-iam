@@ -16,7 +16,7 @@ import type { Engine } from './engine.types'
 export async function resolveSession<Profile extends Identities.ProfileMetadataBase, Tenant, OrgMeta>(
   engine: AuthEngine<Profile, Tenant, OrgMeta>,
   req: { headers: Headers },
-  opts: { expectedTenantId?: string; requestSnapshot?: Anomaly.RequestSnapshot } = {},
+  opts: { expectedTenantId?: string; allTenants?: true; requestSnapshot?: Anomaly.RequestSnapshot } = {},
 ): Promise<Engine.ResolveResult<Profile>> {
   const token = engine.transport.extract(req)
   if (!token) throw new AuthError('AUTH_SESSION_REVOKED', { reason: 'the request carries no transport token' })
@@ -61,8 +61,8 @@ export async function resolveSession<Profile extends Identities.ProfileMetadataB
       return null
     })
     if (verified) {
-      // A token minted under tenant A must not be honoured at a tenant-B endpoint.
-      if (opts.expectedTenantId !== undefined && verified.tenantId !== opts.expectedTenantId) {
+      // A token minted under tenant A must not be honoured at a tenant-B endpoint, nor at one naming no tenant.
+      if (!opts.allTenants && verified.tenantId !== (opts.expectedTenantId ?? null)) {
         throw new AuthError('AUTH_SESSION_REVOKED', { reason: 'the token was minted for another tenant' })
       }
       const { scope, ...session } = verified
@@ -89,6 +89,7 @@ export async function resolveSession<Profile extends Identities.ProfileMetadataB
       }
     },
     ...(opts.expectedTenantId !== undefined && { expectedTenantId: opts.expectedTenantId }),
+    ...(opts.allTenants && { allTenants: true }),
   }).catch((err: unknown) => {
     throw verdictByTransport ?? err
   })

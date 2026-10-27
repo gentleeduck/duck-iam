@@ -11,6 +11,7 @@ import type { Identities } from '../identities/identities.types'
 import type { Org } from '../orgs/orgs.types'
 import type { Sessions } from '../sessions/sessions.types'
 import type { Transport } from '../transport/transport.types'
+import type { WebhookDeliverer } from '../webhooks'
 
 /** What the `AuthEngine` constructor takes, and the store bag it binds. */
 export namespace Engine {
@@ -68,6 +69,8 @@ export namespace Engine {
     deliver?: Deliver
     /** Where lifecycle events are published; some `strict()` checks need a bus to be reachable. */
     events?: Events.IBus
+    /** Posts every event its endpoints name, attached to `events` here. */
+    webhooks?: WebhookDeliverer
     /** The session windows and the per-identity cap. See {@link Sessions.Cfg}. */
     session?: Partial<Sessions.Cfg>
     /** Identity lifecycle: soft-delete grace and the profile size cap. */

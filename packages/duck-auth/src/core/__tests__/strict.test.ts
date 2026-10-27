@@ -1,8 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { InMemoryEvents } from '~/core/events'
 import type { Events } from '~/core/events/events.types'
-import { memoryDPoPNonceStore } from '~/core/transport/dpop-nonce.memory'
 import type { Transport } from '~/core/transport/transport.types'
 import type { Limiter } from '~/limiters'
 import { MemoryLimiter } from '~/limiters/memory'
@@ -22,6 +21,11 @@ interface MyProfile extends Identities.ProfileMetadataBase {
   email: string
 }
 
+// Every case is a production one unless it says otherwise.
+beforeEach(() => {
+  vi.stubEnv('NODE_ENV', 'production')
+})
+
 /** A bus carrying no in-process brand, which is what a fleet-safe one looks like to `strict()`. It
  *  keeps `listenerCount`, or the `lockout` check would be skipped rather than satisfied. */
 function foreignEvents(): Events.IBus {
@@ -33,10 +37,10 @@ function foreignEvents(): Events.IBus {
   }
 }
 
-/** What `strict()` refused in production, or `''` when it booted. */
+/** What `strict()` refused, or `''` when it booted. */
 function detailOf(auth: AuthEngine<MyProfile>): string {
   try {
-    auth.strict({ env: 'production' })
+    auth.strict()
     return ''
   } catch (err) {
     return err instanceof AuthError ? String(err.meta.detail ?? '') : String(err)
@@ -46,7 +50,6 @@ function detailOf(auth: AuthEngine<MyProfile>): string {
 function makeAuth(
   overrides: Partial<{
     limiter: boolean
-    secureCookie: boolean
     providers: boolean
     lockoutHandler: boolean
     transport: Transport.ITransport
@@ -55,7 +58,6 @@ function makeAuth(
   const adapter = new MemoryAdapter<MyProfile>()
   const o = {
     limiter: true,
-    secureCookie: true,
     providers: true,
     lockoutHandler: true,
     ...overrides,
@@ -63,7 +65,7 @@ function makeAuth(
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app.example.com',
     events: foreignEvents(),
-    transport: o.transport ?? new CookieTransport({ secure: o.secureCookie, name: 'duck-sid' }),
+    transport: o.transport ?? new CookieTransport({ name: 'duck-sid' }),
     stores: {
       identities: adapter.identities,
       sessions: adapter.sessions,
@@ -90,16 +92,16 @@ function makeAuth(
 }
 
 describe('AuthEngine.strict()', () => {
-  it('returns silently in development/test mode regardless of config', () => {
+  it.each(['development', 'test'])('returns silently with NODE_ENV=%s, regardless of config', (env) => {
+    vi.stubEnv('NODE_ENV', env)
     const auth = makeAuth({ limiter: false, providers: false, lockoutHandler: false })
-    expect(() => auth.strict({ env: 'development' })).not.toThrow()
-    expect(() => auth.strict({ env: 'test' })).not.toThrow()
+    expect(() => auth.strict()).not.toThrow()
   })
 
   describe('production rejections', () => {
     it('rejects missing Limiter', () => {
       const auth = makeAuth({ limiter: false })
-      expect(() => auth.strict({ env: 'production' })).toThrow(
+      expect(() => auth.strict()).toThrow(
         expect.objectContaining({
           code: 'AUTH_MISCONFIGURED',
           meta: expect.objectContaining({ detail: expect.stringMatching(/Limiter adapter required/) }),
@@ -109,7 +111,7 @@ describe('AuthEngine.strict()', () => {
 
     it('rejects memory adapter', () => {
       const auth = makeAuth()
-      expect(() => auth.strict({ env: 'production' })).toThrow(
+      expect(() => auth.strict()).toThrow(
         expect.objectContaining({
           code: 'AUTH_MISCONFIGURED',
           meta: expect.objectContaining({ detail: expect.stringMatching(/Memory adapter .*rejected/) }),
@@ -117,19 +119,9 @@ describe('AuthEngine.strict()', () => {
       )
     })
 
-    it('rejects insecure cookies', () => {
-      const auth = makeAuth({ secureCookie: false })
-      expect(() => auth.strict({ env: 'production' })).toThrow(
-        expect.objectContaining({
-          code: 'AUTH_MISCONFIGURED',
-          meta: expect.objectContaining({ detail: expect.stringMatching(/secure=false/) }),
-        }),
-      )
-    })
-
     it('rejects when no provider is registered', () => {
       const auth = makeAuth({ providers: false })
-      expect(() => auth.strict({ env: 'production' })).toThrow(
+      expect(() => auth.strict()).toThrow(
         expect.objectContaining({
           code: 'AUTH_MISCONFIGURED',
           meta: expect.objectContaining({ detail: expect.stringMatching(/no provider registered/) }),
@@ -154,7 +146,7 @@ describe('AuthEngine.strict()', () => {
           baseUrl: 'https://app.example.com',
           providers,
           stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
-          transport: new CookieTransport({ name: 'duck-sid', secure: true }),
+          transport: new CookieTransport({ name: 'duck-sid' }),
         })
       expect(detailOf(build([false, null, '', () => null]))).toMatch(/no provider registered/)
       expect(detailOf(build([false, signIn]))).not.toMatch(/no provider registered/)
@@ -164,7 +156,7 @@ describe('AuthEngine.strict()', () => {
 
     it('rejects when no `lockout` listener is subscribed', () => {
       const auth = makeAuth({ lockoutHandler: false })
-      expect(() => auth.strict({ env: 'production' })).toThrow(
+      expect(() => auth.strict()).toThrow(
         expect.objectContaining({
           code: 'AUTH_MISCONFIGURED',
           meta: expect.objectContaining({ detail: expect.stringMatching(/lockout.*event handler/) }),
@@ -176,7 +168,7 @@ describe('AuthEngine.strict()', () => {
       const adapter = new MemoryAdapter<MyProfile>()
       const auth = new AuthEngine<MyProfile>({
         baseUrl: 'https://app.example.com',
-        transport: new CookieTransport({ secure: true, name: 'duck-sid' }),
+        transport: new CookieTransport({ name: 'duck-sid' }),
         stores: { identities: adapter.identities, sessions: adapter.sessions, credentials: adapter.credentials },
         limiter: new NoopLimiter(),
         providers: [
@@ -193,7 +185,7 @@ describe('AuthEngine.strict()', () => {
         ],
       })
       auth.events.on('lockout', () => {})
-      expect(() => auth.strict({ env: 'production' })).toThrow(
+      expect(() => auth.strict()).toThrow(
         expect.objectContaining({
           code: 'AUTH_MISCONFIGURED',
           meta: expect.objectContaining({ detail: expect.stringMatching(/\bNoopLimiter rejected/) }),
@@ -212,7 +204,7 @@ describe('AuthEngine.strict()', () => {
       const adapter = new MemoryAdapter<MyProfile>()
       const auth = new AuthEngine<MyProfile>({
         baseUrl: 'http://app.example.com',
-        transport: new CookieTransport({ secure: true, name: 'duck-sid' }),
+        transport: new CookieTransport({ name: 'duck-sid' }),
         stores: {
           identities: adapter.identities,
           sessions: adapter.sessions,
@@ -266,11 +258,11 @@ describe('AuthEngine.strict() - signing secrets', () => {
           clientSecret: 's',
           redirectUri: 'https://app.example.com/cb',
           stateSigningSecret,
-          nonceStore: memoryDPoPNonceStore(),
+          nonceStore: { recordSeen: async () => true },
         }),
       ],
       stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
-      transport: new CookieTransport({ name: 'duck-sid', secure: true }),
+      transport: new CookieTransport({ name: 'duck-sid' }),
     })
   }
 
@@ -282,7 +274,7 @@ describe('AuthEngine.strict() - signing secrets', () => {
         clientSecret: 's',
         redirectUri: 'https://app.example.com/cb',
         stateSigningSecret: '',
-        nonceStore: memoryDPoPNonceStore(),
+        nonceStore: { recordSeen: async () => true },
       }),
     ).toThrowError(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
   })
@@ -303,8 +295,9 @@ describe('AuthEngine.strict() - signing secrets', () => {
     expect(detailOf(authWithStateSecret(STRONG))).not.toMatch(/stateSigningSecret under 32 bytes/)
   })
 
-  it('says nothing about key length outside production, matching every other check here', () => {
-    expect(() => authWithJwtKey(WEAK).strict({ env: 'development' })).not.toThrow()
+  it.each(['development', 'test'])('says nothing about key length with NODE_ENV=%s, like every other check', (env) => {
+    vi.stubEnv('NODE_ENV', env)
+    expect(() => authWithJwtKey(WEAK).strict()).not.toThrow()
   })
 })
 
@@ -341,7 +334,7 @@ describe('AuthEngine.strict() and the in-process limiter', () => {
       events: foreignEvents(),
       limiter,
       stores: foreignStores(),
-      transport: new CookieTransport({ name: 'duck-sid', secure: true }),
+      transport: new CookieTransport({ name: 'duck-sid' }),
     })
     auth.providers.register({
       async begin() {
@@ -379,7 +372,7 @@ describe('AuthEngine.strict() and the in-process limiter', () => {
 })
 
 describe('AuthEngine.strict() inside a CompositeTransport', () => {
-  const cookie = (secure: boolean) => new CookieTransport({ name: 'duck-sid', secure })
+  const cookie = () => new CookieTransport({ name: 'duck-sid' })
   const jwt = (key: string) =>
     new JwtTransport({
       issuer: 'https://app.example.com',
@@ -390,17 +383,18 @@ describe('AuthEngine.strict() inside a CompositeTransport', () => {
     detailOf(makeAuth({ transport: new CompositeTransport(parts) }))
 
   it('checks each part as if it were configured alone', () => {
-    expect(composite(cookie(false), new BearerTransport())).toMatch(/secure=false/)
-    expect(composite(cookie(true), jwt('short'))).toMatch(/signing key is under 32 bytes/)
+    expect(composite(cookie(), jwt('short'))).toMatch(/signing key is under 32 bytes/)
   })
 
   it('checks the parts of a composite nested in another', () => {
-    expect(composite(new CompositeTransport([cookie(false)]), new BearerTransport())).toMatch(/secure=false/)
+    expect(composite(new CompositeTransport([jwt('short')]), new BearerTransport())).toMatch(
+      /signing key is under 32 bytes/,
+    )
   })
 
   it('says nothing of parts that would each pass alone', () => {
-    const said = composite(cookie(true), jwt('secret-material-of-32-bytes-ok!!'), new BearerTransport())
-    expect(said).not.toMatch(/secure=false/)
-    expect(said).not.toMatch(/signing key/)
+    expect(composite(cookie(), jwt('secret-material-of-32-bytes-ok!!'), new BearerTransport())).not.toMatch(
+      /signing key/,
+    )
   })
 })

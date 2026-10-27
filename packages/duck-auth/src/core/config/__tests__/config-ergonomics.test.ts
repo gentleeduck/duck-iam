@@ -148,3 +148,20 @@ describe('the keys that already took the natural value keep doing so', () => {
     expect(auth.cfg.anomaly).toMatchObject({ denyAt: 0.5 })
   })
 })
+
+describe('createAuth takes the webhook deliverer', () => {
+  it('attaches it to the engine bus, so an emit reaches its endpoints', async () => {
+    const urls: string[] = []
+    const webhooks = webhookDeliverer({
+      endpoints: [{ events: ['lockout'], secret: 's', url: 'https://hooks.example.com/h' }],
+      fetch: async (url) => {
+        urls.push(String(url))
+        return new Response()
+      },
+    })
+    const auth = createAuth({ ...base(), webhooks })
+    await auth.events.emit('lockout', { identityId: 'u', until: 0 })
+    await webhooks.drain()
+    expect(urls).toEqual(['https://hooks.example.com/h'])
+  })
+})

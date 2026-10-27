@@ -19,6 +19,7 @@ export const RECOVERY_PURPOSES = {
   accountDeletionCancel: 'account-deletion-cancel',
   emailVerification: 'email-verification',
   mfaBackupCode: 'mfa-backup-code',
+  mfaChallenge: 'mfa-challenge',
   passwordReset: 'password-reset',
   signupFlow: 'signup-flow',
   trustedDevice: 'trusted-device',

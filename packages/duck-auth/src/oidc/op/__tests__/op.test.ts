@@ -36,7 +36,6 @@ function buildOp(auth: ReturnType<typeof buildAuth>): OidcOpRoot<ProfileShape> {
     config: {
       issuer: 'http://localhost:8787/auth',
       supportedScopes: ['openid', 'profile', 'email', 'offline_access'],
-      allowHttp: true,
     },
     signIdToken: (payload) => {
       const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url')
@@ -46,6 +45,43 @@ function buildOp(auth: ReturnType<typeof buildAuth>): OidcOpRoot<ProfileShape> {
     },
   })
 }
+
+describe('AuthOidcOP - the issuer scheme follows NODE_ENV', () => {
+  const none = async () => null
+  const done = async () => {}
+  /** Production refuses the in-memory stores, so every one is passed and the issuer is all that is judged. */
+  const stores = {
+    accessTokens: { findByHash: none, insert: done, revokeByHash: done, revokeFamily: done },
+    clients: { findById: none, insert: done },
+    codes: { consume: none, insert: done },
+    consents: { find: none, upsert: done },
+    refreshTokens: { consume: none, findByHash: none, insert: done, revokeFamily: done },
+  }
+  const op = (issuer: string) =>
+    createOidcOP<ProfileShape>({
+      auth: buildAuth(),
+      config: { issuer, supportedScopes: ['openid'] },
+      signIdToken: () => 'unsigned',
+      stores,
+    })
+
+  it.each(['production', undefined])('refuses an http issuer with NODE_ENV=%s', (env) => {
+    vi.stubEnv('NODE_ENV', env)
+    expect(() => op('http://localhost:8787/auth')).toThrow(
+      expect.objectContaining({
+        code: 'AUTH_MISCONFIGURED',
+        meta: { detail: 'AuthOidcOP: issuer must use HTTPS (http:); plain http is admitted only outside production' },
+      }),
+    )
+    expect(op('https://op.example.com/auth').issuer).toBe('https://op.example.com/auth')
+  })
+
+  it.each(['development', 'test'])('admits an http issuer with NODE_ENV=%s, and no other scheme', (env) => {
+    vi.stubEnv('NODE_ENV', env)
+    expect(op('http://localhost:8787/auth').issuer).toBe('http://localhost:8787/auth')
+    expect(() => op('ftp://localhost:8787/auth')).toThrow(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
+  })
+})
 
 function decodeJwt(token: string): Record<string, unknown> {
   const parts = token.split('.')
@@ -834,6 +870,22 @@ describe('AuthOidcOpRoot - who may revoke, introspect and refresh, and for which
     }
     expect(await op.completeConsent({ ...base, ...pkce, scope: SCOPE })).toMatchObject({ kind: 'redirect' })
   })
+
+  // Ported from better-auth's GHSA-pw9m-5jxm-xr6h, where the refresh grant checked the token and the
+  // client_id, which is public, and never the secret.
+  it('will not refresh a confidential client without its secret, and a refused attempt does not burn it', async () => {
+    const { client_secret } = await op.registerClient({
+      client_id: 'conf',
+      redirect_uris: ['http://localhost/cb'],
+      scope: SCOPE,
+      token_endpoint_auth_method: 'client_secret_post',
+    })
+    if (!client_secret) throw new Error('expected a secret')
+    const { refresh: rt } = await tokensFor('conf', { client_secret, pkce: false })
+    expect(await refresh('conf', rt)).toMatchObject({ error: 'invalid_client' })
+    expect(await refresh('conf', rt, 'wrong')).toMatchObject({ error: 'invalid_client' })
+    expect(await refresh('conf', rt, client_secret)).not.toHaveProperty('error')
+  })
 })
 
 describe('AuthOidcOpRoot.authorize - a demand for a fresh sign-in, by prompt=login or max_age', () => {
@@ -942,5 +994,75 @@ describe('AuthOidcOpRoot.authorize - a demand for a fresh sign-in, by prompt=log
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe('AuthOidcOpRoot - the tenant', () => {
+  async function setup() {
+    const auth = buildAuth()
+    const op = buildOp(auth)
+    await op.registerClient({
+      client_id: 'spa',
+      redirect_uris: ['http://localhost/cb'],
+      scope: ['openid'],
+      token_endpoint_auth_method: 'none',
+    })
+    const identity = await auth.identities.create({ profile: { email: 'u@x.com', username: 'u' } })
+    return { auth, identity, op }
+  }
+
+  it("authorize reads a tenant's session as signed out to a call naming no tenant, and accepts it named", async () => {
+    const { auth, identity, op } = await setup()
+    const { sid } = await auth.sessions.create({
+      aal: 1,
+      factors: [{ completedAt: new Date(), method: 'password' }],
+      identityId: identity.id,
+      kind: 'user',
+      tenantId: 'acme',
+    })
+    const { challenge } = pkceVerifierAndChallenge()
+    const req = {
+      client_id: 'spa',
+      code_challenge: challenge,
+      code_challenge_method: 'S256',
+      redirect_uri: 'http://localhost/cb',
+      response_type: 'code',
+      scope: 'openid',
+    }
+    const httpReq = { headers: new Headers({ cookie: `duck-sid=${sid}` }) }
+
+    expect(await op.authorize(req, httpReq)).toEqual({ kind: 'login_required', reason: 'no_session' })
+    expect(await op.authorize(req, httpReq, { tenantId: 'acme' })).toMatchObject({ kind: 'consent_required' })
+  })
+
+  it("userinfo refuses a tenant's token to a call naming no tenant, and answers it named", async () => {
+    const { identity, op } = await setup()
+    const { verifier, challenge } = pkceVerifierAndChallenge()
+    const completed = await op.completeConsent({
+      client_id: 'spa',
+      code_challenge: challenge,
+      code_challenge_method: 'S256',
+      identity,
+      redirect_uri: 'http://localhost/cb',
+      scope: ['openid'],
+      sid: 'sess',
+      tenant_id: 'acme',
+    })
+    if (completed.kind !== 'redirect') throw new Error(`expected redirect, got ${completed.kind}`)
+    const tok = await op.token(
+      {
+        client_id: 'spa',
+        code: new URL(completed.url).searchParams.get('code') ?? '',
+        code_verifier: verifier,
+        grant_type: 'authorization_code',
+        redirect_uri: 'http://localhost/cb',
+      },
+      new Headers(),
+    )
+    if ('error' in tok) throw new Error(tok.error)
+    const bearer = new Headers({ authorization: `Bearer ${tok.access_token}` })
+
+    expect(await op.userinfo(bearer)).toMatchObject({ error: 'invalid_token' })
+    expect(await op.userinfo(bearer, { tenantId: 'acme' })).toMatchObject({ sub: identity.id })
   })
 })

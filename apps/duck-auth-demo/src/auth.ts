@@ -10,7 +10,7 @@
 import { drizzlePgAdapter } from '@gentleduck/auth/adapters/drizzle/pg'
 import type { Deliver } from '@gentleduck/auth/core'
 import { createAuth } from '@gentleduck/auth/core'
-import { CookieTransport, memoryDPoPNonceStore } from '@gentleduck/auth/core/transport'
+import { memoryDPoPNonceStore } from '@gentleduck/auth/core/transport'
 import { MemoryLimiter } from '@gentleduck/auth/limiters/memory'
 import { magicLink } from '@gentleduck/auth/providers/magic-link'
 import { github } from '@gentleduck/auth/providers/oauth/github'
@@ -29,10 +29,9 @@ export interface DemoProfile {
 const BASE_URL = process.env.BASE_URL ?? 'http://localhost:8787'
 const STATE = process.env.OAUTH_STATE_SECRET ?? 'demo-state-signing-secret-change-me-32-chars'
 
-/** Both oauth providers burn each state at its callback, and name a state cookie an http host keeps. */
+/** Both oauth providers burn each state at its callback. */
 const OAUTH = {
   nonceStore: memoryDPoPNonceStore(),
-  stateCookie: { name: 'duck-oauth', secure: false },
   stateSigningSecret: STATE,
 }
 
@@ -84,5 +83,4 @@ export const auth = createAuth<DemoProfile>({
       }),
   ],
   stores: adapter,
-  transport: new CookieTransport({ name: 'duck-sid', secure: false }),
 })

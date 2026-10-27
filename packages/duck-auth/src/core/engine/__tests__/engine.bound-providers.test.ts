@@ -90,7 +90,7 @@ describe('bound facade - provider-owned facets', () => {
     stores.reboundCreates.length = 0
 
     const auth = engine.withTransaction({})
-    await auth.apiKeys.create(identity.id, { name: 'test', scopes: ['read'] })
+    await auth.apiKeys.create(identity.id, { name: 'test', scopes: ['read'], session: null })
 
     expect(stores.reboundCreates).toHaveLength(1)
     expect(unbound).not.toHaveBeenCalled()
@@ -104,7 +104,7 @@ describe('bound facade - provider-owned facets', () => {
     stores.reboundCreates.length = 0
 
     const auth = engine.withTransaction({})
-    await auth.mfa.beginTotpEnrollment(identity.id, 'm@x')
+    await auth.mfa.beginTotpEnrollment(identity.id, 'm@x', null)
 
     expect(stores.reboundCreates).toHaveLength(1)
     expect(unbound).not.toHaveBeenCalled()
@@ -119,8 +119,8 @@ describe('bound facade - provider-owned facets', () => {
     })
 
     const auth = engine.withTransaction({})
-    await auth.mfa.beginTotpEnrollment(identity.id, 'e@x')
-    await auth.mfa.removeTotp(identity.id)
+    await auth.mfa.beginTotpEnrollment(identity.id, 'e@x', null)
+    await auth.mfa.removeTotp(identity.id, null)
 
     expect(emitted).toEqual([])
     expect(auth.pending.size).toBeGreaterThan(0)

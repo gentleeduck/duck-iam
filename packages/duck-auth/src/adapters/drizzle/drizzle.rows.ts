@@ -1,6 +1,7 @@
-import { type Column, eq, type GetColumnData, type SQL, sql } from 'drizzle-orm'
+import { type Column, eq, isNull, type SQL, sql } from 'drizzle-orm'
 import type { Identities } from '~/core/identities/identities.types'
 import { patchOrNone } from '~/core/patch'
+import type { TenantContext } from '~/core/tenant/tenant.types'
 
 /** An identity row read whole, with its logins attached. Drizzle types the `profile` column by the
  *  schema and nothing at runtime can prove an arbitrary `Profile`, so this is the one place in the
@@ -29,10 +30,10 @@ export function rowsWithLinks<Profile extends Identities.ProfileMetadataBase>(
   return [...byId.values()]
 }
 
-/** A tenant filter only when the caller named one, since `and` drops an undefined. A named tenant never
- *  matches a global (NULL) row, because `eq` never matches NULL. */
-export function inTenant<T extends Column>(column: T, tenantId: GetColumnData<T, 'raw'> | undefined): SQL | undefined {
-  return tenantId === undefined ? undefined : eq(column, tenantId)
+/** The named tenant's rows, the rows with no tenant when none is named, and every row for `ALL_TENANTS`. */
+export function inTenant(column: Column, ctx: TenantContext | undefined): SQL | undefined {
+  if (ctx?.allTenants) return undefined
+  return ctx?.tenantId === undefined ? isNull(column) : eq(column, ctx.tenantId)
 }
 
 /** A shallow merge the way `json_set` takes it, matching the object spread the memory adapter runs.

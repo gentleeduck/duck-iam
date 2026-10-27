@@ -1,9 +1,11 @@
 import { orNull } from '~/core/answer'
 import { sha256, timingSafeEqual } from '~/core/crypto'
+import { isProduction } from '~/core/env'
 import { AuthError } from '~/core/errors'
 import type { Identities } from '~/core/identities'
 import type { Provider } from '~/core/provider/provider.types'
 import { parseCookie } from '~/core/transport'
+import { cookieSecurity } from '~/core/transport/cookie.transport'
 import type { OAuth } from './oauth.types'
 import { generatePkce } from './pkce'
 import { authBuildState, authVerifyState, OAUTH_STATE_MAX_AGE_MS, signState } from './state'
@@ -20,8 +22,6 @@ export class OProviderImpl<Profile extends Identities.ProfileMetadataBase = Iden
   readonly kind = 'oauth' as const
   /** Read by `strict()`, which enforces the production floor. A boolean, never the secret. */
   readonly __weakStateSecret: boolean
-  /** Also read by `strict()`: the operator declined state-replay protection. */
-  readonly __stateReplayAllowed: boolean
   private readonly _cookieName: string
   private readonly _cookieOptions: Provider.CookieOptions
 
@@ -36,45 +36,36 @@ export class OProviderImpl<Profile extends Identities.ProfileMetadataBase = Iden
     }
     // RFC 7518 section 3.2: an HMAC-SHA256 key must be at least as long as the hash it feeds.
     this.__weakStateSecret = Buffer.byteLength(opts.stateSigningSecret, 'utf8') < 32
-    // The rule `samlProvider` applies to its replay store: a control this shape cannot be absent by
-    // accident. `complete` still branches on the store, because opting out is now a thing the operator
-    // said rather than a key they forgot.
-    if (!opts.nonceStore && opts.allowStateReplay !== true) {
+    // The rule `samlProvider` applies to its replay store. `complete` still branches on the store, which
+    // only development and test may leave out.
+    if (!opts.nonceStore && isProduction()) {
       throw new AuthError('AUTH_MISCONFIGURED', {
-        detail: `oauth requires \`nonceStore\`, or \`allowStateReplay: true\` to accept a state nothing burns (provider ${opts.providerId})`,
+        detail: `oauth requires \`nonceStore\` in production (provider ${opts.providerId})`,
       })
     }
-    this.__stateReplayAllowed = !opts.nonceStore
     const cookie = opts.stateCookie ?? {}
-    this._cookieName = cookie.name ?? (cookie.domain === undefined ? '__Host-duck-oauth' : 'duck-oauth')
-    const secure = cookie.secure ?? true
-    const formPost = opts.responseMode === 'form_post'
+    const named = cookie.name ?? (cookie.domain === undefined ? '__Host-duck-oauth' : 'duck-oauth')
+    // Browsers drop a `__Host-` cookie with a domain without saying so, and a silently dropped cookie here
+    // is every sign-in failing at the callback.
+    if (named.startsWith('__Host-') && cookie.domain !== undefined) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: 'oauth.stateCookie: the __Host- prefix forbids a domain; name it something else',
+      })
+    }
+    // The callback is a top-level GET the IdP navigates to. 'lax' sends the cookie on that and 'strict'
+    // does not, which would refuse every real sign-in. Under `form_post` the callback is a cross-site POST
+    // instead, which 'lax' withholds the cookie on, so every Apple sign-in failed the binding check.
+    // Scoped to the provider that asked for it: the other five keep 'lax'.
+    const sameSite = opts.responseMode === 'form_post' ? 'none' : 'lax'
+    const { name, secure } = cookieSecurity(named, sameSite)
+    this._cookieName = name
     this._cookieOptions = {
       httpOnly: true,
-      // The callback is a top-level GET the IdP navigates to. 'lax' sends the cookie on that and
-      // 'strict' does not, which would refuse every real sign-in. Under `form_post` the callback is a
-      // cross-site POST instead, which 'lax' withholds the cookie on, so every Apple sign-in failed the
-      // binding check. Scoped to the provider that asked for it: the other five keep 'lax'.
-      sameSite: formPost ? 'none' : 'lax',
+      sameSite,
       secure,
       path: '/',
       maxAge: STATE_COOKIE_MAX_AGE_SEC,
       ...(cookie.domain !== undefined && { domain: cookie.domain }),
-    }
-    // `SameSite=None` without `Secure` is dropped by every current browser, which would be the same
-    // silent failure this flag exists to fix, one layer down.
-    if (formPost && !secure) {
-      throw new AuthError('AUTH_MISCONFIGURED', {
-        detail: `oauth.stateCookie: ${opts.providerId} posts its callback cross-site and needs secure:true`,
-      })
-    }
-    // Browsers drop a `__Host-` cookie that breaks either rule without saying so, and a silently
-    // dropped cookie here is every sign-in failing at the callback.
-    if (this._cookieName.startsWith('__Host-') && (cookie.domain !== undefined || !secure)) {
-      throw new AuthError('AUTH_MISCONFIGURED', {
-        detail:
-          'oauth.stateCookie: the __Host- prefix forbids a domain and requires secure; name it something else for an http host',
-      })
     }
     // Refused at construction so a `javascript:alert(1)`, an unparseable string, or one carrying CR/LF for
     // header injection never reaches the IdP authorize URL or the session-issue path.
@@ -154,25 +145,25 @@ export class OProviderImpl<Profile extends Identities.ProfileMetadataBase = Iden
         })
       }
 
+      // A link opens only the tenant it was made in.
+      const tenantId = ctx.tenant.tenantId ?? null
       let identityId: string | null = null
       if (this.opts.onSignIn) {
         const r = await this.opts.onSignIn({
           profile,
-          findByProviderSub: (sub) => orNull(ctx.stores.identities.find({ providerId: this.id, providerSub: sub })),
+          findByProviderSub: (sub) =>
+            orNull(ctx.stores.identities.find({ providerId: this.id, providerSub: sub, tenantId })),
           findByEmail: (email) => orNull(ctx.stores.identities.find({ email })),
           createIdentity: async (p) => {
             const created = await ctx.stores.identities.create({
               profile: p,
-              providers: [{ providerId: this.id, providerSub: profile.sub }],
+              providers: [{ providerId: this.id, providerSub: profile.sub, tenantId }],
               emailVerified: false,
             })
             return { id: created.id }
           },
           linkProvider: async (id, sub) => {
-            await ctx.stores.identities.link(id, {
-              providerId: this.id,
-              providerSub: sub,
-            })
+            await ctx.stores.identities.link(id, { providerId: this.id, providerSub: sub, tenantId })
           },
         })
         if (!r) {
@@ -183,7 +174,9 @@ export class OProviderImpl<Profile extends Identities.ProfileMetadataBase = Iden
         }
         identityId = r.identityId
       } else {
-        const bySub = await orNull(ctx.stores.identities.find({ providerId: this.id, providerSub: profile.sub }))
+        const bySub = await orNull(
+          ctx.stores.identities.find({ providerId: this.id, providerSub: profile.sub, tenantId }),
+        )
         if (bySub) {
           identityId = bySub.id
         } else if (profile.email) {
@@ -204,10 +197,7 @@ export class OProviderImpl<Profile extends Identities.ProfileMetadataBase = Iden
                   'federation-conflict: an existing identity owns this email; provider-sub link refused under the configured policy',
               })
             }
-            await ctx.stores.identities.link(byEmail.id, {
-              providerId: this.id,
-              providerSub: profile.sub,
-            })
+            await ctx.stores.identities.link(byEmail.id, { providerId: this.id, providerSub: profile.sub, tenantId })
             identityId = byEmail.id
           }
         }
@@ -221,7 +211,7 @@ export class OProviderImpl<Profile extends Identities.ProfileMetadataBase = Iden
           }
           const created = await ctx.stores.identities.create({
             profile: projected,
-            providers: [{ providerId: this.id, providerSub: profile.sub }],
+            providers: [{ providerId: this.id, providerSub: profile.sub, tenantId }],
             emailVerified: false,
           })
           identityId = created.id

@@ -10,6 +10,7 @@ import { AuthEngine } from '~/core/engine'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
 import { mfaProvider } from '~/providers/mfa'
+import { authTestDataAtRest } from '~/test'
 
 type MyProfile = { username: string; email: string }
 
@@ -18,9 +19,9 @@ function buildAuth() {
   return new AuthEngine<MyProfile>({
     baseUrl: 'https://x',
     limiter: new MemoryLimiter({ max: 50, windowMs: 60_000 }),
-    providers: [mfaProvider()],
+    providers: [mfaProvider({ dataAtRest: authTestDataAtRest() })],
     stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
-    transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+    transport: new CookieTransport({ name: 'duck-sid' }),
   })
 }
 
@@ -37,7 +38,7 @@ describe('backup codes do not depend on a global this package never needed', () 
     const identityId = await newIdentity(auth)
     vi.stubGlobal('crypto', undefined)
     try {
-      const codes = await auth.mfa.regenerateBackupCodes(identityId)
+      const codes = await auth.mfa.regenerateBackupCodes(identityId, null)
       expect(codes.length).toBeGreaterThan(1)
       expect(new Set(codes).size).toBe(codes.length)
       expect(codes).not.toContain('aaaaa-aaaaa')
@@ -52,7 +53,7 @@ describe('backup codes do not depend on a global this package never needed', () 
     vi.stubGlobal('crypto', undefined)
     let codes: string[]
     try {
-      codes = await auth.mfa.regenerateBackupCodes(identityId)
+      codes = await auth.mfa.regenerateBackupCodes(identityId, null)
     } finally {
       vi.unstubAllGlobals()
     }
@@ -62,8 +63,8 @@ describe('backup codes do not depend on a global this package never needed', () 
 
   it('two calls do not repeat a code, webcrypto present or not', async () => {
     const auth = buildAuth()
-    const a = await auth.mfa.regenerateBackupCodes(await newIdentity(auth))
-    const b = await auth.mfa.regenerateBackupCodes(await newIdentity(auth))
+    const a = await auth.mfa.regenerateBackupCodes(await newIdentity(auth), null)
+    const b = await auth.mfa.regenerateBackupCodes(await newIdentity(auth), null)
     expect(new Set([...a, ...b]).size).toBe(a.length + b.length)
   })
 })

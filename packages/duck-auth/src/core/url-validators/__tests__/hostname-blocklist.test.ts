@@ -12,8 +12,13 @@
  * The DNS-resolution cases are deliberately absent. A wildcard resolver like `127.0.0.1.nip.io` cannot be
  * caught by spelling, and `assertResolvedHostIsPublic` is the layer that exists for it.
  */
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { assertSafeOutboundUrl } from '../url-validators'
+
+// The production guard: outside production a loopback name is admitted.
+beforeEach(() => {
+  vi.stubEnv('NODE_ENV', 'production')
+})
 
 const refuses = (host: string): boolean => {
   try {

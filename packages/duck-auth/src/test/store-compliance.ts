@@ -9,6 +9,7 @@ import { authUuidV7, sha256 } from '~/core/crypto'
 import type { Identities } from '~/core/identities/identities.types'
 import { SESSION_COLUMN_CAPS } from '~/core/sessions/sessions.constants'
 import type { Sessions } from '~/core/sessions/sessions.types'
+import { ALL_TENANTS } from '~/core/tenant'
 import { credentialInput, identityInput, sessionInput } from '~/test/store-inputs'
 import {
   CREDENTIAL_FIELDS,
@@ -89,13 +90,13 @@ export function runIdentityStoreCompliance<P extends Identities.ProfileMetadataB
       const created = await store.create(
         identityInput({
           profile: profileOf<P>('fidelity@x.com', 'fidelity'),
-          providers: [{ addedAt: new Date(), providerId: 'password', providerSub: 'sub-1' }],
+          providers: [{ addedAt: new Date(), providerId: 'password', providerSub: 'sub-1', tenantId: null }],
         }),
       )
       expectRow(created, IDENTITY_FIELDS, IDENTITY_KEYS, 'create')
       expectRow(await store.find({ id: created.id }), IDENTITY_FIELDS, IDENTITY_KEYS, 'findById')
       expectRow(
-        await store.find({ providerId: 'password', providerSub: 'sub-1' }),
+        await store.find({ providerId: 'password', providerSub: 'sub-1', tenantId: null }),
         IDENTITY_FIELDS, IDENTITY_KEYS,
         'findByProviderSub',
       )
@@ -108,9 +109,10 @@ export function runIdentityStoreCompliance<P extends Identities.ProfileMetadataB
         addedAt: new Date(),
         providerId: 'google',
         providerSub: 'g-1',
+        tenantId: 'tenant-a',
       })
       expectRow(linked, IDENTITY_FIELDS, IDENTITY_KEYS, 'link')
-      expectRow(await store.unlink(created.id, 'google'), IDENTITY_FIELDS, IDENTITY_KEYS, 'unlink')
+      expectRow(await store.unlink(created.id, 'google', 'tenant-a'), IDENTITY_FIELDS, IDENTITY_KEYS, 'unlink')
       // A soft-deleted row is the one case with every nullable date populated.
       const deleted = await store.softDelete(created.id, 60_000)
       expectRow(deleted, IDENTITY_FIELDS, IDENTITY_KEYS, 'softDelete')
@@ -123,7 +125,7 @@ export function runIdentityStoreCompliance<P extends Identities.ProfileMetadataB
       const i = await store.create(
         identityInput({
           profile: profileOf<P>('a@x.com', 'a'),
-          providers: [{ providerId: 'oauth:google', providerSub: 'create-sub', addedAt: new Date() }],
+          providers: [{ providerId: 'oauth:google', providerSub: 'create-sub', addedAt: new Date(), tenantId: null }],
         }),
       )
       expect(i.id).toBeTruthy()
@@ -167,7 +169,7 @@ export function runIdentityStoreCompliance<P extends Identities.ProfileMetadataB
         store.create(
           identityInput({
             profile: profileOf<P>('addedby@x', 'addedby'),
-            providers: [{ providerId: 'oauth:google', providerSub: 'ab-1' }],
+            providers: [{ providerId: 'oauth:google', providerSub: 'ab-1', tenantId: null }],
           }),
         ),
       )
@@ -176,7 +178,7 @@ export function runIdentityStoreCompliance<P extends Identities.ProfileMetadataB
       // An admin attaching a login and the account holder attaching their own must not read alike, so
       // the second link carries its own actor rather than the one that made the row.
       const linked = await withActor('op-other', () =>
-        store.link(created.id, { providerId: 'saml:acme', providerSub: 'ab-2' }),
+        store.link(created.id, { providerId: 'saml:acme', providerSub: 'ab-2', tenantId: null }),
       )
       const attached = linked?.providers.find((p) => p.providerId === 'saml:acme')
       expect(attached?.addedBy).toBe('op-other')
@@ -188,7 +190,7 @@ export function runIdentityStoreCompliance<P extends Identities.ProfileMetadataB
       const created = await store.create(
         identityInput({
           profile: profileOf<P>('noactor-link@x', 'noactorlink'),
-          providers: [{ providerId: 'oauth:google', providerSub: 'na-1' }],
+          providers: [{ providerId: 'oauth:google', providerSub: 'na-1', tenantId: null }],
         }),
       )
       expect(created.providers[0]?.addedBy).toBeNull()
@@ -228,11 +230,16 @@ export function runIdentityStoreCompliance<P extends Identities.ProfileMetadataB
 
       // `$onUpdate` moves it on every dialect, so a store that only stamps it on `update` reports an
       // identity as untouched since signup after its logins have been rewired.
-      const linked = await store.link(i.id, { addedAt: new Date(), providerId: 'google', providerSub: 'sub-touch' })
+      const linked = await store.link(i.id, {
+        addedAt: new Date(),
+        providerId: 'google',
+        providerSub: 'sub-touch',
+        tenantId: null,
+      })
       expect(linked.updatedAt.getTime()).toBeGreaterThan(i.updatedAt.getTime())
 
       await new Promise((r) => setTimeout(r, 25))
-      const unlinked = await store.unlink(i.id, 'google')
+      const unlinked = await store.unlink(i.id, 'google', null)
       expect(unlinked.updatedAt.getTime()).toBeGreaterThan(linked.updatedAt.getTime())
     })
 
@@ -251,20 +258,116 @@ export function runIdentityStoreCompliance<P extends Identities.ProfileMetadataB
     it('a hidden row keeps its provider login, so restore has nothing to refuse', async () => {
       const store = factory()
       const a = await store.create(identityInput({ profile: profileOf<P>('pa@x', 'pa') }))
-      await store.link(a.id, { addedAt: new Date(), providerId: 'google', providerSub: 'sub-shared' })
+      await store.link(a.id, { addedAt: new Date(), providerId: 'google', providerSub: 'sub-shared', tenantId: null })
       await store.softDelete(a.id, 60_000)
 
       // Unreadable, but not unclaimed: `findByProviderSub` hides the row while
-      // `uq_auth_identity_providers_sub`, which is not partial, still holds the login.
-      await expect(store.find({ providerId: 'google', providerSub: 'sub-shared' })).rejects.toMatchObject({ code: 'AUTH_IDENTITY_NOT_FOUND' })
+      // `uq_auth_identity_providers_sub`, which no soft delete narrows, still holds the login.
+      await expect(
+        store.find({ providerId: 'google', providerSub: 'sub-shared', tenantId: null }),
+      ).rejects.toMatchObject({ code: 'AUTH_IDENTITY_NOT_FOUND' })
       const b = await store.create(identityInput({ profile: profileOf<P>('pb@x', 'pb') }))
       await expect(
-        store.link(b.id, { addedAt: new Date(), providerId: 'google', providerSub: 'sub-shared' }),
+        store.link(b.id, { addedAt: new Date(), providerId: 'google', providerSub: 'sub-shared', tenantId: null }),
       ).rejects.toMatchObject({ code: 'AUTH_PROVIDER_TAKEN' })
 
       // Letting B take it would end A's only way back, which is what the grace window promises not to do.
       expect((await store.restore(a.id)).id).toBe(a.id)
-      expect((await store.find({ providerId: 'google', providerSub: 'sub-shared' }))?.id).toBe(a.id)
+      expect((await store.find({ providerId: 'google', providerSub: 'sub-shared', tenantId: null }))?.id).toBe(a.id)
+    })
+
+    it('one sub links to a different identity in each tenant and with none, and each finds only its own', async () => {
+      const store = factory()
+      const login = { providerId: 'oauth:google', providerSub: 'tenant-sub' }
+      const owners = new Map<string | null, string>()
+      for (const tenantId of [null, 'tenant-a', 'tenant-b']) {
+        const i = await store.create(identityInput({ profile: profileOf<P>(`t-${tenantId}@x`, `t-${tenantId}`) }))
+        await store.link(i.id, { addedAt: new Date(), ...login, tenantId })
+        owners.set(tenantId, i.id)
+      }
+
+      for (const [tenantId, id] of owners) expect((await store.find({ ...login, tenantId })).id).toBe(id)
+      await expect(store.find({ ...login, tenantId: 'tenant-c' })).rejects.toMatchObject({
+        code: 'AUTH_IDENTITY_NOT_FOUND',
+      })
+    })
+
+    it('a sub another identity holds in a tenant is refused there, and free in the next one', async () => {
+      const store = factory()
+      const login = { providerId: 'oauth:google', providerSub: 'claimed-sub' }
+      const holder = await store.create(
+        identityInput({
+          profile: profileOf<P>('th@x', 'th'),
+          providers: [{ addedAt: new Date(), ...login, tenantId: 'tenant-a' }],
+        }),
+      )
+      const other = await store.create(identityInput({ profile: profileOf<P>('to@x', 'to') }))
+      await store.link(other.id, { addedAt: new Date(), ...login, tenantId: 'tenant-b' })
+
+      // Holding the login in tenant-b does not make the write it lost in tenant-a a repeat.
+      await expect(
+        store.link(other.id, { addedAt: new Date(), ...login, tenantId: 'tenant-a' }),
+      ).rejects.toMatchObject({ code: 'AUTH_PROVIDER_TAKEN' })
+      await expect(
+        store.create(
+          identityInput({
+            profile: profileOf<P>('tl@x', 'tl'),
+            providers: [{ addedAt: new Date(), ...login, tenantId: 'tenant-a' }],
+          }),
+        ),
+      ).rejects.toMatchObject({ code: 'AUTH_PROVIDER_TAKEN' })
+      expect((await store.find({ ...login, tenantId: 'tenant-a' })).id).toBe(holder.id)
+      expect((await store.find({ ...login, tenantId: 'tenant-b' })).id).toBe(other.id)
+    })
+
+    it('an identity holds one sub per provider per tenant, and re-linking that sub is a no-op', async () => {
+      const store = factory()
+      const i = await store.create(identityInput({ profile: profileOf<P>('tw@x', 'tw') }))
+      const at = (providerSub: string, tenantId: string) => ({
+        addedAt: new Date(),
+        providerId: 'oauth:google',
+        providerSub,
+        tenantId,
+      })
+      await store.link(i.id, at('sub-a', 'tenant-a'))
+      await store.link(i.id, at('sub-b', 'tenant-b'))
+
+      await expect(store.link(i.id, at('sub-c', 'tenant-a'))).rejects.toMatchObject({ code: 'AUTH_PROVIDER_TAKEN' })
+      // Holding sub-b in tenant-b does not make it a repeat in tenant-a.
+      await expect(store.link(i.id, at('sub-b', 'tenant-a'))).rejects.toMatchObject({ code: 'AUTH_PROVIDER_TAKEN' })
+      const again = await store.link(i.id, at('sub-a', 'tenant-a'))
+      expect(again.providers.map((l) => `${l.providerSub}@${l.tenantId}`).sort()).toEqual([
+        'sub-a@tenant-a',
+        'sub-b@tenant-b',
+      ])
+    })
+
+    it('unlinking in one tenant keeps the same login with no tenant, and the reverse', async () => {
+      const store = factory()
+      const i = await store.create(identityInput({ profile: profileOf<P>('tu@x', 'tu') }))
+      const login = { providerId: 'oauth:google', providerSub: 'kept-sub' }
+      await store.link(i.id, { addedAt: new Date(), ...login, tenantId: 'tenant-a' })
+      await store.link(i.id, { addedAt: new Date(), ...login, tenantId: null })
+
+      const left = await store.unlink(i.id, login.providerId, 'tenant-a')
+      expect(left.providers).toEqual([expect.objectContaining({ ...login, tenantId: null })])
+      await expect(store.find({ ...login, tenantId: 'tenant-a' })).rejects.toMatchObject({
+        code: 'AUTH_IDENTITY_NOT_FOUND',
+      })
+
+      await store.link(i.id, { addedAt: new Date(), ...login, tenantId: 'tenant-a' })
+      const kept = await store.unlink(i.id, login.providerId, null)
+      expect(kept.providers).toEqual([expect.objectContaining({ ...login, tenantId: 'tenant-a' })])
+      expect((await store.find({ ...login, tenantId: 'tenant-a' })).id).toBe(i.id)
+    })
+
+    it('refuses a link with a blank tenant', async () => {
+      const store = factory()
+      const i = await store.create(identityInput({ profile: profileOf<P>('tbl@x', 'tbl') }))
+
+      await expect(
+        store.link(i.id, { addedAt: new Date(), providerId: 'oauth:google', providerSub: 'blank-sub', tenantId: '' }),
+      ).rejects.toMatchObject({ code: 'AUTH_INVALID_PARAMETERS' })
     })
 
     it('findByEmail finds a created identity (identities are global)', async () => {
@@ -449,18 +552,25 @@ export function runIdentityStoreCompliance<P extends Identities.ProfileMetadataB
     it('link / unlink mutate providers; findByProviderSub locates linked identities', async () => {
       const store = factory()
       const i = await store.create(identityInput({ profile: profileOf<P>('a@x', 'a') }))
-      await store.link(i.id, { providerId: 'oauth:google', providerSub: 'sub-1', addedAt: new Date() })
-      const found = await store.find({ providerId: 'oauth:google', providerSub: 'sub-1' })
+      await store.link(i.id, { providerId: 'oauth:google', providerSub: 'sub-1', addedAt: new Date(), tenantId: null })
+      const found = await store.find({ providerId: 'oauth:google', providerSub: 'sub-1', tenantId: null })
       expect(found?.id).toBe(i.id)
-      await store.unlink(i.id, 'oauth:google')
-      await expect(store.find({ providerId: 'oauth:google', providerSub: 'sub-1' })).rejects.toMatchObject({ code: 'AUTH_IDENTITY_NOT_FOUND' })
+      await store.unlink(i.id, 'oauth:google', null)
+      await expect(
+        store.find({ providerId: 'oauth:google', providerSub: 'sub-1', tenantId: null }),
+      ).rejects.toMatchObject({ code: 'AUTH_IDENTITY_NOT_FOUND' })
     })
 
     it('a provider link comes back as a real Date, not the string a JSON column stores', async () => {
       const store = factory()
       const addedAt = new Date()
       const i = await store.create(identityInput({ profile: profileOf<P>('d@x', 'd') }))
-      const linked = await store.link(i.id, { addedAt, providerId: 'oauth:google', providerSub: 'sub-1' })
+      const linked = await store.link(i.id, {
+        addedAt,
+        providerId: 'oauth:google',
+        providerSub: 'sub-1',
+        tenantId: null,
+      })
 
       // `providers` is a JSON column on every SQL dialect, and `JSON.stringify`
       // turns a Date into an ISO string. The row type says `Date`, and the
@@ -477,7 +587,7 @@ export function runIdentityStoreCompliance<P extends Identities.ProfileMetadataB
     it('re-linking the identical provider sub is a no-op, not a second entry', async () => {
       const store = factory()
       const i = await store.create(identityInput({ profile: profileOf<P>('rl@x', 'rl') }))
-      const link = { addedAt: new Date(), providerId: 'oauth:google', providerSub: 'sub-rl' }
+      const link = { addedAt: new Date(), providerId: 'oauth:google', providerSub: 'sub-rl', tenantId: null }
       await store.link(i.id, link)
       // A retried OAuth callback is the ordinary way this happens. Appending
       // would grow the JSON array without bound, and `unlink(providerId)` then
@@ -496,12 +606,20 @@ export function runIdentityStoreCompliance<P extends Identities.ProfileMetadataB
       const i = await store.create(identityInput({ profile: profileOf<P>('pl-d@x', 'pld') }))
       const addedAt = new Date('2024-03-01T12:00:00.000Z')
 
-      const written = await store.link(i.id, { addedAt, providerId: 'oauth:google', providerSub: 'date-sub' })
+      const written = await store.link(i.id, {
+        addedAt,
+        providerId: 'oauth:google',
+        providerSub: 'date-sub',
+        tenantId: null,
+      })
       const paths: [string, Identities.Me<P> | null][] = [
         ['link', written],
         ['findById', await store.find({ id: i.id })],
         ['findByEmail', await store.find({ email: 'pl-d@x' })],
-        ['findByProviderSub', await store.find({ providerId: 'oauth:google', providerSub: 'date-sub' })],
+        [
+          'findByProviderSub',
+          await store.find({ providerId: 'oauth:google', providerSub: 'date-sub', tenantId: null }),
+        ],
       ]
 
       for (const [path, row] of paths) {
@@ -515,16 +633,28 @@ export function runIdentityStoreCompliance<P extends Identities.ProfileMetadataB
     it('refuses a second sub at a provider the identity already holds, and writes nothing', async () => {
       const store = factory()
       const i = await store.create(identityInput({ profile: profileOf<P>('two@x', 'two') }))
-      const held = await store.link(i.id, { addedAt: new Date(), providerId: 'oauth:google', providerSub: 'second-held-sub' })
+      const held = await store.link(i.id, {
+        addedAt: new Date(),
+        providerId: 'oauth:google',
+        providerSub: 'second-held-sub',
+        tenantId: null,
+      })
 
       // Kept silently, the second was answered as linked while every sign-in under it found nobody.
       await expect(
-        store.link(i.id, { addedAt: new Date(), providerId: 'oauth:google', providerSub: 'second-other-sub' }),
+        store.link(i.id, {
+          addedAt: new Date(),
+          providerId: 'oauth:google',
+          providerSub: 'second-other-sub',
+          tenantId: null,
+        }),
       ).rejects.toMatchObject({ code: 'AUTH_PROVIDER_TAKEN' })
       const reread = await store.find({ id: i.id })
       expect(reread.providers.map((l) => l.providerSub)).toEqual(['second-held-sub'])
       expect(reread.version).toBe(held.version)
-      await expect(store.find({ providerId: 'oauth:google', providerSub: 'second-other-sub' })).rejects.toMatchObject({
+      await expect(
+        store.find({ providerId: 'oauth:google', providerSub: 'second-other-sub', tenantId: null }),
+      ).rejects.toMatchObject({
         code: 'AUTH_IDENTITY_NOT_FOUND',
       })
     })
@@ -533,21 +663,35 @@ export function runIdentityStoreCompliance<P extends Identities.ProfileMetadataB
       const store = factory()
       const first = await store.create(identityInput({ profile: profileOf<P>('o1@x', 'o1') }))
       const second = await store.create(identityInput({ profile: profileOf<P>('o2@x', 'o2') }))
-      await store.link(first.id, { addedAt: new Date(), providerId: 'oauth:google', providerSub: 'shared-sub' })
+      await store.link(first.id, {
+        addedAt: new Date(),
+        providerId: 'oauth:google',
+        providerSub: 'shared-sub',
+        tenantId: null,
+      })
 
       // Without this an attacker who can drive a link for a sub they control
       // attaches it to someone else's account, and every later sign-in through
       // that provider resolves to the victim.
       await expect(
-        store.link(second.id, { addedAt: new Date(), providerId: 'oauth:google', providerSub: 'shared-sub' }),
+        store.link(second.id, {
+          addedAt: new Date(),
+          providerId: 'oauth:google',
+          providerSub: 'shared-sub',
+          tenantId: null,
+        }),
       ).rejects.toMatchObject({ code: 'AUTH_PROVIDER_TAKEN' })
-      expect((await store.find({ providerId: 'oauth:google', providerSub: 'shared-sub' }))?.id).toBe(first.id)
+      expect((await store.find({ providerId: 'oauth:google', providerSub: 'shared-sub', tenantId: null }))?.id).toBe(
+        first.id,
+      )
     })
 
     /** The row and its links are one write: a create refused on its link must not leave the identity behind. */
     it('a create refused on a claimed provider sub leaves no identity, and one on a free sub keeps both', async () => {
       const store = factory()
-      const link = (providerSub: string) => [{ addedAt: new Date(), providerId: 'oauth:google', providerSub }]
+      const link = (providerSub: string) => [
+        { addedAt: new Date(), providerId: 'oauth:google', providerSub, tenantId: null },
+      ]
       await store.create(identityInput({ profile: profileOf<P>('held@x', 'held'), providers: link('held-sub') }))
 
       await expect(
@@ -572,8 +716,11 @@ export function runIdentityStoreCompliance<P extends Identities.ProfileMetadataB
         seen = after.version
       }
 
-      await moved('link', store.link(i.id, { addedAt: new Date(), providerId: 'oauth:google', providerSub: 'v1' }))
-      await moved('unlink', store.unlink(i.id, 'oauth:google'))
+      await moved(
+        'link',
+        store.link(i.id, { addedAt: new Date(), providerId: 'oauth:google', providerSub: 'v1', tenantId: null }),
+      )
+      await moved('unlink', store.unlink(i.id, 'oauth:google', null))
       await moved('softDelete', store.softDelete(i.id, 60_000))
       await moved('restore', store.restore(i.id))
 
@@ -591,18 +738,37 @@ export function runIdentityStoreCompliance<P extends Identities.ProfileMetadataB
       const store = factory()
       const first = await store.create(identityInput({ profile: profileOf<P>('fh1@x', 'fh1') }))
       const second = await store.create(identityInput({ profile: profileOf<P>('fh2@x', 'fh2') }))
-      await store.link(first.id, { addedAt: new Date(), providerId: 'oauth:google', providerSub: 'freed-sub' })
+      await store.link(first.id, {
+        addedAt: new Date(),
+        providerId: 'oauth:google',
+        providerSub: 'freed-sub',
+        tenantId: null,
+      })
       await store.softDelete(first.id, 60_000)
 
       // Unreadable and still claimed: the read side hides the row, the write side keeps refusing it.
-      await expect(store.find({ providerId: 'oauth:google', providerSub: 'freed-sub' })).rejects.toMatchObject({ code: 'AUTH_IDENTITY_NOT_FOUND' })
       await expect(
-        store.link(second.id, { addedAt: new Date(), providerId: 'oauth:google', providerSub: 'freed-sub' }),
+        store.find({ providerId: 'oauth:google', providerSub: 'freed-sub', tenantId: null }),
+      ).rejects.toMatchObject({ code: 'AUTH_IDENTITY_NOT_FOUND' })
+      await expect(
+        store.link(second.id, {
+          addedAt: new Date(),
+          providerId: 'oauth:google',
+          providerSub: 'freed-sub',
+          tenantId: null,
+        }),
       ).rejects.toMatchObject({ code: 'AUTH_PROVIDER_TAKEN' })
 
       await store.erase(first.id)
-      await store.link(second.id, { addedAt: new Date(), providerId: 'oauth:google', providerSub: 'freed-sub' })
-      expect((await store.find({ providerId: 'oauth:google', providerSub: 'freed-sub' }))?.id).toBe(second.id)
+      await store.link(second.id, {
+        addedAt: new Date(),
+        providerId: 'oauth:google',
+        providerSub: 'freed-sub',
+        tenantId: null,
+      })
+      expect((await store.find({ providerId: 'oauth:google', providerSub: 'freed-sub', tenantId: null }))?.id).toBe(
+        second.id,
+      )
     })
 
     it('softDelete on an already-hidden row raises and leaves the deadline where it was', async () => {
@@ -667,8 +833,8 @@ export function runIdentityStoreCompliance<P extends Identities.ProfileMetadataB
           () => store.softDelete(id, 60_000),
           () => store.restore(id),
           () => store.erase(id),
-          () => store.link(id, { providerId: 'p', providerSub: 's' }),
-          () => store.unlink(id, 'p'),
+          () => store.link(id, { providerId: 'p', providerSub: 's', tenantId: null }),
+          () => store.unlink(id, 'p', null),
         ]) {
           expect(await call().then(() => 'resolved', codeOf)).toBeOneOf([
             'AUTH_IDENTITY_NOT_FOUND',
@@ -763,15 +929,15 @@ export function runIdentityStoreCompliance<P extends Identities.ProfileMetadataB
         identityInput({
           emailVerified: true,
           profile: profileOf<P>('hw@x', 'hw'),
-          providers: [{ addedAt: new Date(), providerId: 'oauth:google', providerSub: 'hw-sub' }],
+          providers: [{ addedAt: new Date(), providerId: 'oauth:google', providerSub: 'hw-sub', tenantId: null }],
         }),
       )
       const hidden = await store.softDelete(i.id, 60_000)
 
       await expect(
-        store.link(i.id, { addedAt: new Date(), providerId: 'oauth:github', providerSub: 'hw-2' }),
+        store.link(i.id, { addedAt: new Date(), providerId: 'oauth:github', providerSub: 'hw-2', tenantId: null }),
       ).rejects.toMatchObject({ code: 'AUTH_IDENTITY_NOT_FOUND' })
-      await expect(store.unlink(i.id, 'oauth:google')).rejects.toMatchObject({
+      await expect(store.unlink(i.id, 'oauth:google', null)).rejects.toMatchObject({
         code: 'AUTH_IDENTITY_NOT_FOUND',
       })
       // The version handed in is the one the delete left, so the gate is the only reason this can fail.
@@ -793,11 +959,12 @@ export function runIdentityStoreCompliance<P extends Identities.ProfileMetadataB
         addedAt: new Date(),
         providerId: 'oauth:google',
         providerSub: 'ret-1',
+        tenantId: null,
       })
       expect(linked?.id).toBe(i.id)
       expect(linked?.providers.some((p) => p.providerId === 'oauth:google')).toBe(true)
 
-      const unlinked = await store.unlink(i.id, 'oauth:google')
+      const unlinked = await store.unlink(i.id, 'oauth:google', null)
       expect(unlinked?.id).toBe(i.id)
       expect(unlinked?.providers.some((p) => p.providerId === 'oauth:google')).toBe(false)
 
@@ -815,7 +982,7 @@ export function runIdentityStoreCompliance<P extends Identities.ProfileMetadataB
 
       // The row as it was, links and all: once the delete lands there is nothing left to read, so what
       // the cascade takes has to leave on the answer.
-      await store.link(i.id, { addedAt: new Date(), providerId: 'oauth:google', providerSub: 'ret-2' })
+      await store.link(i.id, { addedAt: new Date(), providerId: 'oauth:google', providerSub: 'ret-2', tenantId: null })
       const erased = await store.erase(i.id)
       expect(erased?.id).toBe(i.id)
       expect(erased?.providers.map((p) => p.providerSub)).toEqual(['ret-2'])
@@ -832,9 +999,9 @@ export function runIdentityStoreCompliance<P extends Identities.ProfileMetadataB
       await expect(store.softDelete(gone, 60_000)).rejects.toMatchObject({ code: 'AUTH_IDENTITY_NOT_FOUND' })
       await expect(store.erase(gone)).rejects.toMatchObject({ code: 'AUTH_IDENTITY_NOT_FOUND' })
       await expect(
-        store.link(gone, { addedAt: new Date(), providerId: 'oauth:google', providerSub: 'gone-sub' }),
+        store.link(gone, { addedAt: new Date(), providerId: 'oauth:google', providerSub: 'gone-sub', tenantId: null }),
       ).rejects.toMatchObject({ code: 'AUTH_IDENTITY_NOT_FOUND' })
-      await expect(store.unlink(gone, 'oauth:google')).rejects.toMatchObject({ code: 'AUTH_IDENTITY_NOT_FOUND' })
+      await expect(store.unlink(gone, 'oauth:google', null)).rejects.toMatchObject({ code: 'AUTH_IDENTITY_NOT_FOUND' })
     })
   })
 }
@@ -1289,7 +1456,7 @@ export function runSessionStoreCompliance(factory: () => Sessions.Store, ids: Co
       expect(await store.listByIdentity(OWNER)).toHaveLength(0)
     })
 
-    it('listByIdentity narrows to one tenant, and a global session is not in it', async () => {
+    it('listByIdentity narrows to one tenant, and naming none narrows to the sessions with no tenant', async () => {
       const store = factory()
       const now = new Date()
       const exp = new Date(now.getTime() + 60_000)
@@ -1307,10 +1474,11 @@ export function runSessionStoreCompliance(factory: () => Sessions.Store, ids: Co
       await store.create(sessionInput({ id: sid('t-b'), identityId: OWNER, tenantId: 'tenant-b', ...base }))
       await store.create(sessionInput({ id: sid('t-g'), identityId: OWNER, tenantId: null, ...base }))
 
-      // Identities are global, so all three hang off one id. Unscoped sees them
-      // all, which is every existing caller's behaviour and does not change.
-      expect(await store.listByIdentity(OWNER)).toHaveLength(3)
-      expect(await store.listByIdentity(OWNER, {})).toHaveLength(3)
+      // Identities are global, so all three hang off one id. Naming no tenant is the no-tenant scope, not
+      // every tenant, so a tenanted caller that forgets its tenant finds none of a tenant's sessions.
+      expect((await store.listByIdentity(OWNER)).map((r) => r.id)).toEqual([sid('t-g')])
+      expect((await store.listByIdentity(OWNER, {})).map((r) => r.id)).toEqual([sid('t-g')])
+      expect(await store.listByIdentity(OWNER, ALL_TENANTS)).toHaveLength(3)
 
       const a = await store.listByIdentity(OWNER, { tenantId: 'tenant-a' })
       expect(a.map((r) => r.id)).toEqual([sid('t-a')])
@@ -1342,12 +1510,17 @@ export function runSessionStoreCompliance(factory: () => Sessions.Store, ids: Co
       // Survivors are reachable by every route, not merely still on disk: an
       // index the scoped delete dropped wholesale would leave them alive and
       // impossible to sign out.
-      expect((await store.listByIdentity(OWNER)).map((r) => r.id).sort()).toEqual([sid('d-b'), sid('d-g')].sort())
+      expect((await store.listByIdentity(OWNER, ALL_TENANTS)).map((r) => r.id).sort()).toEqual(
+        [sid('d-b'), sid('d-g')].sort(),
+      )
       await expect(store.getByHash(sid('d-b'))).resolves.toBeTruthy()
       await expect(store.getByHash(sid('d-a'))).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
 
+      // Naming no tenant ends only the session with no tenant.
       await store.deleteAllForIdentity(OWNER)
-      expect(await store.listByIdentity(OWNER)).toEqual([])
+      expect((await store.listByIdentity(OWNER, ALL_TENANTS)).map((r) => r.id)).toEqual([sid('d-b')])
+      await store.deleteAllForIdentity(OWNER, ALL_TENANTS)
+      expect(await store.listByIdentity(OWNER, ALL_TENANTS)).toEqual([])
     })
 
     it('gc purges sessions with expiresAt or absoluteExpiresAt past now', async () => {
@@ -1787,18 +1960,43 @@ export function runCredentialStoreCompliance(factory: () => Credential.Store, id
       await expect(store.findById(global.id, { tenantId: 'tenant-a' })).rejects.toMatchObject({ code: 'AUTH_CREDENTIAL_NOT_FOUND' })
       await expect(store.findByHashedSecret('g-hash', 'api-key', { tenantId: 'tenant-a' })).rejects.toMatchObject({ code: 'AUTH_CREDENTIAL_NOT_FOUND' })
       expect(await store.listByIdentity(OWNER, 'api-key', { tenantId: 'tenant-a' })).toEqual([])
-      // Reachable unscoped, which is what makes it global rather than orphaned.
+      // Reachable by a call naming no tenant, which is what makes it global rather than orphaned.
       await expect(store.findById(global.id, {})).resolves.toBeTruthy()
     })
 
-    it('an unscoped caller and the owning tenant both see the row', async () => {
+    it('a call naming no tenant reaches no tenant row, for a read or a write', async () => {
       const store = factory()
-      const c = await store.create(credentialInput({ identityId: OWNER, kind: 'api-key', secret: 's' }), {
+      const c = await store.create(credentialInput({ identityId: OWNER, kind: 'api-key', secret: 'nt-secret' }), {
         tenantId: 'tenant-a',
       })
-      // Without this the isolation test above could pass by hiding every row.
-      await expect(store.findById(c.id, {})).resolves.toBeTruthy()
-      await expect(store.findById(c.id, { tenantId: 'tenant-a' })).resolves.toBeTruthy()
+      // Naming no tenant is the no-tenant scope, so a tenanted caller that forgets its tenant reaches nothing.
+      const notFound = { code: 'AUTH_CREDENTIAL_NOT_FOUND' }
+      await expect(store.findById(c.id, {})).rejects.toMatchObject(notFound)
+      await expect(store.findByHashedSecret('nt-secret', 'api-key', {})).rejects.toMatchObject(notFound)
+      expect(await store.listByIdentity(OWNER, 'api-key', {})).toEqual([])
+      await expect(store.patchMetadata(c.id, { scope: 'admin' }, {})).rejects.toMatchObject(notFound)
+      await expect(store.revoke(c.id, {})).rejects.toMatchObject(notFound)
+      await expect(store.delete(c.id, {})).rejects.toMatchObject(notFound)
+      await expect(store.rotate(c.id, 'stolen', c.version, {})).rejects.toMatchObject({ code: 'AUTH_STALE_WRITE' })
+      expect(await store.revokeByKind(OWNER, 'api-key', {})).toEqual([])
+      expect(await store.deleteByKind(OWNER, 'api-key', {})).toEqual([])
+      // Without these the refusals above could pass by hiding every row.
+      await expect(store.findById(c.id, { tenantId: 'tenant-a' })).resolves.toMatchObject({
+        metadata: null,
+        revokedAt: null,
+        secret: 'nt-secret',
+      })
+      await expect(store.findById(c.id, ALL_TENANTS)).resolves.toBeTruthy()
+      expect(await store.listByIdentity(OWNER, 'api-key', ALL_TENANTS)).toHaveLength(1)
+    })
+
+    it('ALL_TENANTS reaches a tenant row for a write by id', async () => {
+      const store = factory()
+      const c = await store.create(credentialInput({ identityId: OWNER, kind: 'api-key', secret: 'at-secret' }), {
+        tenantId: 'tenant-a',
+      })
+      await store.revoke(c.id, ALL_TENANTS)
+      expect((await store.findById(c.id, { tenantId: 'tenant-a' })).revokedAt).toBeInstanceOf(Date)
     })
 
     it('patchMetadata cannot rewrite another tenant row', async () => {

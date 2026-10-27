@@ -26,7 +26,7 @@ async function signedIn(mint: Partial<Sessions.MintInput> = {}) {
     baseUrl: 'https://x.test',
     providers: [],
     stores: { credentials: adapter.credentials, identities: adapter.identities, sessions },
-    transport: new CookieTransport({ name: 'sid', secure: false }),
+    transport: new CookieTransport({ name: 'sid' }),
   })
   const { id: identityId } = await adapter.identities.create(
     identityInput({ profile: { email: 'a@x.com', username: 'a' }, providers: [] }),

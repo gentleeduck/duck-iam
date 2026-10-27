@@ -62,7 +62,7 @@ describe('a facet built by hand runs the same check', () => {
 
   it('builds on the defaults, where the bare prefix is not a key', async () => {
     const facet = apiKeysFacet(credentials, bus, CRYPTO)
-    const { plaintext } = await facet.create('identity-1', { name: 'k', scopes: [] })
+    const { plaintext } = await facet.create('identity-1', { name: 'k', scopes: [], session: null })
     await expect(facet.verify(plaintext)).resolves.toMatchObject({ identityId: 'identity-1' })
     await expect(facet.verify('ak_live_')).rejects.toMatchObject({ code: 'AUTH_APIKEY_INVALID' })
   })
@@ -71,7 +71,7 @@ describe('a facet built by hand runs the same check', () => {
 describe('a key verify would refuse is never minted', () => {
   it('mints and verifies a key of exactly the length verify accepts', async () => {
     const facet = new ApiKeysFacet(new MemoryAdapter().credentials, new InMemoryEvents(), CRYPTO, { randomBytes: 378 })
-    const { plaintext } = await facet.create('identity-1', { name: 'k', scopes: [] })
+    const { plaintext } = await facet.create('identity-1', { name: 'k', scopes: [], session: null })
     expect(plaintext).toHaveLength(APIKEY_MAX_LENGTH)
     await expect(facet.verify(plaintext)).resolves.toMatchObject({ identityId: 'identity-1' })
   })

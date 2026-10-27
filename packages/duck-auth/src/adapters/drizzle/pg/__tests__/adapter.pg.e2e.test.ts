@@ -13,6 +13,7 @@ import type { AuthError } from '~/core/errors'
 import { asAuthError, sqlError } from '~/core/errors'
 import type { Identities } from '~/core/identities/identities.types'
 import type { Sessions } from '~/core/sessions/sessions.types'
+import { ALL_TENANTS } from '~/core/tenant'
 import { applyPgSchema, databaseUrl, isolatedDatabaseUrl } from '~/test/e2e-env'
 import { authCredentials, authIdentities, authIdentityProviders, authSessions, DrizzlePgAdapter } from '../index'
 
@@ -29,7 +30,7 @@ const sid = (label: string) => createHash('sha256').update(label).digest('hex')
 const ago = (ms: number) => new Date(Date.now() - ms)
 const ahead = (ms: number) => new Date(Date.now() + ms)
 const GRACE = 60_000
-const anywhere = { tenantId: undefined }
+const anywhere = ALL_TENANTS
 
 /** Turns a pooled read that blocks into a failure naming the cause, instead of a timeout further up. */
 function blockedRead(): Promise<never> {
@@ -166,19 +167,19 @@ suite('drizzle pg adapter (real Postgres)', () => {
     it('finds a live row by id, by email in any case, or by provider sub', async () => {
       const addedAt = new Date('2026-01-02T03:04:05.000Z')
       const created = await adapter.identities.create(
-        identity('find', { providers: [{ addedAt, providerId: 'google', providerSub: 'g-find' }] }),
+        identity('find', { providers: [{ addedAt, providerId: 'google', providerSub: 'g-find', tenantId: null }] }),
       )
 
       expect((await adapter.identities.find({ id: created.id }))?.id).toBe(created.id)
       expect((await adapter.identities.find({ email: 'FIND@Adapter.test' }))?.id).toBe(created.id)
-      const byProvider = await adapter.identities.find({ providerId: 'google', providerSub: 'g-find' })
+      const byProvider = await adapter.identities.find({ providerId: 'google', providerSub: 'g-find', tenantId: null })
       expect(byProvider?.id).toBe(created.id)
       expect(byProvider?.providers[0]?.addedAt.getTime()).toBe(addedAt.getTime())
     })
 
     it('leaves addedAt to the link table when the caller names none', async () => {
       const created = await adapter.identities.create(
-        identity('stamped', { providers: [{ providerId: 'google', providerSub: 'g-stamped' }] }),
+        identity('stamped', { providers: [{ providerId: 'google', providerSub: 'g-stamped', tenantId: null }] }),
       )
 
       expect(created.providers[0]?.addedAt).toBeInstanceOf(Date)
@@ -238,7 +239,7 @@ suite('drizzle pg adapter (real Postgres)', () => {
     })
 
     it('hides a live row once, clearing emailVerified, keeping its links', async () => {
-      const link = { addedAt: new Date(), providerId: 'google', providerSub: 'g-gone' }
+      const link = { addedAt: new Date(), providerId: 'google', providerSub: 'g-gone', tenantId: null }
       const created = await adapter.identities.create(identity('gone', { emailVerified: true, providers: [link] }))
 
       const hidden = await adapter.identities.softDelete(created.id, GRACE)
@@ -251,7 +252,7 @@ suite('drizzle pg adapter (real Postgres)', () => {
     })
 
     it('erase takes the row credentials, sessions and links with it', async () => {
-      const link = { addedAt: new Date(), providerId: 'google', providerSub: 'g-erase' }
+      const link = { addedAt: new Date(), providerId: 'google', providerSub: 'g-erase', tenantId: null }
       const created = await adapter.identities.create(identity('erase', { providers: [link] }))
       await adapter.credentials.create(credential(created.id), anywhere)
       await adapter.sessions.create(session('erase', { identityId: created.id }))
@@ -280,7 +281,12 @@ suite('drizzle pg adapter (real Postgres)', () => {
     it('links a sub once, and refuses it to a second row live or hidden', async () => {
       const a = await adapter.identities.create(identity('link-a'))
       const b = await adapter.identities.create(identity('link-b'))
-      const link = { addedAt: new Date('2026-01-02T03:04:05.000Z'), providerId: 'google', providerSub: 'g-1' }
+      const link = {
+        addedAt: new Date('2026-01-02T03:04:05.000Z'),
+        providerId: 'google',
+        providerSub: 'g-1',
+        tenantId: null,
+      }
 
       await adapter.identities.link(a.id, link)
       // A retried OAuth callback: the same pair again is a no-op, not a second entry.
@@ -293,7 +299,7 @@ suite('drizzle pg adapter (real Postgres)', () => {
         meta: { providerId: 'google' },
       })
 
-      // `uq_auth_identity_providers_sub` is not partial, so hiding the holder does not release its login.
+      // `uq_auth_identity_providers_sub` ignores a soft delete, so hiding the holder does not release its login.
       await adapter.identities.softDelete(a.id, GRACE)
       await expect(adapter.identities.link(b.id, link)).rejects.toMatchObject({ code: 'AUTH_PROVIDER_TAKEN' })
     })
@@ -303,17 +309,17 @@ suite('drizzle pg adapter (real Postgres)', () => {
       const created = await adapter.identities.create(
         identity('unlink', {
           providers: [
-            { addedAt: at, providerId: 'google', providerSub: 'g-1' },
-            { addedAt: at, providerId: 'password', providerSub: 'pw-1' },
+            { addedAt: at, providerId: 'google', providerSub: 'g-1', tenantId: null },
+            { addedAt: at, providerId: 'password', providerSub: 'pw-1', tenantId: null },
           ],
         }),
       )
 
-      const left = await adapter.identities.unlink(created.id, 'google')
+      const left = await adapter.identities.unlink(created.id, 'google', null)
       expect(left?.providers.map((p) => p.providerId)).toEqual(['password'])
       // Unlinking a provider the row does not hold leaves it as it was.
-      expect((await adapter.identities.unlink(created.id, 'google'))?.providers).toHaveLength(1)
-      await expect(adapter.identities.unlink(authUuidV7(), 'google')).rejects.toMatchObject({
+      expect((await adapter.identities.unlink(created.id, 'google', null))?.providers).toHaveLength(1)
+      await expect(adapter.identities.unlink(authUuidV7(), 'google', null)).rejects.toMatchObject({
         code: 'AUTH_IDENTITY_NOT_FOUND',
       })
     })
@@ -357,8 +363,9 @@ suite('drizzle pg adapter (real Postgres)', () => {
       expect((await adapter.credentials.listByIdentity(OWNER, 'password', anywhere)).map((c) => c.kind)).toEqual([
         'password',
       ])
-      // `eq` never matches NULL, so a global row sits outside a named tenant.
+      // `eq` never matches NULL, so a row with no tenant sits outside a named tenant, and naming none reaches only it.
       expect(await adapter.credentials.listByIdentity(OWNER, null, { tenantId: 't-1' })).toHaveLength(1)
+      expect((await adapter.credentials.listByIdentity(OWNER, null, {})).map((c) => c.kind)).toEqual(['totp'])
       expect(await adapter.credentials.listByIdentity(authUuidV7(), null, anywhere)).toEqual([])
     })
 
@@ -418,13 +425,14 @@ suite('drizzle pg adapter (real Postgres)', () => {
       }
     })
 
-    it('lists and deletes by identity inside a tenant, never reaching a global row', async () => {
+    it('lists and deletes by identity inside a tenant, never reaching a row with no tenant', async () => {
       await adapter.sessions.create(session('global'))
       await adapter.sessions.create(session('tenant', { tenantId: 't-1' }))
 
       expect((await adapter.sessions.listByIdentity(OWNER, { tenantId: 't-1' })).map((s) => s.id)).toEqual([
         sid('tenant'),
       ])
+      expect((await adapter.sessions.listByIdentity(OWNER, {})).map((s) => s.id)).toEqual([sid('global')])
       expect(await adapter.sessions.listByIdentity(OWNER, anywhere)).toHaveLength(2)
       await adapter.sessions.deleteAllForIdentity(OWNER, { tenantId: 't-1' })
       expect((await adapter.sessions.listByIdentity(OWNER, anywhere)).map((s) => s.id)).toEqual([sid('global')])
@@ -503,7 +511,7 @@ suite('drizzle pg adapter (real Postgres)', () => {
         code: 'AUTH_PROVIDER_TAKEN',
         constraint: 'uq_auth_identity_providers_sub',
         run: async () => {
-          const link = { providerId: 'google', providerSub: 'g-dup' }
+          const link = { providerId: 'google', providerSub: 'g-dup', tenantId: null }
           await adapter.identities.create(identity('sub-a', { providers: [link] }))
           return adapter.identities.create(identity('sub-b', { providers: [link] }))
         },
@@ -513,12 +521,43 @@ suite('drizzle pg adapter (real Postgres)', () => {
         constraint: 'uq_auth_identity_providers_owned',
         run: async () => {
           const created = await adapter.identities.create(
-            identity('owned', { providers: [{ providerId: 'google', providerSub: 'g-owned-1' }] }),
+            identity('owned', { providers: [{ providerId: 'google', providerSub: 'g-owned-1', tenantId: null }] }),
           )
           return db
             .insert(authIdentityProviders)
             .values({ identityId: created.id, providerId: 'google', providerSub: 'g-owned-2' })
         },
+      },
+      {
+        code: 'AUTH_PROVIDER_TAKEN',
+        constraint: 'uq_auth_identity_providers_sub_tenant',
+        run: async () => {
+          const link = { providerId: 'google', providerSub: 'g-dup-tenant', tenantId: 'acme' }
+          await adapter.identities.create(identity('sub-tenant-a', { providers: [link] }))
+          return adapter.identities.create(identity('sub-tenant-b', { providers: [link] }))
+        },
+      },
+      {
+        code: 'AUTH_PROVIDER_TAKEN',
+        constraint: 'uq_auth_identity_providers_owned_tenant',
+        run: async () => {
+          const created = await adapter.identities.create(
+            identity('owned-tenant', {
+              providers: [{ providerId: 'google', providerSub: 'g-owned-tenant-1', tenantId: 'acme' }],
+            }),
+          )
+          return db
+            .insert(authIdentityProviders)
+            .values({ identityId: created.id, providerId: 'google', providerSub: 'g-owned-tenant-2', tenantId: 'acme' })
+        },
+      },
+      {
+        code: 'AUTH_INVALID_PARAMETERS',
+        constraint: 'chk_auth_identity_providers_tenant_not_blank',
+        run: () =>
+          adapter.identities.create(
+            identity('blank-tenant', { providers: [{ providerId: 'google', providerSub: 's', tenantId: '' }] }),
+          ),
       },
       {
         code: 'AUTH_IDENTITY_NOT_FOUND',
@@ -543,13 +582,17 @@ suite('drizzle pg adapter (real Postgres)', () => {
         code: 'AUTH_INVALID_PARAMETERS',
         constraint: 'chk_auth_identity_providers_sub_not_blank',
         run: () =>
-          adapter.identities.create(identity('blank', { providers: [{ providerId: 'google', providerSub: '' }] })),
+          adapter.identities.create(
+            identity('blank', { providers: [{ providerId: 'google', providerSub: '', tenantId: null }] }),
+          ),
       },
       {
         code: 'AUTH_INVALID_PARAMETERS',
         constraint: 'chk_auth_identity_providers_provider_not_blank',
         run: () =>
-          adapter.identities.create(identity('nameless', { providers: [{ providerId: '', providerSub: 's' }] })),
+          adapter.identities.create(
+            identity('nameless', { providers: [{ providerId: '', providerSub: 's', tenantId: null }] }),
+          ),
       },
       {
         code: 'AUTH_ALREADY_EXISTS',

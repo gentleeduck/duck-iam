@@ -1,4 +1,4 @@
-import { env } from 'node:process'
+import { isProduction } from '~/core/env'
 import { AuthError } from '~/core/errors'
 import { isExpiredAt } from '../predicates/predicates'
 import type { TenantContext } from '../tenant/tenant.types'
@@ -6,9 +6,9 @@ import { IdempotencyImpl } from './idempotency'
 import type { Idempotency } from './idempotency.types'
 
 /**
- * Dev and test only: production needs the Redis store, whose `SET NX EX` claim is atomic across
- * processes. Keys are scoped by an encoded tenantId, so two tenants sending one Idempotency-Key cannot
- * collide however the host spells its tenant ids.
+ * Development and test only, and refused in production, which needs the Redis store: its `SET NX EX` claim
+ * is atomic across processes. Keys are scoped by an encoded tenantId, so two tenants sending one
+ * Idempotency-Key cannot collide however the host spells its tenant ids.
  */
 export class MemoryIdempotency implements Idempotency.Store {
   private readonly _entries = new Map<
@@ -16,16 +16,11 @@ export class MemoryIdempotency implements Idempotency.Store {
     { response: Idempotency.CachedResponse; expiresAt: number; claimedAt: number }
   >()
 
-  constructor(
-    private readonly cfg?: {
-      /** Escape hatch to allow this store under `NODE_ENV=production`. */
-      development?: boolean
-    },
-  ) {
-    // Only production is refused: requiring `development: true` everywhere made the no-arg constructor
-    // unusable, the engine's own fallback included.
-    if (env.NODE_ENV === 'production' && !this.cfg?.development) {
-      throw new AuthError('AUTH_MISCONFIGURED', { detail: 'MemoryIdempotency is not production ready' })
+  constructor() {
+    if (isProduction()) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: 'MemoryIdempotency is refused in production; pass `redisIdempotency({ redis })`',
+      })
     }
   }
 
@@ -88,6 +83,6 @@ export class MemoryIdempotency implements Idempotency.Store {
 
 /** Store knobs and facet knobs in one object, the shape `redisIdempotency` takes. Reach for
  *  `new MemoryIdempotency(...)` when the bare store is what is wanted. */
-export function memoryIdempotency(cfg?: { development?: boolean } & Partial<Idempotency.Cfg>): IdempotencyImpl {
-  return new IdempotencyImpl(new MemoryIdempotency(cfg), cfg)
+export function memoryIdempotency(cfg?: Partial<Idempotency.Cfg>): IdempotencyImpl {
+  return new IdempotencyImpl(new MemoryIdempotency(), cfg)
 }

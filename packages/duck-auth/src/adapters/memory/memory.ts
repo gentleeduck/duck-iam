@@ -46,6 +46,14 @@ function sameEmail(a: string | undefined, b: string | undefined): boolean {
   return a !== undefined && b !== undefined && a.toLowerCase() === b.toLowerCase()
 }
 
+/** The same login in the same tenant. */
+function sameLogin(
+  a: Pick<Identities.ProviderLink, 'providerId' | 'providerSub' | 'tenantId'>,
+  b: Pick<Identities.ProviderLink, 'providerId' | 'providerSub' | 'tenantId'>,
+): boolean {
+  return a.providerId === b.providerId && a.providerSub === b.providerSub && a.tenantId === b.tenantId
+}
+
 /** The three unique indexes every SQL dialect carries over these rows. Hidden rows count, none being partial
  *  on `deleted_at`, and `self` is excluded so an update is not refused by its own row. PERF: one pass. */
 function assertFree(
@@ -61,7 +69,7 @@ function assertFree(
   for (const other of rows) {
     if (other.id === self) continue
     for (const link of taking.providers) {
-      if (other.providers.some((p) => p.providerId === link.providerId && p.providerSub === link.providerSub)) {
+      if (other.providers.some((p) => sameLogin(p, link))) {
         throw new AuthError('AUTH_PROVIDER_TAKEN', { providerId: link.providerId })
       }
     }
@@ -129,10 +137,9 @@ export class MemoryAdapter<
   private _orgs = new Map<string, Org.Me<OrgMeta>>()
   private _memberships = new Map<string, Org.Membership>()
 
-  /** No ctx, or one with no `tenantId`, sees everything; a named tenant sees only its own rows, so a
-   *  global (`tenantId: null`) row is invisible to it, exactly as `eq(tenant_id, $1)` is in SQL. */
+  /** The named tenant's rows, the rows with no tenant when none is named, and every row for `ALL_TENANTS`. */
   private _inTenant(row: { tenantId: string | null }, ctx: TenantContext | undefined): boolean {
-    return ctx?.tenantId === undefined || row.tenantId === ctx.tenantId
+    return ctx?.allTenants === true || row.tenantId === (ctx?.tenantId ?? null)
   }
 
   /** Org ids are the host's own and two tenants may use the same one, so the tenant is part of the key.
@@ -160,8 +167,7 @@ export class MemoryAdapter<
           if (isSoftDeleted(row)) continue
           const hit = emails
             ? emails.some((e) => sameEmail(getProfileString(row.profile, 'email'), e))
-            : 'providerId' in by &&
-              row.providers.some((p) => p.providerId === by.providerId && p.providerSub === by.providerSub)
+            : 'providerId' in by && row.providers.some((p) => sameLogin(p, by))
           if (hit) return copy(row)
         }
 
@@ -276,17 +282,16 @@ export class MemoryAdapter<
         if (!cur || isSoftDeleted(cur)) throw new AuthError('AUTH_IDENTITY_NOT_FOUND')
         assertIdentityAllowed({ providers: [link] })
 
-        // SECURITY: hidden rows count as holders, `uq_auth_identity_providers_sub` not being partial.
+        // SECURITY: hidden rows count as holders, as they do in the SQL uniques.
         for (const [otherId, other] of this._identities) {
           if (otherId === identityId) continue
-          if (other.providers.some((p) => p.providerId === link.providerId && p.providerSub === link.providerSub)) {
+          if (other.providers.some((p) => sameLogin(p, link))) {
             throw new AuthError('AUTH_PROVIDER_TAKEN', { providerId: link.providerId })
           }
         }
-        // Re-linking the sub this row already holds adds no second entry: a retried OAuth callback is the
-        // ordinary way this is reached, and it is what the SQL unique enforces. The version still moves, as
-        // on every dialect: the write was accepted. Another sub at that provider is refused, as every dialect does.
-        const held = cur.providers.find((p) => p.providerId === link.providerId)
+        // Re-linking the sub it holds is a no-op that still moves the version; another sub at that provider in
+        // that tenant is refused.
+        const held = cur.providers.find((p) => p.providerId === link.providerId && p.tenantId === link.tenantId)
         if (held) {
           if (held.providerSub !== link.providerSub) {
             throw new AuthError('AUTH_PROVIDER_TAKEN', { providerId: link.providerId })
@@ -363,13 +368,13 @@ export class MemoryAdapter<
         return hidden
       }),
 
-    unlink: (identityId, providerId) =>
+    unlink: (identityId, providerId, tenantId) =>
       this.run(async () => {
         // SECURITY: a hidden row is not reachable, as `isNull(deletedAt)` refuses it on every dialect.
         const cur = this._identities.get(identityId)
         if (!cur || isSoftDeleted(cur)) throw new AuthError('AUTH_IDENTITY_NOT_FOUND')
 
-        const providers = cur.providers.filter((p) => p.providerId !== providerId)
+        const providers = cur.providers.filter((p) => p.providerId !== providerId || p.tenantId !== tenantId)
 
         return put(this._identities, identityId, { ...cur, providers, updatedAt: new Date(), version: cur.version + 1 })
       }),
@@ -725,8 +730,8 @@ export class MemoryAdapter<
     addMember: (m, ctx) =>
       this.run(async () => {
         // A direct store call can name a row tenant other than the context's.
-        if (ctx.tenantId !== undefined && m.tenantId !== ctx.tenantId) {
-          throw new AuthError('AUTH_TENANT_SCOPE_VIOLATION', { asked: ctx.tenantId, got: m.tenantId })
+        if (!ctx.allTenants && m.tenantId !== (ctx.tenantId ?? null)) {
+          throw new AuthError('AUTH_TENANT_SCOPE_VIOLATION', { asked: ctx.tenantId ?? null, got: m.tenantId })
         }
         const key = this._memberKey(m.tenantId, m.orgId, m.identityId)
         const cur = this._memberships.get(key)
@@ -751,8 +756,8 @@ export class MemoryAdapter<
 
     getOrg: (id, ctx) =>
       this.run(async () => {
-        // Scanned rather than keyed, because a ctx naming no tenant sees every row and a keyed lookup
-        // would need the tenant it is not being told.
+        // Scanned rather than keyed, because `ALL_TENANTS` sees every row and a keyed lookup would need
+        // the tenant it is not being told.
         const org = [...this._orgs.values()].find((o) => o.id === id && this._inTenant(o, ctx))
         if (!org) throw new AuthError('AUTH_ORG_NOT_FOUND')
 

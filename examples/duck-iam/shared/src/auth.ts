@@ -13,8 +13,8 @@ import type { AppDb } from './iam'
  *  `PORT`), which is exactly this fallback's default. */
 const APP_URL = process.env.APP_URL ?? `http://localhost:${process.env.PORT ?? 3400}`
 
-/** http, so neither cookie can carry `Secure`. */
-const cookies = cookieTransport({ name: 'duckiam-sid', secure: false })
+/** `duckiam-sid` and `duck-csrf` outside production, where neither cookie carries `Secure`. */
+const cookies = cookieTransport({ name: '__Host-duckiam-sid' })
 
 /** Password + cookie sessions only — duck-iam's examples demonstrate the authorization engine,
  *  not duck-auth's fuller feature set (no MFA, magic-link, OAuth, email verification here). */

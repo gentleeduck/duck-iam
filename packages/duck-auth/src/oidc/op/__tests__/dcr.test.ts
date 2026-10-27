@@ -28,7 +28,6 @@ function buildOp(args: { dcr?: OidcOP.DcrCfg } = {}): OidcOpRoot<ProfileShape> {
     config: {
       issuer: 'http://localhost:8787/auth',
       supportedScopes: ['openid', 'profile', 'email', 'offline_access'],
-      allowHttp: true,
     },
     ...(args.dcr !== undefined && { dcr: args.dcr }),
     signIdToken: (payload) => {

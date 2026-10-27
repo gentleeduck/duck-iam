@@ -41,6 +41,8 @@ export function parseProviders(value: unknown): Identities.ProviderLink[] {
       addedBy: null,
       providerId: entry.providerId,
       providerSub: entry.providerSub,
+      // The column predates tenants on links.
+      tenantId: null,
     })
   }
   return links

@@ -31,7 +31,7 @@ async function buildAuth(intents: Provider.InternalIntent[]) {
     baseUrl: 'https://app',
     providers: [providerEmitting(intents)],
     stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
-    transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+    transport: new CookieTransport({ name: 'duck-sid' }),
   })
   const identity = await adapter.identities.create({
     emailVerified: true,
@@ -63,7 +63,7 @@ describe('a requireMfa intent is acted on, not dropped', () => {
         ]),
       ],
       stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
-      transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+      transport: new CookieTransport({ name: 'duck-sid' }),
     })
     await expect(auth.flows.signIn({ input: {}, providerId: 'demanding' })).rejects.toMatchObject({
       code: 'AUTH_STEP_UP_REQUIRED',
@@ -98,7 +98,7 @@ describe('a requireMfa intent is acted on, not dropped', () => {
         ]),
       ],
       stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
-      transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+      transport: new CookieTransport({ name: 'duck-sid' }),
     })
     const out = await auth.flows.signIn({ input: {}, providerId: 'demanding' })
     expect(out.session?.identityId).toBe(identity.id)

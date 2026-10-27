@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { InMemoryEvents } from '~/core/events'
 import { makeIdentity } from '~/test/store-inputs'
 import { signWebhookBody, verifyWebhookSignature, WebhookDeliverer } from '../index'
@@ -152,7 +152,8 @@ describe('AuthWebhookDeliverer', () => {
     expect(calls[0]!.headers.get('X-Duck-Signature')).toBeNull()
   })
 
-  it('refuses non-HTTPS endpoint by default', () => {
+  it('refuses a non-HTTPS endpoint in production', () => {
+    vi.stubEnv('NODE_ENV', 'production')
     expect(
       () =>
         new WebhookDeliverer({
@@ -162,18 +163,15 @@ describe('AuthWebhookDeliverer', () => {
   })
 
   it.each([
-    ['http://localhost/hook'],
-    ['http://127.0.0.1/hook'],
     ['http://10.0.0.5/hook'],
     ['http://192.168.1.1/hook'],
     ['http://169.254.169.254/latest/meta-data/'],
     ['http://172.20.0.5/hook'],
-  ])('refuses SSRF-risky host %s even with allowInsecure', (url) => {
+  ])('refuses SSRF-risky host %s outside production too', (url) => {
     expect(
       () =>
         new WebhookDeliverer({
           endpoints: [{ url, secret: 's' }],
-          allowInsecure: true,
         }),
     ).toThrowError(/AUTH_MISCONFIGURED/)
   })
@@ -190,14 +188,11 @@ describe('AuthWebhookDeliverer', () => {
     ['http://[2002:7f00:1::]/hook', '6to4-wrapped loopback'],
     // all-zeros IPv6 unspecified often routes to local interface.
     ['http://[::]/hook', 'IPv6 unspecified (all-zeros)'],
-    // hex-form IPv4 - WHATWG URL does NOT canonicalize 0x notation.
-    ['http://0x7f.0.0.1/hook', 'hex-IPv4 loopback'],
-  ])('refuses SSRF-risky host %s (%s)', (url) => {
+  ])('refuses SSRF-risky host %s (%s) outside production too', (url) => {
     expect(
       () =>
         new WebhookDeliverer({
           endpoints: [{ url, secret: 's' }],
-          allowInsecure: true,
         }),
     ).toThrowError(/AUTH_MISCONFIGURED/)
   })

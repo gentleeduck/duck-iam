@@ -9,7 +9,7 @@ import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
 import { mfaProvider, totpAt } from '~/providers/mfa'
 import { passwords, ScryptHasher } from '~/providers/passwords'
-import { authTestDeliver } from '~/test'
+import { authTestDataAtRest, authTestDeliver } from '~/test'
 
 interface MyProfile extends Identities.ProfileMetadataBase {
   email: string
@@ -22,9 +22,12 @@ function build() {
     baseUrl: 'https://app',
     deliver: channel.deliver,
     limiter: new MemoryLimiter({ max: 50, windowMs: 60_000 }),
-    providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) }), mfaProvider()],
+    providers: [
+      passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) }),
+      mfaProvider({ dataAtRest: authTestDataAtRest() }),
+    ],
     stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
-    transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+    transport: new CookieTransport({ name: 'duck-sid' }),
   })
   return { adapter, auth, channel }
 }
@@ -105,7 +108,7 @@ describe('D1 - an account is not a squat', () => {
     // identity, so reclaiming an account with a credential on it would hand that
     // account to whoever asked for the address next.
     const ident = await auth.identities.create({ profile: { email: 'sam@x.com', username: 'sam' } })
-    await auth.passwords.set(ident.id, 'correct-horse-battery', adapter.credentials)
+    await auth.passwords.set(ident.id, 'correct-horse-battery', adapter.credentials, null)
     expect((await auth.identities.getById(ident.id)).emailVerified).toBe(false)
 
     await expect(auth.flows.beginSignUp({ email: 'sam@x.com' })).rejects.toMatchObject({ code: 'AUTH_EMAIL_TAKEN' })
@@ -118,6 +121,7 @@ describe('D1 - an account is not a squat', () => {
       identityId: ident.id,
       providerId: 'google',
       providerSub: 'g-1',
+      session: null,
     })
     await expect(auth.flows.beginSignUp({ email: 'sam@x.com' })).rejects.toMatchObject({ code: 'AUTH_EMAIL_TAKEN' })
   })
@@ -127,8 +131,8 @@ describe('D1 - an account is not a squat', () => {
     // `purpose` to compare - the predicate has to read "not signup-flow" rather
     // than "is a password".
     const ident = await auth.identities.create({ profile: { email: 'sam@x.com', username: 'sam' } })
-    const enrol = await auth.mfa.beginTotpEnrollment(ident.id, 'sam@x.com')
-    await auth.mfa.confirmTotpEnrollment(ident.id, totpAt(enrol.secret, Math.floor(Date.now() / 1000 / 30)))
+    const enrol = await auth.mfa.beginTotpEnrollment(ident.id, 'sam@x.com', null)
+    await auth.mfa.confirmTotpEnrollment(ident.id, totpAt(enrol.secret, Math.floor(Date.now() / 1000 / 30)), null)
     await expect(auth.flows.beginSignUp({ email: 'sam@x.com' })).rejects.toMatchObject({ code: 'AUTH_EMAIL_TAKEN' })
   })
 
@@ -163,7 +167,7 @@ describe('D1 - an account is not a squat', () => {
 
   it('a revoked credential does not keep a dead row locked up', async () => {
     const ident = await auth.identities.create({ profile: { email: 'sam@x.com', username: 'sam' } })
-    await auth.passwords.set(ident.id, 'correct-horse-battery', adapter.credentials)
+    await auth.passwords.set(ident.id, 'correct-horse-battery', adapter.credentials, null)
     for (const c of await adapter.credentials.listByIdentity(ident.id, null, {})) {
       await adapter.credentials.revoke(c.id, {})
     }

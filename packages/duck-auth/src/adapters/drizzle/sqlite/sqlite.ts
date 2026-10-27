@@ -14,6 +14,7 @@ import { toEmailList, withNormalisedEmail } from '~/core/identities/identities.c
 import type { Identities } from '~/core/identities/identities.types'
 import { stripUndefined } from '~/core/patch'
 import { isFiniteNumber } from '~/core/predicates'
+import type { TenantContext } from '~/core/tenant/tenant.types'
 import { authCredentials, authIdentities, authIdentityProviders, authSessions, nowMs } from './sqlite.schema'
 import type { Sqlite } from './sqlite.types'
 
@@ -25,6 +26,7 @@ const linkFields = {
   addedBy: authIdentityProviders.addedBy,
   providerId: authIdentityProviders.providerId,
   providerSub: authIdentityProviders.providerSub,
+  tenantId: authIdentityProviders.tenantId,
 }
 
 /** Driver-agnostic handle, and the narrowing a transaction hands its callback. */
@@ -121,11 +123,11 @@ export class DrizzleSqliteAdapter<
   }
 
   /** The credential a caller named: a live row before a revoked one, then the newest of those. */
-  private async _credential(match: SQL[], tenantId: string | undefined) {
+  private async _credential(match: SQL[], tenant: TenantContext) {
     const [row] = await this._db
       .select(credentialColumns)
       .from(authCredentials)
-      .where(and(...match, inTenant(authCredentials.tenantId, tenantId)))
+      .where(and(...match, inTenant(authCredentials.tenantId, tenant)))
       .orderBy(sql`${authCredentials.revokedAt} is not null`, desc(authCredentials.createdAt))
       .limit(1)
 
@@ -134,7 +136,7 @@ export class DrizzleSqliteAdapter<
 
   /** A conditional write: `expectedVersion` null is unconditional, so a miss there is a missing row. */
   private async _write(
-    { expectedVersion, id, tenantId }: { id: string; expectedVersion: number | null; tenantId: string | undefined },
+    { expectedVersion, id, tenant }: { id: string; expectedVersion: number | null; tenant: TenantContext },
     patch: SQLiteUpdateSetSource<typeof authCredentials>,
   ) {
     const [row] = await this._db
@@ -144,7 +146,7 @@ export class DrizzleSqliteAdapter<
         and(
           eq(authCredentials.id, id),
           expectedVersion === null ? undefined : eq(authCredentials.version, expectedVersion),
-          inTenant(authCredentials.tenantId, tenantId),
+          inTenant(authCredentials.tenantId, tenant),
         ),
       )
       .returning(credentialColumns)
@@ -165,7 +167,9 @@ export class DrizzleSqliteAdapter<
   }
 
   /** A live row and its logins in one join. */
-  private async _find(by: { id: string } | { email: string } | { providerId: string; providerSub: string }) {
+  private async _find(
+    by: { id: string } | { email: string } | { providerId: string; providerSub: string; tenantId: string | null },
+  ) {
     let rows = this._db
       .select({ identity: authIdentities, link: linkFields })
       .from(authIdentities)
@@ -173,7 +177,7 @@ export class DrizzleSqliteAdapter<
       .$dynamic()
 
     // PERF: the answering login joins under its own alias rather than a subquery in the where, so it walks
-    // `uq_auth_identity_providers_sub` and takes the order from the index. 1.7x over 20k rows.
+    // the sub unique for its tenant and takes the order from the index. 1.7x over 20k rows.
     if ('providerId' in by) {
       rows = rows.innerJoin(
         lookupLink,
@@ -181,6 +185,7 @@ export class DrizzleSqliteAdapter<
           eq(lookupLink.identityId, authIdentities.id),
           eq(lookupLink.providerId, by.providerId),
           eq(lookupLink.providerSub, by.providerSub),
+          by.tenantId === null ? isNull(lookupLink.tenantId) : eq(lookupLink.tenantId, by.tenantId),
         ),
       )
     }
@@ -228,8 +233,7 @@ export class DrizzleSqliteAdapter<
           if (!created) throw new AuthError('AUTH_IDENTITY_NOT_FOUND')
           if (providers.length === 0) return rowWithLinks<Profile>(created)
 
-          // SECURITY: the unique on (provider_id, provider_sub) is what refuses a login another row already
-          // holds. No check runs first, so there is no window between deciding and writing.
+          // SECURITY: the sub unique refuses a login another row holds in the tenant, with no check-then-write window.
           const written = await tx
             .insert(authIdentityProviders)
             .values(providers.map((link) => ({ ...link, addedBy: actorId(), identityId: created.id })))
@@ -292,19 +296,19 @@ export class DrizzleSqliteAdapter<
             authIdentities.id,
             sql.param(link.providerId, authIdentityProviders.providerId),
             sql.param(link.providerSub, authIdentityProviders.providerSub),
+            sql.param(link.tenantId, authIdentityProviders.tenantId),
             sql.param(link.addedAt ?? new Date(), authIdentityProviders.addedAt),
             sql.param(actorId(), authIdentityProviders.addedBy),
           ]
 
-          // SECURITY: (provider_id, provider_sub) refuses a login another identity holds; (identity_id,
-          // provider_id) makes a repeat a no-op.
+          // SECURITY: a clash on either unique writes nothing, and the read below refuses a link that did not land.
           await tx
             .insert(authIdentityProviders)
             .select(
               sql`select ${sql.join(row, sql`, `)} from ${authIdentities}
                   where ${and(eq(authIdentities.id, identityId), isNull(authIdentities.deletedAt))}`,
             )
-            .onConflictDoNothing({ target: [authIdentityProviders.identityId, authIdentityProviders.providerId] })
+            .onConflictDoNothing()
 
           // A login is part of what a read of the identity answers, so its version moves with one. The bump
           // returns the row it wrote, which is the answer; re-reading it would be a third statement.
@@ -315,8 +319,13 @@ export class DrizzleSqliteAdapter<
             .returning()
           if (!bumped) throw new AuthError('AUTH_IDENTITY_NOT_FOUND')
           const linked = rowWithLinks<Profile>(bumped, await this._links(identityId, tx))
-          // One login per provider: the insert kept the one held, and `unlink` is the only way to replace it.
-          if (!linked.providers.some((p) => p.providerId === link.providerId && p.providerSub === link.providerSub)) {
+          // Another identity holds the sub in this tenant, or this one holds another sub at the provider there.
+          if (
+            !linked.providers.some(
+              (p) =>
+                p.providerId === link.providerId && p.providerSub === link.providerSub && p.tenantId === link.tenantId,
+            )
+          ) {
             throw new AuthError('AUTH_PROVIDER_TAKEN', { providerId: link.providerId })
           }
 
@@ -381,13 +390,19 @@ export class DrizzleSqliteAdapter<
 
     /** SECURITY: one transaction. The delete lands before the gated bump, so a `softDelete` arriving between
      *  them otherwise leaves the login detached while the caller is told the unlink failed. */
-    unlink: (identityId, providerId) =>
+    unlink: (identityId, providerId, tenantId) =>
       this.run(() =>
         this._atomic(async (tx) => {
           await tx
             .delete(authIdentityProviders)
             .where(
-              and(eq(authIdentityProviders.identityId, identityId), eq(authIdentityProviders.providerId, providerId)),
+              and(
+                eq(authIdentityProviders.identityId, identityId),
+                eq(authIdentityProviders.providerId, providerId),
+                tenantId === null
+                  ? isNull(authIdentityProviders.tenantId)
+                  : eq(authIdentityProviders.tenantId, tenantId),
+              ),
             )
 
           const [row] = await tx
@@ -426,18 +441,18 @@ export class DrizzleSqliteAdapter<
   }
 
   readonly credentials: Adapter.Me['credentials'] = {
-    delete: (id, { tenantId }) =>
+    delete: (id, tenant) =>
       this.run(async () => {
         const [row] = await this._db
           .delete(authCredentials)
-          .where(and(eq(authCredentials.id, id), inTenant(authCredentials.tenantId, tenantId)))
+          .where(and(eq(authCredentials.id, id), inTenant(authCredentials.tenantId, tenant)))
           .returning(credentialColumns)
         if (!row) throw new AuthError('AUTH_CREDENTIAL_NOT_FOUND')
 
         return row
       }),
 
-    deleteByKind: (identityId, kind, { tenantId }) =>
+    deleteByKind: (identityId, kind, tenant) =>
       this.run(() =>
         this._db
           .delete(authCredentials)
@@ -445,13 +460,13 @@ export class DrizzleSqliteAdapter<
             and(
               eq(authCredentials.identityId, identityId),
               eq(authCredentials.kind, kind),
-              inTenant(authCredentials.tenantId, tenantId),
+              inTenant(authCredentials.tenantId, tenant),
             ),
           )
           .returning(credentialColumns),
       ),
 
-    deleteByKindAndPurpose: (identityId, kind, purpose, { tenantId }) =>
+    deleteByKindAndPurpose: (identityId, kind, purpose, tenant) =>
       this.run(() =>
         this._db
           .delete(authCredentials)
@@ -460,32 +475,32 @@ export class DrizzleSqliteAdapter<
               eq(authCredentials.identityId, identityId),
               eq(authCredentials.kind, kind),
               sql`${authCredentials.metadata} ->> '$.purpose' = ${purpose}`,
-              inTenant(authCredentials.tenantId, tenantId),
+              inTenant(authCredentials.tenantId, tenant),
             ),
           )
           .returning(credentialColumns),
       ),
 
-    findByHashedSecret: (secretHash, kind, { tenantId }) =>
+    findByHashedSecret: (secretHash, kind, tenant) =>
       this.run(async () => {
         const row = await this._credential(
           [eq(authCredentials.secret, secretHash), eq(authCredentials.kind, kind)],
-          tenantId,
+          tenant,
         )
         if (!row) throw new AuthError('AUTH_CREDENTIAL_NOT_FOUND')
 
         return row
       }),
 
-    findById: (id, { tenantId }) =>
+    findById: (id, tenant) =>
       this.run(async () => {
-        const row = await this._credential([eq(authCredentials.id, id)], tenantId)
+        const row = await this._credential([eq(authCredentials.id, id)], tenant)
         if (!row) throw new AuthError('AUTH_CREDENTIAL_NOT_FOUND')
 
         return row
       }),
 
-    listByIdentity: (identityId, kind, { tenantId }) =>
+    listByIdentity: (identityId, kind, tenant) =>
       // Newest first, id breaking a same-millisecond tie: callers take the first live row.
       this.run(() =>
         this._db
@@ -495,21 +510,21 @@ export class DrizzleSqliteAdapter<
             and(
               eq(authCredentials.identityId, identityId),
               kind === null ? undefined : eq(authCredentials.kind, kind),
-              inTenant(authCredentials.tenantId, tenantId),
+              inTenant(authCredentials.tenantId, tenant),
             ),
           )
           .orderBy(desc(authCredentials.createdAt), desc(authCredentials.id)),
       ),
 
     /** One statement, merged under the row's own lock: `json_set` writes each key where it sits. */
-    patchMetadata: (id, patch, { tenantId }, expectedVersion) =>
+    patchMetadata: (id, patch, tenant, expectedVersion) =>
       this.run(async () => {
         const metadata = jsonMerged(
           sql`coalesce(${authCredentials.metadata}, '{}')`,
           patch,
           (json) => sql`json(${json})`,
         )
-        const written = await this._write({ expectedVersion: expectedVersion ?? null, id, tenantId }, { metadata })
+        const written = await this._write({ expectedVersion: expectedVersion ?? null, id, tenant }, { metadata })
         if (!written) {
           // A conditional write matches no row whether it is gone, another tenant's, or a version behind,
           // so a caller that asked for a version is told the one thing it can act on.
@@ -522,32 +537,30 @@ export class DrizzleSqliteAdapter<
         return written
       }),
 
-    revoke: (id, { tenantId }) =>
+    revoke: (id, tenant) =>
       this.run(async () => {
-        const [moved] = await this._revoke(
-          and(eq(authCredentials.id, id), inTenant(authCredentials.tenantId, tenantId)),
-        )
-        const row = moved ?? (await this._credential([eq(authCredentials.id, id)], tenantId))
+        const [moved] = await this._revoke(and(eq(authCredentials.id, id), inTenant(authCredentials.tenantId, tenant)))
+        const row = moved ?? (await this._credential([eq(authCredentials.id, id)], tenant))
         if (!row) throw new AuthError('AUTH_CREDENTIAL_NOT_FOUND')
 
         return row
       }),
 
-    revokeByKind: (identityId, kind, { tenantId }) =>
+    revokeByKind: (identityId, kind, tenant) =>
       this.run(() =>
         this._revoke(
           and(
             eq(authCredentials.identityId, identityId),
             eq(authCredentials.kind, kind),
-            inTenant(authCredentials.tenantId, tenantId),
+            inTenant(authCredentials.tenantId, tenant),
           ),
         ),
       ),
 
     /** NOTE: a rotation is a use, so it stamps lastUsedAt. */
-    rotate: (id, secret, expectedVersion, { tenantId }) =>
+    rotate: (id, secret, expectedVersion, tenant) =>
       this.run(async () => {
-        const row = await this._write({ expectedVersion, id, tenantId }, { lastUsedAt: nowMs, secret })
+        const row = await this._write({ expectedVersion, id, tenant }, { lastUsedAt: nowMs, secret })
         if (row) return row
 
         throw new AuthError('AUTH_STALE_WRITE', { actual: -1, expected: expectedVersion })
@@ -597,7 +610,7 @@ export class DrizzleSqliteAdapter<
       this.run(async () => {
         await this._db
           .delete(authSessions)
-          .where(and(eq(authSessions.identityId, identityId), inTenant(authSessions.tenantId, ctx?.tenantId)))
+          .where(and(eq(authSessions.identityId, identityId), inTenant(authSessions.tenantId, ctx)))
       }),
 
     deleteMany: (ids) =>
@@ -640,7 +653,7 @@ export class DrizzleSqliteAdapter<
         this._db
           .select(sessionColumns)
           .from(authSessions)
-          .where(and(eq(authSessions.identityId, identityId), inTenant(authSessions.tenantId, ctx?.tenantId))),
+          .where(and(eq(authSessions.identityId, identityId), inTenant(authSessions.tenantId, ctx))),
       ),
 
     update: (id, patch, expectedUpdatedAt) =>

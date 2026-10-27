@@ -1,5 +1,5 @@
 /** A captcha verifier fronts sign-in, so every way the provider call can go wrong must fail closed. */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { AuthCaptcha } from '../captcha.types'
 import { AuthHCaptchaVerifier, AuthNullCaptchaVerifier, AuthRecaptchaV3Verifier, AuthTurnstileVerifier } from '../index'
 
@@ -329,7 +329,8 @@ describe('what is sent to the provider', () => {
     expect(calls).toHaveLength(1)
   })
 
-  it('refuses an endpoint that is plaintext or points inside the network', async () => {
+  it('refuses an endpoint that is plaintext or points inside the network, in production', async () => {
+    vi.stubEnv('NODE_ENV', 'production')
     for (const endpoint of [
       'http://127.0.0.1:9/x',
       'https://169.254.169.254/latest',
@@ -342,24 +343,24 @@ describe('what is sent to the provider', () => {
     }
   })
 
-  it('allows a plaintext endpoint when asked, but never a loopback or private one', async () => {
-    const s = stub({ success: true })
-    const verifier = new AuthTurnstileVerifier({
-      allowInsecureEndpoint: true,
-      endpoint: 'http://siteverify.test/x',
-      fetch: s.fetch,
-      secret: 'sk',
-    })
-    await verifier.verify({ token: 't' })
-    expect(s.calls[0]?.url).toBe('http://siteverify.test/x')
-    for (const endpoint of ['http://127.0.0.1:8080/x', 'http://localhost:8080/x', 'http://10.0.0.5/x']) {
-      expect(() => new AuthTurnstileVerifier({ allowInsecureEndpoint: true, endpoint, secret: 'sk' })).toThrow(
-        expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
-      )
-    }
-    // Marked, so `strict()` refuses it in production.
-    expect(verifier.__insecureCaptchaEndpoint).toBe(true)
-  })
+  it.each(['development', 'test'])(
+    'allows a plaintext or loopback endpoint under NODE_ENV=%s, but never a private one',
+    async (env) => {
+      vi.stubEnv('NODE_ENV', env)
+      const s = stub({ success: true })
+      const verifier = new AuthTurnstileVerifier({ endpoint: 'http://siteverify.test/x', fetch: s.fetch, secret: 'sk' })
+      await verifier.verify({ token: 't' })
+      expect(s.calls[0]?.url).toBe('http://siteverify.test/x')
+      for (const endpoint of ['http://127.0.0.1:8080/x', 'http://localhost:8080/x']) {
+        expect(() => new AuthTurnstileVerifier({ endpoint, secret: 'sk' })).not.toThrow()
+      }
+      for (const endpoint of ['http://10.0.0.5/x', 'http://169.254.169.254/x']) {
+        expect(() => new AuthTurnstileVerifier({ endpoint, secret: 'sk' })).toThrow(
+          expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
+        )
+      }
+    },
+  )
 
   it('refuses construction without a secret', () => {
     for (const make of [
@@ -471,15 +472,20 @@ describe('the null verifier', () => {
     expect(verifier.id).toBe('null')
   })
 
-  it('refuses to construct under NODE_ENV=production', () => {
-    const before = process.env.NODE_ENV
-    process.env.NODE_ENV = 'production'
-    try {
-      expect(() => new AuthNullCaptchaVerifier()).toThrow(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
-      expect(() => new AuthNullCaptchaVerifier({ development: true })).not.toThrow()
-    } finally {
-      process.env.NODE_ENV = before
-    }
+  // Unset is production too, so a deploy that forgot NODE_ENV cannot ship a verifier that passes everything.
+  it.each(['production', undefined])('refuses to construct under NODE_ENV=%s', (env) => {
+    vi.stubEnv('NODE_ENV', env)
+    expect(() => new AuthNullCaptchaVerifier()).toThrow(
+      expect.objectContaining({
+        code: 'AUTH_MISCONFIGURED',
+        meta: { detail: 'AuthNullCaptchaVerifier passes every challenge and is refused in production' },
+      }),
+    )
+  })
+
+  it.each(['development', 'test'])('constructs under NODE_ENV=%s', (env) => {
+    vi.stubEnv('NODE_ENV', env)
+    expect(() => new AuthNullCaptchaVerifier()).not.toThrow()
   })
 })
 

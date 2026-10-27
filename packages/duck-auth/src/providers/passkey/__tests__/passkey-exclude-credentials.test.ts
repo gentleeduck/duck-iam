@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { toCredentialCreate } from '~/core/credentials/credentials'
 import type { Identities } from '~/core/identities'
-import { identityInput } from '~/test/store-inputs'
+import { identityInput, makeSession } from '~/test/store-inputs'
 import { AuthMemoryPasskeyChallengeStore, beginPasskeyRegistration } from '../index'
 import type { Passkey } from '../passkey.types'
 
@@ -57,6 +57,8 @@ describe('beginPasskeyRegistration excludes the keys the identity already holds'
     await beginPasskeyRegistration(opts, {
       credentialStore: adapter.credentials,
       identityId,
+      // Beside the passkeys the test plants, so stepped up.
+      session: makeSession({ aal: 2, identityId }),
       sessionId: 's1',
       tenant: {},
       userName: 'a@b.com',
@@ -136,7 +138,14 @@ describe('beginPasskeyRegistration asks for the attestation it was configured fo
         webauthnModule: webauthn,
         ...(attestationType && { attestationType }),
       },
-      { credentialStore: adapter.credentials, identityId: identity.id, sessionId: 's1', tenant: {}, userName: 'a' },
+      {
+        session: null,
+        credentialStore: adapter.credentials,
+        identityId: identity.id,
+        sessionId: 's1',
+        tenant: {},
+        userName: 'a',
+      },
     )
     return vi.mocked(webauthn.generateRegistrationOptions).mock.calls.at(-1)?.[0]?.attestationType
   }

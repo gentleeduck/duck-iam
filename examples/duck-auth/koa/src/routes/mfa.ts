@@ -16,27 +16,31 @@ export function mfaRouter(auth: AppAuth) {
   })
 
   router.post('/totp/begin', async (ctx) => {
-    const { identity } = await signedIn(auth, nodeHeadersToFetch(ctx.request.headers))
-    ctx.body = await auth.mfa.beginTotpEnrollment(identity.id, identity.profile.email)
+    const { identity, session } = await signedIn(auth, nodeHeadersToFetch(ctx.request.headers))
+    ctx.body = await auth.mfa.beginTotpEnrollment(identity.id, identity.profile.email, session)
   })
 
   router.post('/totp/confirm', async (ctx) => {
-    const { identity } = await signedIn(auth, nodeHeadersToFetch(ctx.request.headers))
-    const confirmed = await auth.mfa.confirmTotpEnrollment(identity.id, readString(ctx.request.body, 'code') ?? '')
+    const { identity, session } = await signedIn(auth, nodeHeadersToFetch(ctx.request.headers))
+    const confirmed = await auth.mfa.confirmTotpEnrollment(
+      identity.id,
+      readString(ctx.request.body, 'code') ?? '',
+      session,
+    )
     if (!confirmed.ok) throw new AuthError('AUTH_INVALID_CREDENTIALS')
     ctx.body = { backupCodes: confirmed.backupCodes }
   })
 
   router.post('/totp/remove', async (ctx) => {
-    const { identity } = await signedIn(auth, nodeHeadersToFetch(ctx.request.headers))
-    await auth.mfa.removeTotp(identity.id)
-    await auth.mfa.removeBackupCodes(identity.id)
+    const { identity, session } = await signedIn(auth, nodeHeadersToFetch(ctx.request.headers))
+    await auth.mfa.removeTotp(identity.id, session)
+    await auth.mfa.removeBackupCodes(identity.id, session)
     ctx.body = { ok: true }
   })
 
   router.post('/backup-codes', async (ctx) => {
-    const { identity } = await signedIn(auth, nodeHeadersToFetch(ctx.request.headers))
-    ctx.body = { backupCodes: await auth.mfa.regenerateBackupCodes(identity.id) }
+    const { identity, session } = await signedIn(auth, nodeHeadersToFetch(ctx.request.headers))
+    ctx.body = { backupCodes: await auth.mfa.regenerateBackupCodes(identity.id, session) }
   })
 
   return router

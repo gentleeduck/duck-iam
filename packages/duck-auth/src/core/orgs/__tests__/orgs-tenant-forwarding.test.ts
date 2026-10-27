@@ -9,6 +9,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { InMemoryEvents } from '~/core/events'
+import { ALL_TENANTS } from '~/core/tenant'
 import type { TenantContext } from '~/core/tenant/tenant.types'
 import { OrgsImpl } from '../orgs'
 import type { Org } from '../orgs.types'
@@ -105,9 +106,31 @@ describe('OrgsImpl forwards the tenant context it was given', () => {
 
     await facet.listMembers('org-1', {})
 
-    // Pinned deliberately: `{}` is what a store sees when the caller names no tenant, and a store
-    // that reads it as "every tenant" is reading it correctly. It now has to be written out, so a
-    // host implementing `Org.Store` sees a caller that meant it rather than one that forgot.
+    // `{}` is what a store sees when the caller names no tenant, and it reaches the rows with none.
     expect(seen.get('listMembers')).toEqual({})
+  })
+})
+
+describe('OrgsImpl refuses a row the store answers from outside the tenant asked for', () => {
+  /** Answers every row in tenant-a, whatever it was asked. */
+  const tenantA: Org.Store = {
+    ...recordingStore().store,
+    listMembers: async () => [membership()],
+  }
+
+  it('refuses a tenant row answered to a caller naming no tenant', async () => {
+    const facet = new OrgsImpl(tenantA, new InMemoryEvents())
+
+    await expect(facet.listMembers('org-1', {})).rejects.toMatchObject({
+      code: 'AUTH_TENANT_SCOPE_VIOLATION',
+      meta: { asked: null, got: 'tenant-a' },
+    })
+  })
+
+  it('accepts it from ALL_TENANTS, and from the tenant it is in', async () => {
+    const facet = new OrgsImpl(tenantA, new InMemoryEvents())
+
+    await expect(facet.listMembers('org-1', ALL_TENANTS)).resolves.toHaveLength(1)
+    await expect(facet.listMembers('org-1', TENANT)).resolves.toHaveLength(1)
   })
 })

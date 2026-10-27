@@ -10,6 +10,7 @@ import { LATEST_STORABLE_MS, RECOVERY_PURPOSES } from '~/core/credentials/creden
 import { AuthError } from '~/core/errors'
 import { refuseRateLimited } from '~/core/events/events.lockout'
 import { canonicalEmail, type Identities } from '~/core/identities'
+import { ALL_TENANTS } from '~/core/tenant/tenant'
 import { isSafeCallbackPath } from '~/core/url-validators'
 import { deliver } from './flows.delivery'
 import type { Flows } from './flows.types'
@@ -123,7 +124,7 @@ export async function completeAccountDeletion<Profile extends Identities.Profile
   // A valid token whose identity was erased has nothing left to delete, and reporting success would
   // tell the caller one happened.
   if (!identity) throw new AuthError('AUTH_RECOVERY_TOKEN_INVALID')
-  await deps.sessions.revokeAllForIdentity(identityId)
+  await deps.sessions.revokeAllForIdentity(identityId, ALL_TENANTS)
   await ctx.stores.credentials.delete(row.id, ctx.tenant)
   // Read off the row the store wrote rather than from a second clock reading: `deletedAt` is when the
   // grace window closes, so the deadline reported here is the one restore is measured against.

@@ -36,21 +36,21 @@ suite('E2E AuthEngine on real Postgres + Redis', () => {
   /**
    * The CSRF token only ever reaches a client on a Set-Cookie intent, so read it the way the browser
    * would rather than from a return value. By the transport's own name, not a literal: this suite runs
-   * `{ secure: false }` over plain http, where the companion drops its `__Host-` prefix because the
-   * prefix requires Secure and a browser would discard the cookie rather than keep it.
+   * outside production over plain http, where the companion drops its `__Host-` prefix along with
+   * Secure, which the prefix requires and without which a browser would discard the cookie.
    */
   function csrfTokenFrom(intents: Array<{ type: string; name?: string; value?: string }>): string | undefined {
     return intents.find((i) => i.type === 'setCookie' && i.name === transport.csrfCookieName)?.value
   }
 
-  const transport = new CookieTransport({ name: 'duck-sid', secure: false })
+  const transport = new CookieTransport({ name: 'duck-sid' })
 
   /** Every identity this suite plants, so afterAll can take them away again. */
   const planted: string[] = []
 
   async function signUp(email: string, password: string): Promise<string> {
     const identity = await auth.identities.create({ profile: { email, username: email } })
-    await auth.passwords.set(identity.id, password, stores.credentials)
+    await auth.passwords.set(identity.id, password, stores.credentials, null)
     planted.push(identity.id)
     return identity.id
   }

@@ -87,7 +87,11 @@ describe('DrizzleSqlite over an async driver', () => {
       providers: [],
     })
 
-    const linked = await adapter.identities.link(created.id, { providerId: 'oauth:test', providerSub: 'sub-1' })
+    const linked = await adapter.identities.link(created.id, {
+      providerId: 'oauth:test',
+      providerSub: 'sub-1',
+      tenantId: null,
+    })
 
     expect(linked.providers.map((p) => p.providerSub)).toEqual(['sub-1'])
   })
@@ -97,12 +101,12 @@ describe('DrizzleSqlite over an async driver', () => {
       emailVerified: false,
       profile: { email: 'async2@x.local', username: 'async2' },
       providers: [
-        { providerId: 'oauth:a', providerSub: 'a-1' },
-        { providerId: 'oauth:b', providerSub: 'b-1' },
+        { providerId: 'oauth:a', providerSub: 'a-1', tenantId: null },
+        { providerId: 'oauth:b', providerSub: 'b-1', tenantId: null },
       ],
     })
 
-    const left = await adapter.identities.unlink(created.id, 'oauth:a')
+    const left = await adapter.identities.unlink(created.id, 'oauth:a', null)
 
     expect(left.providers.map((p) => p.providerId)).toEqual(['oauth:b'])
   })

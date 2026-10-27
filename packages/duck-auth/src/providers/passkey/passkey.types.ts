@@ -166,6 +166,14 @@ export namespace Passkey {
     email?: string
   }
 
+  /** What a passkey step-up takes: the assertion answering a `begin` made under `sessionId`. */
+  export type StepUpInput = {
+    /** The browser's `AuthenticationResponseJSON` from `navigator.credentials.get`. */
+    response: unknown
+    /** The one the begin call answered. */
+    sessionId: string
+  }
+
   /** Shape stored in `Credential.Me.metadata` for passkey credentials. */
   export type CredentialMetadata = {
     publicKey: string

@@ -1,6 +1,5 @@
 import type { AuthEngine } from '@gentleduck/auth'
 import { createAuth } from '@gentleduck/auth/core'
-import { CookieTransport } from '@gentleduck/auth/core/transport'
 import { memoryLimiter } from '@gentleduck/auth/limiters/memory'
 import { passwords, ScryptHasher } from '@gentleduck/auth/providers/passwords'
 import { authAdapter } from '../db/auth-adapter'
@@ -17,11 +16,5 @@ export function buildAuth(): AuthEngine<UserProfile> {
       ttlMs: 1000 * 60 * 60 * 24 * 7,
     },
     stores: authAdapter,
-    transport: new CookieTransport({
-      name: 'duck-sid',
-      path: '/',
-      sameSite: 'lax',
-      secure: process.env.NODE_ENV === 'production',
-    }),
   })
 }

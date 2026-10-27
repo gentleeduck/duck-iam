@@ -42,7 +42,7 @@ function buildAuth(
   const channel = opts.channel ?? fakeChannel()
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app.example.com',
-    transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
+    transport: new CookieTransport({ name: 'duck-sid' }),
     stores: {
       identities: adapter.identities,
       sessions: adapter.sessions,
@@ -160,7 +160,7 @@ describe('magic-link provider', () => {
         limiter: new MemoryLimiter({ max: 3, windowMs: 60_000 }),
         providers: [magicLink<MyProfile>({ findIdentityByEmail: async () => null })],
         stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
-        transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+        transport: new CookieTransport({ name: 'duck-sid' }),
       })
       await auth.identities.create({ profile: { email: 'a@x.com', username: 'a' } })
       await expect(auth.flows.beginProvider('magic-link', { email: 'a@x.com' })).rejects.toMatchObject({
@@ -377,7 +377,8 @@ describe('magic-link provider', () => {
       const id = squat.flow.identityId
       const squatter = await auth.flows.completeSignUp({ flowToken: squat.flowToken })
       await adapter.credentials.create(credentialInput({ identityId: id, kind: 'password', secret: 'squatter' }), {})
-      await adapter.identities.link(id, { providerId: 'oauth:github', providerSub: 'squatter' })
+      await adapter.identities.link(id, { providerId: 'oauth:github', providerSub: 'squatter', tenantId: null })
+      await adapter.identities.link(id, { providerId: 'oauth:github', providerSub: 'squatter', tenantId: 'tenant-a' })
       await auth.flows.beginProvider('magic-link', { email: 'a@x.com' })
       const owner = await auth.flows.signIn({
         providerId: 'magic-link',

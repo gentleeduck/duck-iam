@@ -258,6 +258,48 @@ describe('CSRF - a bearer header does not disarm the cross-site gate', () => {
     ).rejects.toMatchObject({ code: 'AUTH_CSRF' })
   })
 
+  // Ported from better-auth's GHSA-36rg-gfq2-3h56 and GHSA-vp58-j275-797x, where the allowlist was matched
+  // with `startsWith` on the URL text and a host that merely began with a trusted one passed.
+  it.each([
+    'https://app.example.evil.test',
+    'https://app.examplealike.test',
+    'https://sub.app.example',
+    'https://app.example:8443',
+    'http://app.example',
+  ])('refuses %s against an allowlist naming https://app.example', async (origin) => {
+    await expect(
+      csrfGuard(
+        authStub(),
+        {
+          method: 'POST',
+          headers: new Headers({
+            authorization: 'Bearer x',
+            cookie: '__Host-duck-sid=victims-session',
+            origin,
+          }),
+        },
+        { cfg: { allowedOrigins: ['https://app.example'] } },
+      ),
+    ).rejects.toMatchObject({ code: 'AUTH_CSRF' })
+  })
+
+  it('admits the origin the allowlist actually names', async () => {
+    await expect(
+      csrfGuard(
+        authStub(),
+        {
+          method: 'POST',
+          headers: new Headers({
+            authorization: 'Bearer x',
+            cookie: '__Host-duck-sid=victims-session',
+            origin: 'https://app.example',
+          }),
+        },
+        { cfg: { allowedOrigins: ['https://app.example'] } },
+      ),
+    ).resolves.toBeUndefined()
+  })
+
   it('still exempts a real API client, which sends neither browser header', async () => {
     // A non-browser bearer client sends no Origin and no Sec-Fetch-Site, so layer 1 costs it nothing
     // and layer 2 is still skipped. The session is still never loaded just to check CSRF.

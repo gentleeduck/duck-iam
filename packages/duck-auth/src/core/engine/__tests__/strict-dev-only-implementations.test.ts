@@ -1,22 +1,25 @@
 /**
- * Two notions of "production" ship in this package: the one an operator declares by calling
- * `strict({ env: 'production' })`, and the one `AuthNullCaptchaVerifier` reads out of `NODE_ENV` in its
- * own constructor. Where `NODE_ENV` is unset — which is the default on most runtimes — only the first
- * exists, and the constructor lets the verifier that passes every challenge through.
+ * One switch: every dev-only implementation, and `strict()`, reads `NODE_ENV` through `resolveEnv`. What
+ * development and test admit, production refuses, and an unset or unknown `NODE_ENV` is production.
  */
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
-import {
-  AuthHCaptchaVerifier,
-  AuthNullCaptchaVerifier,
-  AuthRecaptchaV3Verifier,
-  AuthTurnstileVerifier,
-  AuthUnconfiguredCaptchaVerifier,
-} from '~/core/captcha'
+import { AuthNullCaptchaVerifier, AuthTurnstileVerifier } from '~/core/captcha'
 import { InMemoryEvents } from '~/core/events'
 import type { Events } from '~/core/events/events.types'
 import type { Deliver } from '~/core/flows/flows.delivery'
+import { MemoryIdempotency } from '~/core/idempotency'
+import { MemoryDPoPNonceStore } from '~/core/transport/dpop-nonce.memory'
+import { WebhookDeliverer } from '~/core/webhooks'
 import type { Limiter } from '~/limiters'
+import {
+  AuthMemoryAccessTokenStore,
+  AuthMemoryClientStore,
+  AuthMemoryCodeStore,
+  AuthMemoryConsentStore,
+  AuthMemoryRefreshTokenStore,
+  createOidcOP,
+} from '~/oidc/op'
 import { magicLink } from '~/providers/magic-link'
 import { CookieTransport } from '../../transport/cookie.transport'
 import { AuthEngine } from '../engine'
@@ -62,7 +65,7 @@ function makeAuth(over: Partial<Engine.Cfg> = {}) {
     events: foreignEvents(),
     limiter: foreignLimiter,
     stores: foreignStores(),
-    transport: new CookieTransport({ name: 'duck-sid', secure: true }),
+    transport: new CookieTransport({ name: 'duck-sid' }),
     ...over,
   })
   auth.providers.register({
@@ -80,61 +83,66 @@ function makeAuth(over: Partial<Engine.Cfg> = {}) {
 }
 
 const rejects = (auth: AuthEngine, pattern: RegExp) =>
-  expect(() => auth.strict({ env: 'production' })).toThrow(
+  expect(() => auth.strict()).toThrow(
     expect.objectContaining({
       code: 'AUTH_MISCONFIGURED',
       meta: expect.objectContaining({ detail: expect.stringMatching(pattern) }),
     }),
   )
 
-describe('strict() rejects a dev-only implementation NODE_ENV did not catch', () => {
-  it('is the only thing standing: the constructor did not refuse under this NODE_ENV', () => {
-    // If this ever fails the suite is testing the constructor instead, and the gate below is vacuous.
-    expect(process.env.NODE_ENV).not.toBe('production')
-    expect(() => new AuthNullCaptchaVerifier()).not.toThrow()
+describe('one switch: what development admits, production refuses', () => {
+  const op = { config: { issuer: 'https://op.example.com', supportedScopes: ['openid'] }, signIdToken: () => 'jwt' }
+
+  const DEV_ONLY: Array<[string, () => unknown]> = [
+    ['the always-pass captcha verifier', () => new AuthNullCaptchaVerifier()],
+    [
+      'a captcha endpoint on loopback over http',
+      () => new AuthTurnstileVerifier({ endpoint: 'http://localhost:8080/x', secret: 'sk' }),
+    ],
+    [
+      'a webhook receiver on loopback over http',
+      () => new WebhookDeliverer({ endpoints: [{ secret: 'sk', url: 'http://localhost:3000/h' }] }),
+    ],
+    ['the in-process DPoP nonce store', () => new MemoryDPoPNonceStore()],
+    ['the in-process idempotency store', () => new MemoryIdempotency()],
+    ['the OIDC OP client store', () => new AuthMemoryClientStore()],
+    ['the OIDC OP code store', () => new AuthMemoryCodeStore()],
+    ['the OIDC OP access token store', () => new AuthMemoryAccessTokenStore()],
+    ['the OIDC OP refresh token store', () => new AuthMemoryRefreshTokenStore()],
+    ['the OIDC OP consent store', () => new AuthMemoryConsentStore()],
+    ['an OIDC OP left on its default stores', () => createOidcOP({ ...op, auth: makeAuth() })],
+  ]
+
+  it.each(['development', 'test'])('builds every one with NODE_ENV=%s, and strict() passes', (env) => {
+    vi.stubEnv('NODE_ENV', env)
+    for (const [, build] of DEV_ONLY) expect(build).not.toThrow()
+    expect(() => makeAuth({ captcha: new AuthNullCaptchaVerifier() }).strict()).not.toThrow()
   })
 
-  it('passes a deployment with nothing dev-only in it', () => {
-    expect(() => makeAuth().strict({ env: 'production' })).not.toThrow()
-  })
-
-  it('rejects the captcha verifier that passes every challenge', () => {
-    rejects(makeAuth({ captcha: new AuthNullCaptchaVerifier() }), /AuthNullCaptchaVerifier passes every challenge/)
-  })
-
-  it('accepts the unconfigured verifier, which refuses every challenge instead', () => {
-    // Fail-closed is not a footgun: it removes no protection, it only turns captcha off loudly.
-    expect(() =>
-      makeAuth({ captcha: new AuthUnconfiguredCaptchaVerifier() }).strict({ env: 'production' }),
-    ).not.toThrow()
-  })
-
-  it('accepts a real verifier, so the check is on the brand and not on having one at all', () => {
-    const real = {
-      async verify() {
-        return { success: true }
-      },
-      id: 'turnstile',
+  it.each(['production', undefined, 'staging'])('refuses every one at construction with NODE_ENV=%o', (env) => {
+    vi.stubEnv('NODE_ENV', env)
+    for (const [label, build] of DEV_ONLY) {
+      expect(build, label).toThrow(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
     }
-    expect(() => makeAuth({ captcha: real }).strict({ env: 'production' })).not.toThrow()
   })
 
-  it.each([
-    ['turnstile', AuthTurnstileVerifier],
-    ['hcaptcha', AuthHCaptchaVerifier],
-    ['recaptcha', AuthRecaptchaV3Verifier],
-  ])('rejects a plaintext %s endpoint however its scheme is spelled, and passes https', (_, Verifier) => {
-    const make = (endpoint: string) => new Verifier({ allowInsecureEndpoint: true, endpoint, secret: 'sk' })
-    for (const endpoint of ['http://captcha.test/x', 'HTTP://captcha.test/x', ' http://captcha.test/x']) {
-      rejects(makeAuth({ captcha: make(endpoint) }), /siteverify endpoint is plaintext http/)
+  it('builds an OIDC OP in production once every store is passed', () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    const none = async () => null
+    const done = async () => {}
+    const stores = {
+      accessTokens: { findByHash: none, insert: done, revokeByHash: done, revokeFamily: done },
+      clients: { findById: none, insert: done },
+      codes: { consume: none, insert: done },
+      consents: { find: none, upsert: done },
+      refreshTokens: { consume: none, findByHash: none, insert: done, revokeFamily: done },
     }
-    expect(() => makeAuth({ captcha: make('https://captcha.test/x') }).strict({ env: 'production' })).not.toThrow()
+    expect(() => createOidcOP({ ...op, auth: makeAuth(), stores })).not.toThrow()
   })
 
-  it('stays a no-op outside production, where a dev-only implementation is the point', () => {
-    const auth = makeAuth({ captcha: new AuthNullCaptchaVerifier() })
-    expect(() => auth.strict({ env: 'development' })).not.toThrow()
-    expect(() => auth.strict({ env: 'test' })).not.toThrow()
+  it('passes a production deployment with nothing dev-only in it', () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    expect(() => makeAuth().strict()).not.toThrow()
   })
 })
 
@@ -147,6 +155,10 @@ describe('strict() rejects magic-link wired with no deliver', () => {
   const findIdentityByEmail = async () => null
   const sent = async () => {}
 
+  beforeEach(() => {
+    vi.stubEnv('NODE_ENV', 'production')
+  })
+
   it('refuses a provider built with no deliver, even when the config carries one', () => {
     const auth = makeAuth({ deliver: sent })
     auth.providers.register(magicLink({ findIdentityByEmail }))
@@ -156,16 +168,16 @@ describe('strict() rejects magic-link wired with no deliver', () => {
   it('accepts a provider built with its own deliver, with none on the config', () => {
     const auth = makeAuth()
     auth.providers.register(magicLink({ deliver: sent, findIdentityByEmail }))
-    expect(() => auth.strict({ env: 'production' })).not.toThrow()
+    expect(() => auth.strict()).not.toThrow()
   })
 
   it('judges a thunk by the deliver it was handed', () => {
     const providers = [(_: unknown, deliver: Deliver | undefined) => magicLink({ deliver, findIdentityByEmail })]
     rejects(makeAuth({ providers }), /provider 'magic-link' has no `deliver`/)
-    expect(() => makeAuth({ deliver: sent, providers }).strict({ env: 'production' })).not.toThrow()
+    expect(() => makeAuth({ deliver: sent, providers }).strict()).not.toThrow()
   })
 
   it('leaves a deployment with no magic-link alone, deliver or not', () => {
-    expect(() => makeAuth().strict({ env: 'production' })).not.toThrow()
+    expect(() => makeAuth().strict()).not.toThrow()
   })
 })

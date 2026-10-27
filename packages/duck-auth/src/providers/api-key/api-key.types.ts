@@ -35,7 +35,7 @@ export namespace ApiKeys {
   export type ApiKey = {
     id: string
     identityId: string
-    /** Absent on a key `create` left unscoped; `exchange` reports the same tenant back. */
+    /** Absent on a key with no tenant; `exchange` reports the same tenant back. */
     tenantId?: string
     name: string
     /** What the key may do; an exchange refuses a scope the key does not carry. */

@@ -3,7 +3,8 @@
 An OpenID provider on `@gentleduck/auth/oidc/op`, with a demo sign-in and a consent page.
 
 One file, one port, everything in memory: the engine runs on the memory adapter, and the OP on its
-default memory stores. For a database, pass the Drizzle stores from
+default memory stores, both of which production refuses, so `bun run dev` sets `NODE_ENV=development`.
+For a database, pass the Drizzle stores from
 `@gentleduck/auth/oidc/op/drizzle/{pg,sqlite,mysql}` to `createOidcOP` as `stores`.
 
 ## Run it

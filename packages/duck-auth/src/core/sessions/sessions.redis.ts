@@ -37,9 +37,9 @@ const CAS_SET = `if redis.call('GET', KEYS[1]) == ARGV[1] then
 end
 return 0`
 
-/** No ctx, or one with no `tenantId`, sees every tenant; a named tenant sees only its own rows. */
+/** The named tenant's sessions, the sessions with no tenant when none is named, and every one for `ALL_TENANTS`. */
 function inTenant(s: Sessions.Me, ctx: TenantContext | undefined): boolean {
-  return ctx?.tenantId === undefined || s.tenantId === ctx.tenantId
+  return ctx?.allTenants === true || s.tenantId === (ctx?.tenantId ?? null)
 }
 
 /** `Sessions.Me.id` is already the sha-256 of the sid, so the primary key and the lookup key are the
@@ -345,8 +345,8 @@ export class RedisSessionImpl<TRedis extends RedisLike.Client = RedisLike.Client
     await this._redis.set(this._revokedAtKey(identityId), String(Date.now()), { ex: this._maxTtlSec })
     const ids = await this._redis.smembers(this._idxKey(identityId))
     if (ids.length === 0) return
-    // Unscoped, every row goes and nothing has to be read.
-    if (ctx?.tenantId === undefined) {
+    // Across every tenant, every row goes and nothing has to be read.
+    if (ctx?.allTenants) {
       await this._redis.del(...ids.map((id) => this._sessKey(id)))
       // Every member is known exactly, so no row has to wait for its deadline to leave the index.
       await this._redis.zrem(this._expKey(), ...ids.map((id) => this._expMember(id, identityId)))
@@ -356,7 +356,7 @@ export class RedisSessionImpl<TRedis extends RedisLike.Client = RedisLike.Client
       await this._redis.srem(this._idxKey(identityId), ...ids)
       return
     }
-    // Scoped, membership is per row, so each is read first. An unreadable one is left alone rather than
+    // Held to one tenant, or to none, membership is per row, so each is read first. An unreadable one is left alone rather than
     // swept: it may be a `create` mid-flight, and its tenant is exactly what cannot be established.
     const doomed: string[] = []
     for (const id of ids) {
@@ -373,7 +373,7 @@ export class RedisSessionImpl<TRedis extends RedisLike.Client = RedisLike.Client
     await this._redis.srem(this._idxKey(identityId), ...doomed)
   }
 
-  /** Unscoped by tenant, like the rest of the set-based forms. */
+  /** Across every tenant, like the rest of the set-based forms. */
   async deleteAllForIdentities(identityIds: string[]): Promise<Sessions.Revoked[]> {
     if (identityIds.length === 0) return []
     const mark = String(Date.now())

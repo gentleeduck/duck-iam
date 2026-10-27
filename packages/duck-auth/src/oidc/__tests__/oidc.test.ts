@@ -96,16 +96,25 @@ describe('authBuildOidcDiscovery', () => {
     expect(d.token_endpoint).toBe('https://legit.test/auth/oauth/token')
   })
 
-  it('refuses non-HTTPS issuer unless allowHttp is set', () => {
-    try {
-      authBuildOidcDiscovery({ issuer: 'http://app.test' })
-      throw new Error('expected throw')
-    } catch (err) {
-      expect((err as { code: string }).code).toBe('AUTH_MISCONFIGURED')
-      expect((err as { meta: { detail: string } }).meta.detail).toMatch(/HTTPS/)
-    }
-    const d = authBuildOidcDiscovery({ issuer: 'http://localhost:3000', allowHttp: true })
-    expect(d.issuer).toBe('http://localhost:3000')
+  it.each(['production', undefined])('refuses an http issuer with NODE_ENV=%s', (env) => {
+    vi.stubEnv('NODE_ENV', env)
+    expect(() => authBuildOidcDiscovery({ issuer: 'http://localhost:3000' })).toThrow(
+      expect.objectContaining({
+        code: 'AUTH_MISCONFIGURED',
+        meta: {
+          detail:
+            'authBuildOidcDiscovery: issuer must use HTTPS (http:); plain http is admitted only outside production',
+        },
+      }),
+    )
+  })
+
+  it.each(['development', 'test'])('admits an http issuer with NODE_ENV=%s, and no other scheme', (env) => {
+    vi.stubEnv('NODE_ENV', env)
+    expect(authBuildOidcDiscovery({ issuer: 'http://localhost:3000' }).issuer).toBe('http://localhost:3000')
+    expect(() => authBuildOidcDiscovery({ issuer: 'ftp://localhost:3000' })).toThrow(
+      expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
+    )
   })
 
   it("drops 'none' from token_endpoint_auth_methods_supported by default", () => {
@@ -213,10 +222,39 @@ describe('authFetchOidcDiscovery - RP-side cache', () => {
     })
   })
 
-  it('refuses non-HTTPS issuer unless allowHttp is set', async () => {
-    await expect(authFetchOidcDiscovery('http://idp.test', { fetch: vi.fn() as never })).rejects.toMatchObject({
+  it.each(['production', undefined])('refuses an http issuer with NODE_ENV=%s, before fetching', async (env) => {
+    vi.stubEnv('NODE_ENV', env)
+    const urls: string[] = []
+    const fetch: typeof globalThis.fetch = async (url) => {
+      urls.push(String(url))
+      return new Response('{}')
+    }
+    await expect(authFetchOidcDiscovery('http://idp.test', { fetch })).rejects.toMatchObject({
       code: 'AUTH_PROVIDER_FAILED',
+      meta: {
+        detail: 'authFetchOidcDiscovery: issuer must use HTTPS (http:); plain http is admitted only outside production',
+      },
     })
+    expect(urls).toEqual([])
+  })
+
+  it.each(['development', 'test'])('fetches an http issuer with NODE_ENV=%s', async (env) => {
+    vi.stubEnv('NODE_ENV', env)
+    const issuer = 'http://localhost:9000'
+    const fetch: typeof globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify({
+          authorization_endpoint: `${issuer}/auth`,
+          id_token_signing_alg_values_supported: ['RS256'],
+          issuer,
+          jwks_uri: `${issuer}/jwks`,
+          response_types_supported: ['code'],
+          subject_types_supported: ['public'],
+          token_endpoint: `${issuer}/token`,
+        }),
+      )
+    const doc = await authFetchOidcDiscovery(issuer, { bypassCache: true, fetch })
+    expect(doc.token_endpoint).toBe(`${issuer}/token`)
   })
 
   /**

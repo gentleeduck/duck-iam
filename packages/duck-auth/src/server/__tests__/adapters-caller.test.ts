@@ -62,11 +62,11 @@ describe('adapters read the caller their framework resolved', () => {
       baseUrl: 'http://localhost',
       limiter: new MemoryLimiter({ max: 100, windowMs: 60_000 }),
       stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
-      transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+      transport: new CookieTransport({ name: 'duck-sid' }),
     })
     auth.providers.register(passwords<Profile>({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) }))
     const identity = await auth.identities.create({ profile: { email: 'a@x.com', username: 'a' }, providers: [] })
-    await auth.passwords.set(identity.id, 'correct-horse-battery', adapter.credentials)
+    await auth.passwords.set(identity.id, 'correct-horse-battery', adapter.credentials, null)
 
     await auth.flows.signIn({
       input: { email: 'a@x.com', password: 'correct-horse-battery' },

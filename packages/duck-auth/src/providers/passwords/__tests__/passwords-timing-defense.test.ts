@@ -76,7 +76,7 @@ describe('PasswordsFacet.verify - username-enumeration timing defense', () => {
   })
 
   it('uses the row.secret (not the reference) on the existing-credential branch', async () => {
-    await facet.set('identity-1', 'correct-horse-battery-staple', adapter.credentials)
+    await facet.set('identity-1', 'correct-horse-battery-staple', adapter.credentials, null)
     // hash() called once during `set()`.
     expect(hasher.hashCalls).toHaveLength(1)
 
@@ -95,7 +95,7 @@ describe('PasswordsFacet.verify - username-enumeration timing defense', () => {
   })
 
   it('correct password still succeeds (no regression on the happy path)', async () => {
-    await facet.set('identity-1', 'correct-horse-battery-staple', adapter.credentials)
+    await facet.set('identity-1', 'correct-horse-battery-staple', adapter.credentials, null)
     const result = await facet.verify('identity-1', 'correct-horse-battery-staple', adapter.credentials)
     expect(result.ok).toBe(true)
     if (result.ok) {
@@ -108,7 +108,7 @@ describe('PasswordsFacet.verify - username-enumeration timing defense', () => {
     // calls must be IDENTICAL between the two branches. Earlier
     // implementations that bailed early (no hasher call) revealed
     // identity existence by call-count alone (and by wall-clock).
-    await facet.set('identity-1', 'a-real-pw', adapter.credentials)
+    await facet.set('identity-1', 'a-real-pw', adapter.credentials, null)
     hasher.verifyCalls.length = 0 // reset counter
 
     await facet.verify('identity-1', 'wrong', adapter.credentials)
