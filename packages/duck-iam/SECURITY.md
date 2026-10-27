@@ -2,13 +2,16 @@
 
 ## Supported Versions
 
-We provide security updates for the latest major release of `@gentleduck/iam`.
-Older versions may not receive patches.
+Security fixes land on the latest minor release of `@gentleduck/iam`. Older
+minors get no backport, so a fix is a reason to upgrade.
 
-| Version | Supported |
-| ------- | --------- |
-| 5.x     | Yes       |
-| < 5.0   | No        |
+| Version        | Supported |
+| -------------- | --------- |
+| latest minor   | Yes       |
+| anything older | No        |
+
+Published advisories, with the range each one affects, are on the
+[Security tab](https://github.com/gentleeduck/duck-iam/security/advisories).
 
 ## Reporting a Vulnerability
 
@@ -22,7 +25,11 @@ or bypassed access controls in any application using it.
 
 If you discover a vulnerability in `@gentleduck/iam`:
 
-1. Report it privately by emailing security@gentleduck.org.
+1. Report it privately through
+   [GitHub](https://github.com/gentleeduck/duck-iam/security/advisories/new)
+   (the Security tab, "Report a vulnerability"), or by emailing
+   security@gentleduck.org. GitHub is faster: the report becomes the advisory
+   that credits you.
 2. Include:
    - A description of the vulnerability.
    - Steps to reproduce, ideally with a minimal repro.
@@ -34,8 +41,8 @@ If you discover a vulnerability in `@gentleduck/iam`:
 ## Responsible Disclosure
 
 We ask security researchers to give us 90 days to address issues before
-public disclosure. We will credit you in the release notes unless you prefer
-to remain anonymous.
+public disclosure. We will credit you in the advisory and the release notes
+unless you prefer to remain anonymous.
 
 ## Scope
 

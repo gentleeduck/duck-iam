@@ -2,12 +2,16 @@
 
 ## Supported Versions
 
-We provide security updates for the latest minor release of `@gentleduck/auth`.
-Older versions may not receive patches.
+Security fixes land on the latest minor release of `@gentleduck/auth`. Older
+minors get no backport, so a fix is a reason to upgrade.
 
-| Version | Supported |
-| ------- | --------- |
-| 5.x     | Yes     |
+| Version        | Supported |
+| -------------- | --------- |
+| latest minor   | Yes       |
+| anything older | No        |
+
+Published advisories, with the range each one affects, are on the
+[Security tab](https://github.com/gentleeduck/duck-iam/security/advisories).
 
 ## Reporting a Vulnerability
 
@@ -22,7 +26,11 @@ the seriousness they deserve.
 
 If you discover a vulnerability in `@gentleduck/auth`:
 
-1. Report it privately by emailing **security@gentleduck.org**.
+1. Report it privately through
+   **[GitHub](https://github.com/gentleeduck/duck-iam/security/advisories/new)**
+   (the Security tab, "Report a vulnerability"), or by emailing
+   **security@gentleduck.org**. GitHub is faster: the report becomes the
+   advisory that credits you.
 2. Include:
    - A detailed description of the vulnerability.
    - Steps to reproduce, ideally with a minimal repro.
@@ -36,8 +44,8 @@ If you discover a vulnerability in `@gentleduck/auth`:
 ## Responsible Disclosure
 
 We ask security researchers to give us **90 days** to address issues before
-public disclosure. We will credit you in the release notes unless you prefer
-to remain anonymous.
+public disclosure. We will credit you in the advisory and the release notes
+unless you prefer to remain anonymous.
 
 ## Scope
 
@@ -50,7 +58,6 @@ In scope:
   linkedin, microsoft, discord, apple), passkey, api-key, MFA, SAML.
 - All shipped server adapters: generic, express, hono, next, fastify, koa,
   elysia, nestjs, grpc.
-- All shipped clients: vanilla, react, vue, solid, svelte.
 - The CSRF middleware, idempotency store, anomaly detectors, and compliance
   presets.
 - OIDC discovery (information-disclosure surface).
@@ -127,14 +134,15 @@ authority, secret storage, TLS termination, and CORS policy are the
 operator's responsibility. The library ships safe defaults where it can;
 the items below are choices only the operator can make.
 
-### 1. `AuthEngine.strict({ env: 'production' })` at boot
+### 1. `AuthEngine.strict()` at boot
 
-`createAuth` runs `strict()` as it returns. In production it throws one
+`createAuth` runs `strict()` as it returns. Production is any `NODE_ENV`
+but `development` or `test`, unset included, and there it throws one
 `AUTH_MISCONFIGURED` listing every footgun at once: a missing or in-memory
-limiter, a `secure: false` cookie, a memory store, the in-process event bus
-holding a `fleet` handler, an http `baseUrl`, no provider, no `lockout`
-listener, and so on. A `lockout` listener cannot exist before `createAuth`
-returns, so pass `strict: false`, subscribe, then call it yourself:
+limiter, a memory store, the in-process event bus holding a `fleet`
+handler, an http `baseUrl`, no provider, no `lockout` listener, and so on.
+A `lockout` listener cannot exist before `createAuth` returns, so pass
+`strict: false`, subscribe, then call it yourself:
 
 ```ts
 const auth = createAuth({
@@ -142,16 +150,16 @@ const auth = createAuth({
   strict: false,
 })
 auth.events.on('lockout', page)
-auth.strict({ env: 'production' })
+auth.strict()
 ```
 
 ### 2. Transport selection
 
-`CookieTransport` for browser-only apps (set `secure: true`,
-`sameSite: 'lax'`, never expose to a non-`__Host-` cookie scope).
+`CookieTransport` for browser-only apps (keep `sameSite: 'lax'` and the
+`__Host-` name; its cookies are Secure in production).
 `BearerTransport` for token-auth APIs. `JwtTransport` for stateless edges
 (supply rotating keys; never run on a single key forever). `CompositeTransport`
-when an app needs both. `strict()` rejects `secure: false` in production.
+when an app needs both.
 
 ### 3. JWT signing-key rotation
 
@@ -176,7 +184,7 @@ nodes; the memory store refuses to construct in production.
 `MemoryLimiter` is fine for tests and single-process dev. Multi-process or
 multi-node deployments need `redisLimiter` or `valkeyLimiter` so
 credential stuffing across process boundaries hits a real ceiling.
-`strict({ env: 'production' })` rejects both `NoopLimiter` and
+In production `strict()` rejects both `NoopLimiter` and
 `MemoryLimiter`.
 
 ### 6. Idempotency store
@@ -215,9 +223,9 @@ always on and emits no event.
 ### 10. CSRF on cookie-auth routes
 
 `CookieTransport` pairs the session with a `__Host-duck-csrf` double-submit
-cookie. The routes each server adapter mounts verify it themselves. Every
-state-mutating route you write on a cookie-auth surface MUST verify it too,
-with the adapter's middleware (`expressCsrf`, `honoCsrf`, `fastifyCsrf`,
+cookie. The package mounts no routes, so every state-mutating route on a
+cookie-auth surface is one you write, and it MUST verify the cookie, with the
+adapter's middleware (`expressCsrf`, `honoCsrf`, `fastifyCsrf`,
 `koaCsrf`, `elysiaCsrf`, `withNextCsrf`, NestJS `makeCsrfGuard`) or with
 `csrfGuard` from `@gentleduck/auth/core`:
 

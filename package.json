@@ -57,7 +57,8 @@
     "docs:api": "bun run --cwd docs/duck-iam-docs docs:api && bun run --cwd docs/duck-auth-docs docs:api",
     "sync-docs": "bash scripts/sync-docs-to-duck-ui.sh",
     "scorecard": "bash scripts/scorecard.sh",
-    "scorecard:local": "bash scripts/scorecard.sh --local"
+    "scorecard:local": "bash scripts/scorecard.sh --local",
+    "advisory:probe": "bash scripts/advisory-probe.sh"
   },
   "resolutions": {
     "@gentleduck/calendar": "0.3.1",
